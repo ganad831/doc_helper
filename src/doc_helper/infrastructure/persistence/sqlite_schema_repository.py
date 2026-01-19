@@ -5,6 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import Optional
 
+from doc_helper.domain.common.i18n import TranslationKey
 from doc_helper.domain.common.result import Failure, Result, Success
 from doc_helper.domain.schema.entity_definition import EntityDefinition
 from doc_helper.domain.schema.field_definition import FieldDefinition
@@ -90,11 +91,10 @@ class SqliteSchemaRepository(ISchemaRepository):
 
                 # Build EntityDefinition
                 entity = EntityDefinition(
-                    entity_id=entity_id,
-                    name_key=entity_row["name"],
-                    display_name=entity_row["label"],
-                    field_definitions=fields,
-                    description=entity_row["description"] if "description" in entity_row.keys() else None,
+                    id=entity_id,
+                    name_key=TranslationKey(entity_row["name"]),
+                    description_key=TranslationKey(f"entity.{entity_row['name']}.description") if "description" in entity_row.keys() and entity_row["description"] else None,
+                    fields={field.id: field for field in fields},
                 )
 
                 return Success(entity)
@@ -130,11 +130,10 @@ class SqliteSchemaRepository(ISchemaRepository):
                     if entity_row is not None:
                         fields = self._load_fields_for_entity(conn, entity_id)
                         entity = EntityDefinition(
-                            entity_id=entity_id,
-                            name_key=entity_row["name"],
-                            display_name=entity_row["label"],
-                            field_definitions=fields,
-                            description=entity_row["description"] if "description" in entity_row.keys() else None,
+                            id=entity_id,
+                            name_key=TranslationKey(entity_row["name"]),
+                            description_key=TranslationKey(f"entity.{entity_row['name']}.description") if "description" in entity_row.keys() and entity_row["description"] else None,
+                            fields={field.id: field for field in fields},
                         )
                         entities.append(entity)
 
@@ -188,11 +187,10 @@ class SqliteSchemaRepository(ISchemaRepository):
 
                 # Build EntityDefinition
                 entity = EntityDefinition(
-                    entity_id=entity_id,
-                    name_key=entity_row["name"],
-                    display_name=entity_row["label"],
-                    field_definitions=fields,
-                    description=entity_row["description"] if "description" in entity_row.keys() else None,
+                    id=entity_id,
+                    name_key=TranslationKey(entity_row["name"]),
+                    description_key=TranslationKey(f"entity.{entity_row['name']}.description") if "description" in entity_row.keys() and entity_row["description"] else None,
+                    fields={field.id: field for field in fields},
                 )
 
                 return Success(entity)
@@ -279,11 +277,10 @@ class SqliteSchemaRepository(ISchemaRepository):
                     if entity_row is not None:
                         fields = self._load_fields_for_entity(conn, entity_id)
                         entity = EntityDefinition(
-                            entity_id=entity_id,
-                            name_key=entity_row["name"],
-                            display_name=entity_row["label"],
-                            field_definitions=fields,
-                            description=entity_row["description"] if "description" in entity_row.keys() else None,
+                            id=entity_id,
+                            name_key=TranslationKey(entity_row["name"]),
+                            description_key=TranslationKey(f"entity.{entity_row['name']}.description") if "description" in entity_row.keys() and entity_row["description"] else None,
+                            fields={field.id: field for field in fields},
                         )
                         children.append(entity)
 
@@ -343,8 +340,6 @@ class SqliteSchemaRepository(ISchemaRepository):
                 options = self._load_options_for_field(conn, field_id)
 
             # Build FieldDefinition
-            from doc_helper.domain.common.i18n import TranslationKey
-
             field = FieldDefinition(
                 id=field_id,
                 field_type=field_type,
@@ -381,31 +376,36 @@ class SqliteSchemaRepository(ISchemaRepository):
         constraints = []
 
         # Required constraint
-        if rule_row.get("required"):
+        if "required" in rule_row.keys() and rule_row["required"]:
             constraints.append(RequiredConstraint())
 
         # Min/Max value constraints
-        min_value = rule_row.get("min_value")
-        if min_value is not None:
-            constraints.append(MinValueConstraint(min_value=min_value))
+        if "min_value" in rule_row.keys():
+            min_value = rule_row["min_value"]
+            if min_value is not None:
+                constraints.append(MinValueConstraint(min_value=min_value))
 
-        max_value = rule_row.get("max_value")
-        if max_value is not None:
-            constraints.append(MaxValueConstraint(max_value=max_value))
+        if "max_value" in rule_row.keys():
+            max_value = rule_row["max_value"]
+            if max_value is not None:
+                constraints.append(MaxValueConstraint(max_value=max_value))
 
         # Min/Max length constraints
-        min_length = rule_row.get("min_length")
-        if min_length is not None:
-            constraints.append(MinLengthConstraint(min_length=min_length))
+        if "min_length" in rule_row.keys():
+            min_length = rule_row["min_length"]
+            if min_length is not None:
+                constraints.append(MinLengthConstraint(min_length=min_length))
 
-        max_length = rule_row.get("max_length")
-        if max_length is not None:
-            constraints.append(MaxLengthConstraint(max_length=max_length))
+        if "max_length" in rule_row.keys():
+            max_length = rule_row["max_length"]
+            if max_length is not None:
+                constraints.append(MaxLengthConstraint(max_length=max_length))
 
         # Pattern constraint
-        pattern = rule_row.get("pattern")
-        if pattern:
-            constraints.append(PatternConstraint(pattern=pattern))
+        if "pattern" in rule_row.keys():
+            pattern = rule_row["pattern"]
+            if pattern:
+                constraints.append(PatternConstraint(pattern=pattern))
 
         return tuple(constraints)
 

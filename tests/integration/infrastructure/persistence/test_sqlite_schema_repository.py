@@ -47,9 +47,9 @@ class TestSqliteSchemaRepository:
         assert isinstance(result, Success)
         entity = result.value
         assert entity is not None
-        assert entity.entity_id.value == "project"
-        assert entity.name_key == "project"
-        assert len(entity.field_definitions) > 0
+        assert entity.id.value == "project"
+        assert entity.name_key.key == "project"
+        assert len(entity.fields) > 0
 
     def test_get_by_id_existing_entity(
         self, repository: SqliteSchemaRepository
@@ -58,9 +58,9 @@ class TestSqliteSchemaRepository:
         result = repository.get_by_id(EntityDefinitionId("project"))
         assert isinstance(result, Success)
         entity = result.value
-        assert entity.entity_id == EntityDefinitionId("project")
-        assert entity.name_key == "project"
-        assert len(entity.field_definitions) > 0
+        assert entity.id == EntityDefinitionId("project")
+        assert entity.name_key.key == "project"
+        assert len(entity.fields) > 0
 
     def test_get_by_id_nonexistent_entity(
         self, repository: SqliteSchemaRepository
@@ -103,7 +103,7 @@ class TestSqliteSchemaRepository:
         entities = result.value
         assert len(entities) > 0
         # Should include at least the project entity
-        entity_ids = [e.entity_id.value for e in entities]
+        entity_ids = [e.id.value for e in entities]
         assert "project" in entity_ids
 
     def test_get_child_entities(self, repository: SqliteSchemaRepository) -> None:
@@ -129,12 +129,12 @@ class TestSqliteSchemaRepository:
         result = repository.get_by_id(EntityDefinitionId("project"))
         assert isinstance(result, Success)
         entity = result.value
-        assert len(entity.field_definitions) > 0
+        assert len(entity.fields) > 0
 
         # Check at least one field
-        first_field = entity.field_definitions[0]
-        assert first_field.field_id.value
-        assert first_field.name_key
+        first_field = list(entity.fields.values())[0]
+        assert first_field.id.value
+        assert first_field.label_key
         assert first_field.field_type is not None
 
     def test_loaded_fields_have_constraints(
@@ -147,6 +147,6 @@ class TestSqliteSchemaRepository:
 
         # Check if any field has constraints
         # (depends on actual schema, but at least verify structure)
-        for field in entity.field_definitions:
+        for field in entity.fields.values():
             # Constraints should be a tuple (may be empty)
             assert isinstance(field.constraints, tuple)

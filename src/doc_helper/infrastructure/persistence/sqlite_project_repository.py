@@ -234,12 +234,12 @@ class SqliteProjectRepository(IProjectRepository):
                     for row in cursor.fetchall()
                 ]
 
-                # Load each project
+                # Load each project within same connection
                 projects = []
                 for project_id in project_ids:
-                    result = self.get_by_id(project_id)
-                    if isinstance(result, Success) and result.value is not None:
-                        projects.append(result.value)
+                    project = self._load_project_from_connection(conn, project_id)
+                    if project is not None:
+                        projects.append(project)
 
                 return Success(projects)
 
@@ -341,12 +341,12 @@ class SqliteProjectRepository(IProjectRepository):
                     for row in cursor.fetchall()
                 ]
 
-                # Load each project
+                # Load each project within same connection
                 projects = []
                 for project_id in project_ids:
-                    result = self.get_by_id(project_id)
-                    if isinstance(result, Success) and result.value is not None:
-                        projects.append(result.value)
+                    project = self._load_project_from_connection(conn, project_id)
+                    if project is not None:
+                        projects.append(project)
 
                 return Success(projects)
 
@@ -421,3 +421,73 @@ class SqliteProjectRepository(IProjectRepository):
         from uuid import UUID
 
         return UUID(uuid_str)
+
+    def _load_project_from_connection(
+        self, conn: sqlite3.Connection, project_id: ProjectId
+    ) -> Optional[Project]:
+        """Load project from existing database connection.
+
+        Args:
+            conn: Active database connection
+            project_id: Project ID to load
+
+        Returns:
+            Project object if found, None otherwise
+        """
+        cursor = conn.cursor()
+
+        # Load project metadata
+        cursor.execute(
+            "SELECT * FROM projects WHERE project_id = ?",
+            (str(project_id.value),),
+        )
+        project_row = cursor.fetchone()
+
+        if project_row is None:
+            return None
+
+        # Load field values
+        cursor.execute(
+            "SELECT * FROM field_values WHERE project_id = ?",
+            (str(project_id.value),),
+        )
+        value_rows = cursor.fetchall()
+
+        # Build field_values dict
+        field_values = {}
+        for row in value_rows:
+            field_id = FieldDefinitionId(row["field_id"])
+            value = json.loads(row["value"])
+            original_computed_value = (
+                json.loads(row["original_computed_value"])
+                if row["original_computed_value"]
+                else None
+            )
+
+            field_value = FieldValue(
+                field_id=field_id,
+                value=value,
+                is_computed=bool(row["is_computed"]),
+                computed_from=row["computed_from"],
+                is_override=bool(row["is_override"]),
+                original_computed_value=original_computed_value,
+            )
+            field_values[field_id] = field_value
+
+        # Build Project
+        project = Project(
+            id=project_id,
+            name=project_row["name"],
+            entity_definition_id=EntityDefinitionId(
+                project_row["entity_definition_id"]
+            ),
+            field_values=field_values,
+            description=project_row["description"],
+            file_path=project_row["file_path"],
+        )
+
+        # Restore timestamps
+        project.created_at = datetime.fromisoformat(project_row["created_at"])
+        project.modified_at = datetime.fromisoformat(project_row["modified_at"])
+
+        return project
