@@ -1,0 +1,127 @@
+{
+  "app": {
+    "name": "مساعد المستندات",
+    "version": "1.0.0"
+  },
+  "menu": {
+    "file": "ملف",
+    "file.new": "مشروع جديد",
+    "file.open": "فتح مشروع",
+    "file.save": "حفظ المشروع",
+    "file.close": "إغلاق المشروع",
+    "file.recent": "المشاريع الأخيرة",
+    "file.exit": "خروج",
+    "edit": "تحرير",
+    "edit.undo": "تراجع",
+    "edit.redo": "إعادة",
+    "document": "مستند",
+    "document.generate": "إنشاء المستند",
+    "help": "مساعدة",
+    "help.about": "حول"
+  },
+  "welcome": {
+    "title": "مرحباً بك في مساعد المستندات",
+    "subtitle": "منصة إنشاء المستندات",
+    "new_project": "إنشاء مشروع جديد",
+    "open_project": "فتح مشروع موجود",
+    "recent_projects": "المشاريع الأخيرة",
+    "no_recent_projects": "لا توجد مشاريع سابقة"
+  },
+  "project": {
+    "untitled": "مشروع بدون عنوان",
+    "create": "إنشاء مشروع",
+    "open": "فتح مشروع",
+    "save": "حفظ المشروع",
+    "close": "إغلاق المشروع",
+    "name": "اسم المشروع",
+    "location": "موقع المشروع",
+    "created": "تاريخ الإنشاء",
+    "modified": "تاريخ التعديل"
+  },
+  "validation": {
+    "required": "هذا الحقل مطلوب",
+    "min_length": "الحد الأدنى للطول هو {min} حرف",
+    "max_length": "الحد الأقصى للطول هو {max} حرف",
+    "min_value": "الحد الأدنى للقيمة هو {min}",
+    "max_value": "الحد الأقصى للقيمة هو {max}",
+    "pattern": "القيمة لا تطابق النمط المطلوب",
+    "invalid_format": "تنسيق غير صالح",
+    "invalid_date": "تاريخ غير صالح",
+    "invalid_number": "رقم غير صالح",
+    "invalid_email": "عنوان بريد إلكتروني غير صالح",
+    "invalid_url": "رابط غير صالح",
+    "duplicate_value": "هذه القيمة موجودة بالفعل",
+    "errors_found": "تم العثور على {count} أخطاء في التحقق",
+    "fix_errors": "يرجى إصلاح جميع الأخطاء قبل المتابعة"
+  },
+  "field": {
+    "text": "نص",
+    "textarea": "منطقة نصية",
+    "number": "رقم",
+    "date": "تاريخ",
+    "dropdown": "قائمة منسدلة",
+    "checkbox": "مربع اختيار",
+    "radio": "زر اختيار",
+    "calculated": "محسوب",
+    "lookup": "بحث",
+    "file": "ملف",
+    "image": "صورة",
+    "table": "جدول",
+    "select_option": "اختر خياراً",
+    "no_options": "لا توجد خيارات متاحة",
+    "browse": "استعراض",
+    "clear": "مسح",
+    "add_row": "إضافة صف",
+    "remove_row": "إزالة صف"
+  },
+  "document": {
+    "generate": "إنشاء المستند",
+    "generating": "جاري إنشاء المستند...",
+    "success": "تم إنشاء المستند بنجاح",
+    "error": "فشل في إنشاء المستند",
+    "validation_required": "التحقق مطلوب",
+    "validation_message": "يرجى إصلاح جميع أخطاء التحقق قبل إنشاء المستند",
+    "select_format": "اختر التنسيق",
+    "format": {
+      "word": "مستند Word (.docx)",
+      "excel": "جدول بيانات Excel (.xlsx)",
+      "pdf": "مستند PDF (.pdf)"
+    },
+    "output_location": "موقع الإخراج",
+    "filename": "اسم الملف"
+  },
+  "dialog": {
+    "confirm": "تأكيد",
+    "cancel": "إلغاء",
+    "ok": "موافق",
+    "yes": "نعم",
+    "no": "لا",
+    "close": "إغلاق",
+    "save": "حفظ",
+    "discard": "تجاهل",
+    "apply": "تطبيق",
+    "unsaved_changes": "تغييرات غير محفوظة",
+    "unsaved_message": "لديك تغييرات غير محفوظة. هل تريد الحفظ قبل الإغلاق؟",
+    "delete_confirm": "هل أنت متأكد من حذف هذا العنصر؟",
+    "error": "خطأ",
+    "warning": "تحذير",
+    "info": "معلومات",
+    "success": "نجاح"
+  },
+  "error": {
+    "unknown": "حدث خطأ غير معروف",
+    "file_not_found": "الملف غير موجود: {path}",
+    "file_read_error": "فشل في قراءة الملف: {path}",
+    "file_write_error": "فشل في كتابة الملف: {path}",
+    "invalid_project": "ملف مشروع غير صالح",
+    "schema_load_error": "فشل في تحميل المخطط",
+    "formula_error": "خطأ في تقييم الصيغة: {message}",
+    "circular_dependency": "تم اكتشاف تبعية دائرية في الصيغ",
+    "database_error": "خطأ في قاعدة البيانات: {message}"
+  },
+  "shortcuts": {
+    "save": "Ctrl+S",
+    "undo": "Ctrl+Z",
+    "redo": "Ctrl+Y"
+  }
+}

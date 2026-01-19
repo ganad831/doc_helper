@@ -1,0 +1,99 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "doc-helper"
+version = "0.1.0"
+description = "Document generation platform (v1: Soil Investigation reports)"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    {name = "Doc Helper Team"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    # Core dependencies (M1-M7: Domain layer)
+    # Domain layer has NO external dependencies
+
+    # Infrastructure dependencies (M8-M9)
+    # Will be added in later milestones:
+    # - python-docx (Word document generation)
+    # - xlwings (Excel document generation)
+    # - PyMuPDF (PDF export)
+    # - Pillow (Image processing)
+
+    # Presentation dependencies (M11)
+    # Will be added in later milestones:
+    # - PyQt6 (UI framework)
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+]
+
+[project.scripts]
+doc-helper = "doc_helper.main:main"
+
+[tool.setuptools]
+packages = ["doc_helper"]
+package-dir = {"" = "src"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--cov=doc_helper",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  | legacy_app
+)/
+'''
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = [
+    "legacy_app",
+    ".venv",
+]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+exclude = [
+    "legacy_app/",
+    ".venv/",
+]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
