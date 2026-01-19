@@ -50,6 +50,9 @@
     "invalid_number": "Invalid number",
     "invalid_email": "Invalid email address",
     "invalid_url": "Invalid URL",
+    "invalid_option": "Invalid option selected",
+    "invalid_file_extension": "Invalid file type",
+    "file_too_large": "File size exceeds maximum allowed ({max} bytes)",
     "duplicate_value": "This value already exists",
     "errors_found": "{count} validation errors found",
     "fix_errors": "Please fix all errors before proceeding"

@@ -50,6 +50,9 @@
     "invalid_number": "رقم غير صالح",
     "invalid_email": "عنوان بريد إلكتروني غير صالح",
     "invalid_url": "رابط غير صالح",
+    "invalid_option": "خيار غير صالح",
+    "invalid_file_extension": "نوع ملف غير صالح",
+    "file_too_large": "حجم الملف يتجاوز الحد الأقصى المسموح ({max} بايت)",
     "duplicate_value": "هذه القيمة موجودة بالفعل",
     "errors_found": "تم العثور على {count} أخطاء في التحقق",
     "fix_errors": "يرجى إصلاح جميع الأخطاء قبل المتابعة"
