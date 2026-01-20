@@ -78,6 +78,7 @@ class FieldDefinition(ValueObject):
     lookup_entity_id: Optional[str] = None  # Entity ID for lookup fields
     lookup_display_field: Optional[str] = None  # Field to display for lookups
     child_entity_id: Optional[str] = None  # Entity ID for table fields
+    control_rules: tuple = ()  # Tuple of ControlRule that target this field
 
     def __post_init__(self) -> None:
         """Validate field definition."""

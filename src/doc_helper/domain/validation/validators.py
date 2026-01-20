@@ -713,3 +713,44 @@ class TextAreaValidator(IValidator):
         """
         # TextArea validation is identical to Text validation
         return TextValidator(self.constraints).validate(field_path, value)
+
+
+def get_validator_for_field_type(
+    field_type: "FieldType",  # type: ignore
+    constraints: tuple = (),
+) -> IValidator:
+    """Get appropriate validator for a field type.
+
+    Args:
+        field_type: Field type to get validator for
+        constraints: Constraints to apply
+
+    Returns:
+        Validator instance for the field type
+
+    Raises:
+        ValueError: If field type is unknown
+    """
+    from doc_helper.domain.schema.field_type import FieldType
+
+    # Map field types to validator classes
+    validator_map = {
+        FieldType.TEXT: TextValidator,
+        FieldType.TEXTAREA: TextAreaValidator,
+        FieldType.NUMBER: NumberValidator,
+        FieldType.DATE: DateValidator,
+        FieldType.DROPDOWN: DropdownValidator,
+        FieldType.CHECKBOX: CheckboxValidator,
+        FieldType.RADIO: RadioValidator,
+        FieldType.CALCULATED: CalculatedValidator,
+        FieldType.LOOKUP: LookupValidator,
+        FieldType.FILE: FileValidator,
+        FieldType.IMAGE: ImageValidator,
+        FieldType.TABLE: TableValidator,
+    }
+
+    validator_class = validator_map.get(field_type)
+    if validator_class is None:
+        raise ValueError(f"Unknown field type: {field_type}")
+
+    return validator_class(constraints)
