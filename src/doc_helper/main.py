@@ -51,9 +51,13 @@ from doc_helper.domain.document.transformers import (
     UppercaseTransformer,
     YesNoTransformer,
 )
+from doc_helper.domain.common.translation import ITranslationService
 from doc_helper.domain.project.project_repository import IProjectRepository
 from doc_helper.domain.schema.schema_repository import ISchemaRepository
 from doc_helper.infrastructure.di.container import Container
+from doc_helper.infrastructure.i18n.json_translation_service import (
+    JsonTranslationService,
+)
 from doc_helper.infrastructure.document.excel_document_adapter import (
     ExcelDocumentAdapter,
 )
@@ -98,6 +102,17 @@ def configure_container() -> Container:
     container.register_scoped(
         IProjectRepository,
         lambda: SqliteProjectRepository(db_path="current_project.db"),
+    )
+
+    # ========================================================================
+    # INFRASTRUCTURE: i18n Service (Singleton)
+    # ========================================================================
+
+    # Translation service - loads translations from JSON files
+    translations_dir = Path("translations")
+    container.register_singleton(
+        ITranslationService,
+        lambda: JsonTranslationService(translations_dir=translations_dir),
     )
 
     # ========================================================================
