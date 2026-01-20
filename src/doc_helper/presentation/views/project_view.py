@@ -17,7 +17,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from doc_helper.application.dto import EntityDefinitionDTO
+from doc_helper.application.dto import EntityDefinitionDTO, FieldDefinitionDTO
+from doc_helper.domain.schema.schema_ids import FieldDefinitionId
+from doc_helper.presentation.factories import FieldWidgetFactory
 from doc_helper.presentation.viewmodels.project_viewmodel import ProjectViewModel
 from doc_helper.presentation.views.base_view import BaseView
 from doc_helper.presentation.widgets.field_widget import IFieldWidget
@@ -50,6 +52,7 @@ class ProjectView(BaseView):
         parent: Optional[QWidget],
         viewmodel: ProjectViewModel,
         entity_definition: EntityDefinitionDTO,
+        widget_factory: Optional[FieldWidgetFactory] = None,
     ) -> None:
         """Initialize project view.
 
@@ -57,10 +60,12 @@ class ProjectView(BaseView):
             parent: Parent widget
             viewmodel: ProjectViewModel instance
             entity_definition: Entity definition DTO (NOT domain object)
+            widget_factory: Factory for creating field widgets (default: new instance)
         """
         super().__init__(parent)
         self._viewmodel = viewmodel
         self._entity_definition = entity_definition
+        self._widget_factory = widget_factory or FieldWidgetFactory()
 
         # UI components
         self._fields_widget: Optional[QWidget] = None
@@ -116,6 +121,9 @@ class ProjectView(BaseView):
         # Bind to ViewModel property changes
         self._viewmodel.subscribe("has_unsaved_changes", self._on_unsaved_changes)
         self._viewmodel.subscribe("project_name", self._on_project_name_changed)
+
+        # Perform initial validation
+        self._update_validation()
 
     def _create_menu(self) -> None:
         """Create menu bar."""
@@ -191,15 +199,157 @@ class ProjectView(BaseView):
         return sidebar
 
     def _build_field_widgets(self) -> None:
-        """Build field widgets based on entity definition."""
+        """Build field widgets based on entity definition.
+
+        Creates widgets for all fields in entity definition using FieldWidgetFactory.
+        Wires up value change callbacks to sync with ProjectViewModel.
+        """
         if not self._fields_widget:
             return
 
-        # TODO: Create field widgets based on entity definition
-        # For now, placeholder
-        placeholder_label = QLabel("Field widgets will be created here based on schema")
-        self._fields_widget.layout().addWidget(placeholder_label)
-        self._fields_widget.layout().addStretch()
+        layout = self._fields_widget.layout()
+        if not layout:
+            return
+
+        # Clear existing widgets
+        self._field_widgets.clear()
+
+        # Create widget for each field in entity definition
+        for field_def in self._entity_definition.fields:
+            # Create field widget using factory
+            widget = self._widget_factory.create_widget(field_def)
+            if not widget:
+                # Unknown field type - skip (should not happen in v1)
+                continue
+
+            # Create field container with label and widget
+            field_container = self._create_field_container(field_def, widget)
+            layout.addWidget(field_container)
+
+            # Store widget by field ID for later access
+            self._field_widgets[field_def.id] = widget
+
+            # Wire up value change callback
+            field_id_value = field_def.id  # Capture for closure
+            widget.on_value_changed(
+                lambda value, fid=field_id_value: self._on_field_value_changed(fid, value)
+            )
+
+            # Set initial value from project
+            self._set_initial_field_value(field_def.id, widget)
+
+        # Add stretch to push fields to top
+        layout.addStretch()
+
+    def _create_field_container(
+        self, field_def: FieldDefinitionDTO, widget: IFieldWidget
+    ) -> QWidget:
+        """Create a container widget for field with label.
+
+        Args:
+            field_def: Field definition DTO
+            widget: Field widget instance
+
+        Returns:
+            Container widget with label and input
+        """
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(8, 4, 8, 4)
+
+        # Field label with required indicator
+        label_text = field_def.label
+        if field_def.required:
+            label_text += " *"
+
+        field_label = QLabel(label_text)
+        label_font = QFont("Arial", 9)
+        if field_def.required:
+            label_font.setBold(True)
+        field_label.setFont(label_font)
+        container_layout.addWidget(field_label)
+
+        # Help text (if provided)
+        if field_def.help_text:
+            help_label = QLabel(field_def.help_text)
+            help_font = QFont("Arial", 8)
+            help_label.setFont(help_font)
+            help_label.setStyleSheet("color: #666666;")
+            help_label.setWordWrap(True)
+            container_layout.addWidget(help_label)
+
+        # Widget placeholder (actual Qt widget will be added by widget implementation)
+        # For now, just add a placeholder label for the widget
+        widget_placeholder = QLabel(f"[{field_def.field_type} widget placeholder]")
+        widget_placeholder.setStyleSheet("padding: 4px; background-color: #f0f0f0; border: 1px solid #cccccc;")
+        container_layout.addWidget(widget_placeholder)
+
+        return container
+
+    def _set_initial_field_value(self, field_id: str, widget: IFieldWidget) -> None:
+        """Set initial field value from project.
+
+        Args:
+            field_id: Field ID
+            widget: Widget to set value on
+        """
+        if not self._viewmodel.current_project:
+            return
+
+        # TODO: Get field value from project DTO
+        # For now, no initial value set
+        pass
+
+    def _on_field_value_changed(self, field_id: str, value: any) -> None:
+        """Handle field value change.
+
+        Args:
+            field_id: Field ID that changed
+            value: New field value
+        """
+        # Convert string ID to typed ID and update via viewmodel
+        field_definition_id = FieldDefinitionId(field_id)
+        self._viewmodel.update_field(field_definition_id, value)
+
+        # Re-validate after field change
+        self._update_validation()
+
+    def _update_validation(self) -> None:
+        """Update validation state for all fields.
+
+        Validates project and updates field widgets with validation errors.
+        Updates status bar with validation summary.
+        """
+        if not self._viewmodel.current_project:
+            return
+
+        # Get validation result from viewmodel
+        validation_result = self._viewmodel.validate_project()
+
+        if validation_result.is_valid:
+            self._status_bar.showMessage("No validation errors")
+            self._status_bar.setStyleSheet("")
+            # Clear errors from all widgets
+            for widget in self._field_widgets.values():
+                widget.set_validation_errors([])
+        else:
+            # Build error map by field ID
+            error_map: dict[str, list[str]] = {}
+            for error in validation_result.errors:
+                if error.field_id:
+                    if error.field_id not in error_map:
+                        error_map[error.field_id] = []
+                    error_map[error.field_id].append(error.message)
+
+            # Update each widget with its errors
+            for field_id, widget in self._field_widgets.items():
+                errors = error_map.get(field_id, [])
+                widget.set_validation_errors(errors)
+
+            # Update status bar
+            error_count = len(validation_result.errors)
+            self._status_bar.showMessage(f"{error_count} validation error(s)")
+            self._status_bar.setStyleSheet("background-color: #ffe6e6;")
 
     def _on_unsaved_changes(self) -> None:
         """Handle unsaved changes state change."""
@@ -226,19 +376,69 @@ class ProjectView(BaseView):
             QMessageBox.critical(self._root, "Save Error", "Failed to save project")
 
     def _on_undo(self) -> None:
-        """Handle Undo action."""
-        # TODO: Implement undo via command pattern
+        """Handle Undo action.
+
+        Note:
+            Full undo/redo implementation is in Milestone U6.
+            This is a placeholder for U3 - menu item exists but not functional.
+        """
+        self._status_bar.showMessage("Undo not yet implemented (Milestone U6)")
+        # Full implementation in U6:
+        # - Command-based undo model (ADR-017)
+        # - History adapter with undo stack
+        # - Field value undo commands
         pass
 
     def _on_redo(self) -> None:
-        """Handle Redo action."""
-        # TODO: Implement redo via command pattern
+        """Handle Redo action.
+
+        Note:
+            Full undo/redo implementation is in Milestone U6.
+            This is a placeholder for U3 - menu item exists but not functional.
+        """
+        self._status_bar.showMessage("Redo not yet implemented (Milestone U6)")
+        # Full implementation in U6:
+        # - Command-based undo model (ADR-017)
+        # - History adapter with redo stack
+        # - Field value redo commands
         pass
 
     def _on_generate_document(self) -> None:
-        """Handle Generate Document action."""
-        # TODO: Show document generation dialog
-        pass
+        """Handle Generate Document action.
+
+        Note:
+            This is a basic implementation for U3.
+            Full document generation dialog is in Milestone U11.
+        """
+        # Validate before generation
+        validation_result = self._viewmodel.validate_project()
+        if not validation_result.is_valid:
+            error_count = len(validation_result.errors)
+            QMessageBox.warning(
+                self._root,
+                "Validation Errors",
+                f"Cannot generate document. Please fix {error_count} validation error(s) first.",
+            )
+            return
+
+        # Save project before generation
+        if self._viewmodel.has_unsaved_changes:
+            if not self._viewmodel.save_project():
+                QMessageBox.critical(
+                    self._root,
+                    "Save Error",
+                    "Failed to save project before generation.",
+                )
+                return
+
+        # Placeholder for document generation
+        # Full implementation with dialog in U11
+        QMessageBox.information(
+            self._root,
+            "Generate Document",
+            "Document generation dialog will be implemented in Milestone U11.",
+        )
+        self._status_bar.showMessage("Ready for document generation (U11)")
 
     def _on_close(self) -> None:
         """Handle window close."""
