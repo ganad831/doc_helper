@@ -34,6 +34,7 @@ from doc_helper.domain.common.result import Failure, Success
 from doc_helper.domain.project.project_ids import ProjectId
 from doc_helper.domain.schema.schema_ids import FieldDefinitionId
 from doc_helper.presentation.adapters.history_adapter import HistoryAdapter
+from doc_helper.presentation.adapters.navigation_adapter import NavigationAdapter
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
 
 
@@ -70,6 +71,7 @@ class ProjectViewModel(BaseViewModel):
         control_service: ControlService,
         field_undo_service: FieldUndoService,
         history_adapter: HistoryAdapter,
+        navigation_adapter: NavigationAdapter,
     ) -> None:
         """Initialize ProjectViewModel.
 
@@ -82,6 +84,7 @@ class ProjectViewModel(BaseViewModel):
             control_service: Service for control rule evaluation
             field_undo_service: Undo-enabled field update service (NEW - U6 Phase 4)
             history_adapter: Qt signal bridge for undo/redo state (NEW - U6 Phase 4)
+            navigation_adapter: Qt signal bridge for navigation state (NEW - U7)
         """
         super().__init__()
         self._get_project_query = get_project_query
@@ -92,6 +95,7 @@ class ProjectViewModel(BaseViewModel):
         self._control_service = control_service
         self._field_undo_service = field_undo_service
         self._history_adapter = history_adapter
+        self._navigation_adapter = navigation_adapter
 
         # Store IDs and DTOs, NOT domain objects
         self._project_id: Optional[str] = None
@@ -484,6 +488,72 @@ class ProjectViewModel(BaseViewModel):
         self.notify_change("has_unsaved_changes")
         self.notify_change("error_message")
         self.notify_change("project_name")
+
+        # Clear navigation history on project close (NEW - U7)
+        self._navigation_adapter.clear()
+
+    # =========================================================================
+    # Navigation operations (U7)
+    # =========================================================================
+
+    def navigate_to_entity(self, entity_id: str) -> None:
+        """Navigate to an entity/tab.
+
+        Args:
+            entity_id: Entity identifier to navigate to
+
+        Note:
+            In v1 with single entity, this is mainly for future compatibility.
+            Navigation history is still tracked for field-level navigation.
+        """
+        self._navigation_adapter.navigate_to_entity(entity_id)
+
+    def navigate_to_group(self, entity_id: str, group_id: str) -> None:
+        """Navigate to a group within an entity.
+
+        Args:
+            entity_id: Entity identifier
+            group_id: Group identifier
+        """
+        self._navigation_adapter.navigate_to_group(entity_id, group_id)
+
+    def navigate_to_field(
+        self, entity_id: str, group_id: str, field_id: str
+    ) -> None:
+        """Navigate to a specific field.
+
+        Args:
+            entity_id: Entity identifier
+            group_id: Group identifier
+            field_id: Field identifier
+        """
+        self._navigation_adapter.navigate_to_field(entity_id, group_id, field_id)
+
+    def go_back(self) -> bool:
+        """Navigate back in navigation history.
+
+        Returns:
+            True if navigation was performed, False if at beginning
+        """
+        return self._navigation_adapter.go_back()
+
+    def go_forward(self) -> bool:
+        """Navigate forward in navigation history.
+
+        Returns:
+            True if navigation was performed, False if at end
+        """
+        return self._navigation_adapter.go_forward()
+
+    @property
+    def can_go_back(self) -> bool:
+        """Check if back navigation is available."""
+        return self._navigation_adapter.can_go_back
+
+    @property
+    def can_go_forward(self) -> bool:
+        """Check if forward navigation is available."""
+        return self._navigation_adapter.can_go_forward
 
     def _on_undo_state_changed(self, can_undo: bool) -> None:
         """Handle undo state change signal from HistoryAdapter.

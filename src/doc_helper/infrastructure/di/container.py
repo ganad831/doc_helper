@@ -300,3 +300,41 @@ def register_undo_services(
             undo_manager=container.resolve(UndoManager),
         ),
     )
+
+
+def register_navigation_services(container: Container) -> None:
+    """Register navigation infrastructure services (U7).
+
+    Services registered:
+    - NavigationHistory: Singleton (shared navigation state)
+    - NavigationAdapter: Singleton (Qt signal bridge for UI)
+
+    Dependencies:
+    - NavigationAdapter requires: NavigationHistory
+
+    Args:
+        container: DI container instance
+
+    Example:
+        container = Container()
+        register_navigation_services(container)
+        nav_adapter = container.resolve(NavigationAdapter)
+    """
+    from doc_helper.application.navigation.navigation_history import (
+        NavigationHistory,
+    )
+    from doc_helper.presentation.adapters.navigation_adapter import NavigationAdapter
+
+    # Register NavigationHistory as singleton (shared across application)
+    container.register_singleton(
+        NavigationHistory,
+        lambda: NavigationHistory(max_size=50),
+    )
+
+    # Register NavigationAdapter (depends on NavigationHistory)
+    container.register_singleton(
+        NavigationAdapter,
+        lambda: NavigationAdapter(
+            navigation_history=container.resolve(NavigationHistory),
+        ),
+    )

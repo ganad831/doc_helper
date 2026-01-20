@@ -82,6 +82,10 @@ class ProjectView(BaseView):
         self._undo_action: Optional[QAction] = None
         self._redo_action: Optional[QAction] = None
 
+        # Navigation actions (U7)
+        self._back_action: Optional[QAction] = None
+        self._forward_action: Optional[QAction] = None
+
         # Field widgets mapped by field ID
         self._field_widgets: dict[str, IFieldWidget] = {}
 
@@ -132,10 +136,16 @@ class ProjectView(BaseView):
         self._viewmodel.subscribe("project_name", self._on_project_name_changed)
         self._viewmodel.subscribe("can_undo", self._on_undo_state_changed)
         self._viewmodel.subscribe("can_redo", self._on_redo_state_changed)
+        self._viewmodel.subscribe("can_go_back", self._on_nav_back_state_changed)
+        self._viewmodel.subscribe("can_go_forward", self._on_nav_forward_state_changed)
 
         # Initialize undo/redo action states
         self._update_undo_action()
         self._update_redo_action()
+
+        # Initialize navigation action states (U7)
+        self._update_back_action()
+        self._update_forward_action()
 
         # Perform initial validation
         self._update_validation()
@@ -178,6 +188,21 @@ class ProjectView(BaseView):
         redo_action.triggered.connect(self._on_redo)
         edit_menu.addAction(redo_action)
         self._redo_action = redo_action  # Store reference for state updates
+
+        # View menu (U7 - Navigation)
+        view_menu = menubar.addMenu("View")
+
+        back_action = QAction("Back", self._root)
+        back_action.setShortcut(QKeySequence("Alt+Left"))
+        back_action.triggered.connect(self._on_nav_back)
+        view_menu.addAction(back_action)
+        self._back_action = back_action  # Store reference for state updates
+
+        forward_action = QAction("Forward", self._root)
+        forward_action.setShortcut(QKeySequence("Alt+Right"))
+        forward_action.triggered.connect(self._on_nav_forward)
+        view_menu.addAction(forward_action)
+        self._forward_action = forward_action  # Store reference for state updates
 
         # Tools menu
         tools_menu = menubar.addMenu("Tools")
@@ -407,6 +432,24 @@ class ProjectView(BaseView):
         if self._redo_action:
             self._redo_action.setEnabled(self._viewmodel.can_redo)
 
+    def _on_nav_back_state_changed(self) -> None:
+        """Handle navigation back state change from ViewModel (U7)."""
+        self._update_back_action()
+
+    def _on_nav_forward_state_changed(self) -> None:
+        """Handle navigation forward state change from ViewModel (U7)."""
+        self._update_forward_action()
+
+    def _update_back_action(self) -> None:
+        """Update back action enabled state based on ViewModel (U7)."""
+        if self._back_action:
+            self._back_action.setEnabled(self._viewmodel.can_go_back)
+
+    def _update_forward_action(self) -> None:
+        """Update forward action enabled state based on ViewModel (U7)."""
+        if self._forward_action:
+            self._forward_action.setEnabled(self._viewmodel.can_go_forward)
+
     def _on_save(self) -> None:
         """Handle Save action."""
         if self._viewmodel.save_project():
@@ -444,6 +487,26 @@ class ProjectView(BaseView):
             self._status_bar.showMessage(f"Redo: {desc}" if desc else "Redo")
         else:
             self._status_bar.showMessage("Redo")
+
+    def _on_nav_back(self) -> None:
+        """Handle Back navigation (Alt+Left) (U7).
+
+        Navigates back in navigation history (entities, groups, fields).
+        """
+        if self._viewmodel.go_back():
+            self._status_bar.showMessage("Navigated back")
+        else:
+            self._status_bar.showMessage("Cannot go back")
+
+    def _on_nav_forward(self) -> None:
+        """Handle Forward navigation (Alt+Right) (U7).
+
+        Navigates forward in navigation history (entities, groups, fields).
+        """
+        if self._viewmodel.go_forward():
+            self._status_bar.showMessage("Navigated forward")
+        else:
+            self._status_bar.showMessage("Cannot go forward")
 
     def _on_settings(self) -> None:
         """Handle Settings action.
@@ -535,6 +598,8 @@ class ProjectView(BaseView):
             self._viewmodel.unsubscribe("project_name", self._on_project_name_changed)
             self._viewmodel.unsubscribe("can_undo", self._on_undo_state_changed)
             self._viewmodel.unsubscribe("can_redo", self._on_redo_state_changed)
+            self._viewmodel.unsubscribe("can_go_back", self._on_nav_back_state_changed)
+            self._viewmodel.unsubscribe("can_go_forward", self._on_nav_forward_state_changed)
 
         # Dispose field widgets
         for widget in self._field_widgets.values():

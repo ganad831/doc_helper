@@ -59,7 +59,11 @@ from doc_helper.domain.document.transformers import (
 from doc_helper.domain.common.translation import ITranslationService
 from doc_helper.domain.project.project_repository import IProjectRepository
 from doc_helper.domain.schema.schema_repository import ISchemaRepository
-from doc_helper.infrastructure.di.container import Container, register_undo_services
+from doc_helper.infrastructure.di.container import (
+    Container,
+    register_navigation_services,
+    register_undo_services,
+)
 from doc_helper.infrastructure.i18n.json_translation_service import (
     JsonTranslationService,
 )
@@ -284,6 +288,13 @@ def configure_container() -> Container:
         field_service=container.resolve(FieldService),
         override_service=container.resolve(OverrideService),
     )
+
+    # ========================================================================
+    # APPLICATION: Navigation Infrastructure (Singleton - U7)
+    # ========================================================================
+
+    # Register navigation services: NavigationHistory, NavigationAdapter
+    register_navigation_services(container)
 
     # ========================================================================
     # PRESENTATION: ViewModels (Scoped - Per Project Session)
