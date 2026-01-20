@@ -4,9 +4,16 @@ RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md):
 - Presentation layer uses DTOs, NOT domain objects
 - Domain objects NEVER cross Application boundary
 - Simple IDs (ProjectId, FieldDefinitionId) can cross boundaries
+
+UNDO/REDO (unified_upgrade_plan_FINAL.md U6 Phase 4):
+- ViewModel uses FieldUndoService instead of UpdateFieldCommand directly
+- ViewModel provides undo(), redo(), can_undo, can_redo for UI binding
+- ViewModel subscribes to HistoryAdapter signals for state change notifications
+- Undo stack cleared on project close/open (NOT on save)
 """
 
 from typing import Any, Optional
+from uuid import UUID
 
 from doc_helper.application.commands.save_project_command import SaveProjectCommand
 from doc_helper.application.commands.update_field_command import UpdateFieldCommand
@@ -20,11 +27,13 @@ from doc_helper.application.dto import (
 from doc_helper.application.mappers import EvaluationResultMapper, ValidationMapper
 from doc_helper.application.queries.get_project_query import GetProjectQuery
 from doc_helper.application.services.control_service import ControlService
+from doc_helper.application.services.field_undo_service import FieldUndoService
 from doc_helper.application.services.formula_service import FormulaService
 from doc_helper.application.services.validation_service import ValidationService
 from doc_helper.domain.common.result import Failure, Success
 from doc_helper.domain.project.project_ids import ProjectId
 from doc_helper.domain.schema.schema_ids import FieldDefinitionId
+from doc_helper.presentation.adapters.history_adapter import HistoryAdapter
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
 
 
@@ -59,16 +68,20 @@ class ProjectViewModel(BaseViewModel):
         validation_service: ValidationService,
         formula_service: FormulaService,
         control_service: ControlService,
+        field_undo_service: FieldUndoService,
+        history_adapter: HistoryAdapter,
     ) -> None:
         """Initialize ProjectViewModel.
 
         Args:
             get_project_query: Query for loading projects
             save_project_command: Command for saving projects
-            update_field_command: Command for updating field values
+            update_field_command: Command for updating field values (legacy, use field_undo_service)
             validation_service: Service for validation
             formula_service: Service for formula evaluation
             control_service: Service for control rule evaluation
+            field_undo_service: Undo-enabled field update service (NEW - U6 Phase 4)
+            history_adapter: Qt signal bridge for undo/redo state (NEW - U6 Phase 4)
         """
         super().__init__()
         self._get_project_query = get_project_query
@@ -77,6 +90,8 @@ class ProjectViewModel(BaseViewModel):
         self._validation_service = validation_service
         self._formula_service = formula_service
         self._control_service = control_service
+        self._field_undo_service = field_undo_service
+        self._history_adapter = history_adapter
 
         # Store IDs and DTOs, NOT domain objects
         self._project_id: Optional[str] = None
@@ -85,6 +100,10 @@ class ProjectViewModel(BaseViewModel):
         self._has_unsaved_changes = False
         self._is_loading = False
         self._error_message: Optional[str] = None
+
+        # Subscribe to undo/redo state changes (U6 Phase 4)
+        self._history_adapter.can_undo_changed.connect(self._on_undo_state_changed)
+        self._history_adapter.can_redo_changed.connect(self._on_redo_state_changed)
 
     @property
     def project_id(self) -> Optional[str]:
@@ -162,7 +181,18 @@ class ProjectViewModel(BaseViewModel):
 
         Returns:
             True if loaded successfully
+
+        Side Effects:
+            - Clears undo/redo stacks (per unified_upgrade_plan_FINAL.md v1.3.1)
+            - Project open is an edit boundary
+
+        Note:
+            Undo stack is cleared on project close/open, NOT on save.
+            User expectation: "I opened a different project, start fresh editing session."
         """
+        # Clear undo/redo stacks BEFORE loading new project (project open is an edit boundary)
+        self._history_adapter.clear()
+
         self._is_loading = True
         self._error_message = None
         self.notify_change("is_loading")
@@ -208,7 +238,7 @@ class ProjectViewModel(BaseViewModel):
         field_id: FieldDefinitionId,
         value: Any,
     ) -> bool:
-        """Update a field value.
+        """Update a field value with undo support.
 
         Args:
             field_id: Field to update
@@ -216,6 +246,16 @@ class ProjectViewModel(BaseViewModel):
 
         Returns:
             True if updated successfully
+
+        Side Effects (U6 Phase 4):
+            - Creates undoable command
+            - Adds command to undo stack
+            - Clears redo stack (standard undo semantics)
+            - Triggers formula recalc, control eval, validation
+
+        Note:
+            Now uses FieldUndoService instead of UpdateFieldCommand directly.
+            This makes field changes undoable via Ctrl+Z.
         """
         if not self._project_id:
             self._error_message = "No project loaded"
@@ -223,17 +263,18 @@ class ProjectViewModel(BaseViewModel):
             return False
 
         try:
-            # Convert string ID to typed ID
-            project_id = ProjectId(self._project_id)
-
-            result = self._update_field_command.execute(
-                project_id=project_id,
-                field_id=field_id,
-                value=value,
+            # Use FieldUndoService for undoable field updates (U6 Phase 4)
+            # OLD: result = self._update_field_command.execute(...)
+            # NEW: result = self._field_undo_service.set_field_value(...)
+            result = self._field_undo_service.set_field_value(
+                project_id=self._project_id,
+                field_id=str(field_id.value),
+                new_value=value,
             )
 
             if isinstance(result, Success):
                 # Reload project DTO to get updated state
+                project_id = ProjectId(UUID(self._project_id))
                 reload_result = self._get_project_query.execute(project_id)
                 if isinstance(reload_result, Success) and reload_result.value:
                     self._project_dto = reload_result.value
@@ -265,7 +306,7 @@ class ProjectViewModel(BaseViewModel):
 
         try:
             # Convert string ID to typed ID
-            project_id = ProjectId(self._project_id)
+            project_id = ProjectId(UUID(self._project_id))
 
             result = self._save_project_command.execute(project_id)
 
@@ -302,7 +343,7 @@ class ProjectViewModel(BaseViewModel):
             )
 
         # Convert string ID to typed ID and call service
-        project_id = ProjectId(self._project_id)
+        project_id = ProjectId(UUID(self._project_id))
 
         # NOTE: validation_service needs method to validate by project_id
         # For now, the service may need updating
@@ -333,7 +374,7 @@ class ProjectViewModel(BaseViewModel):
             return None
 
         # Convert string ID to typed ID
-        project_id = ProjectId(self._project_id)
+        project_id = ProjectId(UUID(self._project_id))
 
         # NOTE: control_service needs method to evaluate by project_id
         # For now, the service may need updating
@@ -349,8 +390,128 @@ class ProjectViewModel(BaseViewModel):
         self._error_message = None
         self.notify_change("error_message")
 
+    # ========== UNDO/REDO METHODS (U6 Phase 4) ==========
+
+    @property
+    def can_undo(self) -> bool:
+        """Check if undo is available.
+
+        Returns:
+            True if there are commands to undo
+        """
+        return self._history_adapter.can_undo
+
+    @property
+    def can_redo(self) -> bool:
+        """Check if redo is available.
+
+        Returns:
+            True if there are commands to redo
+        """
+        return self._history_adapter.can_redo
+
+    def undo(self) -> bool:
+        """Undo last operation.
+
+        Returns:
+            True if undo succeeded, False otherwise
+
+        Side Effects:
+            - Restores previous state
+            - Reloads project DTO to reflect changes
+            - Emits property change notifications
+        """
+        success = self._history_adapter.undo()
+
+        if success and self._project_id:
+            # Reload project DTO to reflect undone changes
+            project_id = ProjectId(UUID(self._project_id))
+            reload_result = self._get_project_query.execute(project_id)
+            if isinstance(reload_result, Success) and reload_result.value:
+                self._project_dto = reload_result.value
+                self.notify_change("current_project")
+
+        return success
+
+    def redo(self) -> bool:
+        """Redo previously undone operation.
+
+        Returns:
+            True if redo succeeded, False otherwise
+
+        Side Effects:
+            - Reapplies undone change
+            - Reloads project DTO to reflect changes
+            - Emits property change notifications
+        """
+        success = self._history_adapter.redo()
+
+        if success and self._project_id:
+            # Reload project DTO to reflect redone changes
+            project_id = ProjectId(UUID(self._project_id))
+            reload_result = self._get_project_query.execute(project_id)
+            if isinstance(reload_result, Success) and reload_result.value:
+                self._project_dto = reload_result.value
+                self.notify_change("current_project")
+
+        return success
+
+    def close_project(self) -> None:
+        """Close current project.
+
+        Side Effects:
+            - Clears undo/redo stacks (per unified_upgrade_plan_FINAL.md v1.3.1)
+            - Resets project state
+            - Emits property change notifications
+
+        Note:
+            Undo stack is cleared on project close/open, NOT on save.
+            User expectation: "I closed the project, I'm done editing it."
+        """
+        # Clear undo/redo stacks (project close is an edit boundary)
+        self._history_adapter.clear()
+
+        # Reset project state
+        self._project_id = None
+        self._project_dto = None
+        self._entity_definition_dto = None
+        self._has_unsaved_changes = False
+        self._error_message = None
+
+        self.notify_change("project_id")
+        self.notify_change("current_project")
+        self.notify_change("entity_definition")
+        self.notify_change("has_unsaved_changes")
+        self.notify_change("error_message")
+        self.notify_change("project_name")
+
+    def _on_undo_state_changed(self, can_undo: bool) -> None:
+        """Handle undo state change signal from HistoryAdapter.
+
+        Args:
+            can_undo: Whether undo is now available
+        """
+        self.notify_change("can_undo")
+
+    def _on_redo_state_changed(self, can_redo: bool) -> None:
+        """Handle redo state change signal from HistoryAdapter.
+
+        Args:
+            can_redo: Whether redo is now available
+        """
+        self.notify_change("can_redo")
+
+    # ====================================================
+
     def dispose(self) -> None:
         """Clean up resources."""
+        # Unsubscribe from HistoryAdapter signals
+        self._history_adapter.can_undo_changed.disconnect(self._on_undo_state_changed)
+        self._history_adapter.can_redo_changed.disconnect(self._on_redo_state_changed)
+
+        # Dispose HistoryAdapter
+        self._history_adapter.dispose()
+
         super().dispose()
         self._project_id = None
         self._project_dto = None
