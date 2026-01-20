@@ -158,6 +158,22 @@ def mock_control_service():
 
 
 @pytest.fixture
+def mock_navigation_adapter():
+    """Create mock NavigationAdapter."""
+    from unittest.mock import Mock
+    adapter = Mock()
+    adapter.navigate_to_entity = Mock(return_value=None)
+    adapter.navigate_to_group = Mock(return_value=None)
+    adapter.navigate_to_field = Mock(return_value=None)
+    adapter.go_back = Mock(return_value=None)
+    adapter.go_forward = Mock(return_value=None)
+    adapter.clear = Mock(return_value=None)
+    adapter.can_go_back = False
+    adapter.can_go_forward = False
+    return adapter
+
+
+@pytest.fixture
 def viewmodel(
     mock_get_project_query,
     mock_save_project_command,
@@ -167,6 +183,7 @@ def viewmodel(
     mock_control_service,
     field_undo_service,
     history_adapter,
+    mock_navigation_adapter,
 ):
     """Create ProjectViewModel instance with real undo infrastructure."""
     return ProjectViewModel(
@@ -178,6 +195,7 @@ def viewmodel(
         control_service=mock_control_service,
         field_undo_service=field_undo_service,
         history_adapter=history_adapter,
+        navigation_adapter=mock_navigation_adapter,
     )
 
 

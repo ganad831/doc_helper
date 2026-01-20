@@ -35,6 +35,10 @@ from doc_helper.application.services.formula_service import FormulaService
 from doc_helper.application.services.override_service import OverrideService
 from doc_helper.application.services.validation_service import ValidationService
 from doc_helper.domain.document.document_format import DocumentFormat
+from doc_helper.domain.override.repositories import IOverrideRepository
+from doc_helper.infrastructure.persistence.fake_override_repository import (
+    FakeOverrideRepository,
+)
 from doc_helper.domain.document.transformer_registry import TransformerRegistry
 from doc_helper.domain.document.transformers import (
     BooleanTransformer,
@@ -113,6 +117,13 @@ def configure_container() -> Container:
     container.register_scoped(
         IProjectRepository,
         lambda: SqliteProjectRepository(db_path="current_project.db"),
+    )
+
+    # Override repository - fake in-memory implementation (v1 temporary)
+    # Note: Will be replaced with SqliteOverrideRepository when override UI is fully implemented
+    container.register_singleton(
+        IOverrideRepository,
+        lambda: FakeOverrideRepository(),
     )
 
     # ========================================================================
@@ -276,7 +287,9 @@ def configure_container() -> Container:
     # Full implementation deferred to override UI integration
     container.register_singleton(
         OverrideService,
-        lambda: OverrideService(),
+        lambda: OverrideService(
+            override_repository=container.resolve(IOverrideRepository),
+        ),
     )
 
     # ========================================================================
