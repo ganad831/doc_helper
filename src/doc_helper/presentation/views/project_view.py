@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from doc_helper.domain.schema.entity_definition import EntityDefinition
+from doc_helper.application.dto import EntityDefinitionDTO
 from doc_helper.presentation.viewmodels.project_viewmodel import ProjectViewModel
 from doc_helper.presentation.views.base_view import BaseView
 from doc_helper.presentation.widgets.field_widget import IFieldWidget
@@ -40,20 +40,23 @@ class ProjectView(BaseView):
     - Multi-entity navigation
     - Quick search
     - Field history
+
+    RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md):
+    - Presentation layer uses DTOs, NOT domain objects
     """
 
     def __init__(
         self,
         parent: Optional[QWidget],
         viewmodel: ProjectViewModel,
-        entity_definition: EntityDefinition,
+        entity_definition: EntityDefinitionDTO,
     ) -> None:
         """Initialize project view.
 
         Args:
             parent: Parent widget
             viewmodel: ProjectViewModel instance
-            entity_definition: Entity definition for schema
+            entity_definition: Entity definition DTO (NOT domain object)
         """
         super().__init__(parent)
         self._viewmodel = viewmodel

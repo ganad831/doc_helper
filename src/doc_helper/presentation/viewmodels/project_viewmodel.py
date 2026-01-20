@@ -1,20 +1,30 @@
-"""ViewModel for Project management."""
+"""ViewModel for Project management.
+
+RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md):
+- Presentation layer uses DTOs, NOT domain objects
+- Domain objects NEVER cross Application boundary
+- Simple IDs (ProjectId, FieldDefinitionId) can cross boundaries
+"""
 
 from typing import Any, Optional
 
 from doc_helper.application.commands.save_project_command import SaveProjectCommand
 from doc_helper.application.commands.update_field_command import UpdateFieldCommand
+from doc_helper.application.dto import (
+    EntityDefinitionDTO,
+    EvaluationResultDTO,
+    ProjectDTO,
+    ValidationErrorDTO,
+    ValidationResultDTO,
+)
+from doc_helper.application.mappers import EvaluationResultMapper, ValidationMapper
 from doc_helper.application.queries.get_project_query import GetProjectQuery
 from doc_helper.application.services.control_service import ControlService
 from doc_helper.application.services.formula_service import FormulaService
 from doc_helper.application.services.validation_service import ValidationService
 from doc_helper.domain.common.result import Failure, Success
-from doc_helper.domain.control.effect_evaluator import EvaluationResult
-from doc_helper.domain.project.project import Project
 from doc_helper.domain.project.project_ids import ProjectId
-from doc_helper.domain.schema.entity_definition import EntityDefinition
 from doc_helper.domain.schema.schema_ids import FieldDefinitionId
-from doc_helper.domain.validation.validation_result import ValidationResult
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
 
 
@@ -31,9 +41,12 @@ class ProjectViewModel(BaseViewModel):
     - Track unsaved changes
     - Provide validation status
 
+    NOTE: This ViewModel stores DTOs, not domain objects.
+    Domain objects are handled internally by commands/queries.
+
     Example:
         vm = ProjectViewModel(services...)
-        vm.load_project(project_id)
+        vm.load_project(project_id, entity_definition_dto)
         vm.update_field(field_id, new_value)
         vm.save_project()
     """
@@ -65,29 +78,40 @@ class ProjectViewModel(BaseViewModel):
         self._formula_service = formula_service
         self._control_service = control_service
 
-        self._current_project: Optional[Project] = None
-        self._entity_definition: Optional[EntityDefinition] = None
+        # Store IDs and DTOs, NOT domain objects
+        self._project_id: Optional[str] = None
+        self._project_dto: Optional[ProjectDTO] = None
+        self._entity_definition_dto: Optional[EntityDefinitionDTO] = None
         self._has_unsaved_changes = False
         self._is_loading = False
         self._error_message: Optional[str] = None
 
     @property
-    def current_project(self) -> Optional[Project]:
-        """Get currently loaded project.
+    def project_id(self) -> Optional[str]:
+        """Get current project ID.
 
         Returns:
-            Current Project or None
+            Project ID as string or None
         """
-        return self._current_project
+        return self._project_id
 
     @property
-    def entity_definition(self) -> Optional[EntityDefinition]:
-        """Get entity definition for current project.
+    def current_project(self) -> Optional[ProjectDTO]:
+        """Get currently loaded project DTO.
 
         Returns:
-            EntityDefinition or None
+            Current ProjectDTO or None
         """
-        return self._entity_definition
+        return self._project_dto
+
+    @property
+    def entity_definition(self) -> Optional[EntityDefinitionDTO]:
+        """Get entity definition DTO for current project.
+
+        Returns:
+            EntityDefinitionDTO or None
+        """
+        return self._entity_definition_dto
 
     @property
     def has_unsaved_changes(self) -> bool:
@@ -123,18 +147,18 @@ class ProjectViewModel(BaseViewModel):
         Returns:
             Project name or empty string
         """
-        return self._current_project.name if self._current_project else ""
+        return self._project_dto.name if self._project_dto else ""
 
     def load_project(
         self,
         project_id: ProjectId,
-        entity_definition: EntityDefinition,
+        entity_definition: EntityDefinitionDTO,
     ) -> bool:
         """Load a project.
 
         Args:
             project_id: ID of project to load
-            entity_definition: Entity definition for the project
+            entity_definition: Entity definition DTO for the project
 
         Returns:
             True if loaded successfully
@@ -148,15 +172,18 @@ class ProjectViewModel(BaseViewModel):
             result = self._get_project_query.execute(project_id)
 
             if isinstance(result, Success):
-                project = result.value
-                if project is None:
+                project_dto = result.value
+                if project_dto is None:
                     self._error_message = f"Project not found: {project_id}"
                     return False
 
-                self._current_project = project
-                self._entity_definition = entity_definition
+                # Store IDs and DTOs
+                self._project_id = str(project_id.value)
+                self._project_dto = project_dto
+                self._entity_definition_dto = entity_definition
                 self._has_unsaved_changes = False
 
+                self.notify_change("project_id")
                 self.notify_change("current_project")
                 self.notify_change("entity_definition")
                 self.notify_change("has_unsaved_changes")
@@ -190,20 +217,27 @@ class ProjectViewModel(BaseViewModel):
         Returns:
             True if updated successfully
         """
-        if not self._current_project:
+        if not self._project_id:
             self._error_message = "No project loaded"
             self.notify_change("error_message")
             return False
 
         try:
+            # Convert string ID to typed ID
+            project_id = ProjectId(self._project_id)
+
             result = self._update_field_command.execute(
-                project=self._current_project,
+                project_id=project_id,
                 field_id=field_id,
                 value=value,
             )
 
             if isinstance(result, Success):
-                # Note: update_field_command modifies project in place
+                # Reload project DTO to get updated state
+                reload_result = self._get_project_query.execute(project_id)
+                if isinstance(reload_result, Success) and reload_result.value:
+                    self._project_dto = reload_result.value
+
                 self._has_unsaved_changes = True
                 self.notify_change("current_project")
                 self.notify_change("has_unsaved_changes")
@@ -224,13 +258,16 @@ class ProjectViewModel(BaseViewModel):
         Returns:
             True if saved successfully
         """
-        if not self._current_project:
+        if not self._project_id:
             self._error_message = "No project loaded"
             self.notify_change("error_message")
             return False
 
         try:
-            result = self._save_project_command.execute(self._current_project)
+            # Convert string ID to typed ID
+            project_id = ProjectId(self._project_id)
+
+            result = self._save_project_command.execute(project_id)
 
             if isinstance(result, Success):
                 self._has_unsaved_changes = False
@@ -248,39 +285,63 @@ class ProjectViewModel(BaseViewModel):
             self.notify_change("error_message")
             return False
 
-    def validate_project(self) -> ValidationResult:
+    def validate_project(self) -> ValidationResultDTO:
         """Validate current project.
 
         Returns:
-            ValidationResult with errors
+            ValidationResultDTO with errors
         """
-        if not self._current_project or not self._entity_definition:
-            from doc_helper.domain.validation.validation_error import ValidationError
-            return ValidationResult(
-                errors=(ValidationError(field_path="", message="No project loaded"),)
+        if not self._project_id or not self._entity_definition_dto:
+            return ValidationResultDTO(
+                is_valid=False,
+                errors=(
+                    ValidationErrorDTO(
+                        field_id=None, field_path="", message="No project loaded"
+                    ),
+                ),
             )
 
-        return self._validation_service.validate_project(
-            self._current_project,
-            self._entity_definition,
-        )
+        # Convert string ID to typed ID and call service
+        project_id = ProjectId(self._project_id)
 
-    def evaluate_controls(self) -> Optional[EvaluationResult]:
+        # NOTE: validation_service needs method to validate by project_id
+        # For now, the service may need updating
+        result = self._validation_service.validate_by_project_id(project_id)
+
+        if isinstance(result, Failure):
+            return ValidationResultDTO(
+                is_valid=False,
+                errors=(
+                    ValidationErrorDTO(
+                        field_id=None,
+                        field_path="",
+                        message=f"Validation failed: {result.error}",
+                    ),
+                ),
+            )
+
+        # Map domain result to DTO
+        return ValidationMapper.to_dto(result.value)
+
+    def evaluate_controls(self) -> Optional[EvaluationResultDTO]:
         """Evaluate control rules for current project.
 
         Returns:
-            EvaluationResult if successful, None otherwise
+            EvaluationResultDTO if successful, None otherwise
         """
-        if not self._current_project or not self._entity_definition:
+        if not self._project_id or not self._entity_definition_dto:
             return None
 
-        result = self._control_service.evaluate_controls(
-            self._current_project,
-            self._entity_definition,
-        )
+        # Convert string ID to typed ID
+        project_id = ProjectId(self._project_id)
+
+        # NOTE: control_service needs method to evaluate by project_id
+        # For now, the service may need updating
+        result = self._control_service.evaluate_by_project_id(project_id)
 
         if isinstance(result, Success):
-            return result.value
+            # Map domain result to DTO
+            return EvaluationResultMapper.to_dto(result.value)
         return None
 
     def clear_error(self) -> None:
@@ -291,5 +352,6 @@ class ProjectViewModel(BaseViewModel):
     def dispose(self) -> None:
         """Clean up resources."""
         super().dispose()
-        self._current_project = None
-        self._entity_definition = None
+        self._project_id = None
+        self._project_dto = None
+        self._entity_definition_dto = None

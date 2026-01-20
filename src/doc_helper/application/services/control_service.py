@@ -1,6 +1,11 @@
-"""Control service for coordinating control rule evaluation."""
+"""Control service for coordinating control rule evaluation.
 
-from typing import Any
+RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md):
+- Services can work with domain objects internally
+- Methods called from presentation should take IDs and return Results
+"""
+
+from typing import Any, Optional
 
 from doc_helper.domain.common.result import Failure, Result, Success
 from doc_helper.domain.control.control_effect import ControlEffect
@@ -10,8 +15,11 @@ from doc_helper.domain.control.effect_evaluator import (
 )
 from doc_helper.domain.formula.evaluator import EvaluationContext
 from doc_helper.domain.project.project import Project
+from doc_helper.domain.project.project_ids import ProjectId
+from doc_helper.domain.project.project_repository import IProjectRepository
 from doc_helper.domain.schema.entity_definition import EntityDefinition
 from doc_helper.domain.schema.schema_ids import FieldDefinitionId
+from doc_helper.domain.schema.schema_repository import ISchemaRepository
 
 
 class ControlService:
@@ -26,19 +34,72 @@ class ControlService:
     - Returns Result monad for error handling
 
     Example:
-        service = ControlService()
-        result = service.evaluate_controls(
-            project=project,
-            entity_definition=entity_definition
-        )
+        service = ControlService(project_repo, schema_repo)
+        result = service.evaluate_by_project_id(project_id)
         if isinstance(result, Success):
             effects = result.value
             # Apply effects to UI
     """
 
-    def __init__(self) -> None:
-        """Initialize control service."""
+    def __init__(
+        self,
+        project_repository: Optional[IProjectRepository] = None,
+        schema_repository: Optional[ISchemaRepository] = None,
+    ) -> None:
+        """Initialize control service.
+
+        Args:
+            project_repository: Repository for loading projects (optional for backward compat)
+            schema_repository: Repository for loading schemas (optional for backward compat)
+        """
         self._evaluator = ControlEffectEvaluator()
+        self._project_repository = project_repository
+        self._schema_repository = schema_repository
+
+    def evaluate_by_project_id(
+        self,
+        project_id: ProjectId,
+    ) -> Result[EvaluationResult, str]:
+        """Evaluate controls for a project by its ID.
+
+        This method loads the project and entity definition internally,
+        suitable for calling from presentation layer.
+
+        Args:
+            project_id: ID of project to evaluate controls for
+
+        Returns:
+            Success(EvaluationResult) if evaluation completes, Failure(error) otherwise
+        """
+        if not self._project_repository:
+            return Failure("ControlService requires project_repository for evaluate_by_project_id")
+        if not self._schema_repository:
+            return Failure("ControlService requires schema_repository for evaluate_by_project_id")
+        if not isinstance(project_id, ProjectId):
+            return Failure("project_id must be a ProjectId")
+
+        # Load project
+        project_result = self._project_repository.get_by_id(project_id)
+        if isinstance(project_result, Failure):
+            return Failure(f"Failed to load project: {project_result.error}")
+
+        project = project_result.value
+        if project is None:
+            return Failure(f"Project not found: {project_id.value}")
+
+        # Load entity definition
+        entity_def_result = self._schema_repository.get_entity_definition(
+            project.entity_definition_id
+        )
+        if isinstance(entity_def_result, Failure):
+            return Failure(f"Failed to load entity definition: {entity_def_result.error}")
+
+        entity_definition = entity_def_result.value
+        if entity_definition is None:
+            return Failure(f"Entity definition not found: {project.entity_definition_id.value}")
+
+        # Evaluate controls
+        return self.evaluate_controls(project, entity_definition)
 
     def evaluate_controls(
         self,

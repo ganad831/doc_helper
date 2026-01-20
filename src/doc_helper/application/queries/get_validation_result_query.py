@@ -1,11 +1,19 @@
-"""Query for getting validation results for a project."""
+"""Query for getting validation results for a project.
+
+RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md H3):
+- Queries return DTOs, NOT domain objects
+- Domain objects NEVER cross Application boundary
+- Use mappers to convert Domain → DTO
+"""
 
 from doc_helper.domain.common.result import Failure, Result, Success
+from doc_helper.domain.common.translation import ITranslationService
 from doc_helper.domain.project.project_ids import ProjectId
 from doc_helper.domain.project.project_repository import IProjectRepository
 from doc_helper.domain.schema.schema_ids import EntityDefinitionId
 from doc_helper.domain.schema.schema_repository import ISchemaRepository
-from doc_helper.domain.validation.validation_result import ValidationResult
+from doc_helper.application.dto import ValidationResultDTO
+from doc_helper.application.mappers import ValidationMapper
 from doc_helper.application.services.validation_service import ValidationService
 
 
@@ -14,20 +22,21 @@ class GetValidationResultQuery:
 
     RULES (IMPLEMENTATION_RULES.md Section 5):
     - Query handlers are stateless (dependencies injected)
-    - Queries return data and don't modify state
+    - Queries return DTOs, not domain objects
     - Uses ValidationService to perform validation
 
     Example:
         query = GetValidationResultQuery(
             project_repository=project_repo,
             schema_repository=schema_repo,
-            validation_service=validation_service
+            validation_service=validation_service,
+            translation_service=ts
         )
         result = query.execute(project_id=project_id)
         if isinstance(result, Success):
-            validation_result = result.value
-            if validation_result.is_invalid():
-                print(f"Found {validation_result.error_count} errors")
+            validation_dto = result.value  # Returns ValidationResultDTO
+            if not validation_dto.is_valid:
+                print(f"Found {len(validation_dto.errors)} errors")
     """
 
     def __init__(
@@ -35,6 +44,7 @@ class GetValidationResultQuery:
         project_repository: IProjectRepository,
         schema_repository: ISchemaRepository,
         validation_service: ValidationService,
+        translation_service: ITranslationService,
     ) -> None:
         """Initialize query.
 
@@ -42,6 +52,7 @@ class GetValidationResultQuery:
             project_repository: Repository for loading projects
             schema_repository: Repository for loading schema definitions
             validation_service: Service for validating projects
+            translation_service: Service for translating i18n keys
         """
         if not isinstance(project_repository, IProjectRepository):
             raise TypeError("project_repository must implement IProjectRepository")
@@ -53,15 +64,16 @@ class GetValidationResultQuery:
         self._project_repository = project_repository
         self._schema_repository = schema_repository
         self._validation_service = validation_service
+        self._validation_mapper = ValidationMapper(translation_service)
 
-    def execute(self, project_id: ProjectId) -> Result[ValidationResult, str]:
+    def execute(self, project_id: ProjectId) -> Result[ValidationResultDTO, str]:
         """Execute get validation result query.
 
         Args:
             project_id: Project ID to validate
 
         Returns:
-            Success(ValidationResult) if validation completed,
+            Success(ValidationResultDTO) if validation completed,
             Failure(error) if unable to validate
         """
         if not isinstance(project_id, ProjectId):
@@ -91,7 +103,8 @@ class GetValidationResultQuery:
             entity_definition=entity_definition,
         )
 
-        return Success(validation_result)
+        # Map to DTO before returning
+        return Success(self._validation_mapper.to_dto(validation_result))
 
 
 class GetFieldValidationQuery:
@@ -99,32 +112,35 @@ class GetFieldValidationQuery:
 
     RULES (IMPLEMENTATION_RULES.md Section 5):
     - Query handlers are stateless (dependencies injected)
-    - Queries return data and don't modify state
+    - Queries return DTOs, not domain objects
 
     Example:
         query = GetFieldValidationQuery(
             schema_repository=schema_repo,
-            validation_service=validation_service
+            validation_service=validation_service,
+            translation_service=ts
         )
         result = query.execute(
             entity_id=EntityDefinitionId("project"),
-            field_id=FieldDefinitionId("site_location"),
+            field_id="site_location",
             value="123 Main St"
         )
         if isinstance(result, Success):
-            validation_result = result.value
+            validation_dto = result.value  # Returns ValidationResultDTO
     """
 
     def __init__(
         self,
         schema_repository: ISchemaRepository,
         validation_service: ValidationService,
+        translation_service: ITranslationService,
     ) -> None:
         """Initialize query.
 
         Args:
             schema_repository: Repository for loading schema definitions
             validation_service: Service for validating fields
+            translation_service: Service for translating i18n keys
         """
         if not isinstance(schema_repository, ISchemaRepository):
             raise TypeError("schema_repository must implement ISchemaRepository")
@@ -133,13 +149,14 @@ class GetFieldValidationQuery:
 
         self._schema_repository = schema_repository
         self._validation_service = validation_service
+        self._validation_mapper = ValidationMapper(translation_service)
 
     def execute(
         self,
         entity_id: EntityDefinitionId,
         field_id: str,  # Field ID as string
         value: any,
-    ) -> Result[ValidationResult, str]:
+    ) -> Result[ValidationResultDTO, str]:
         """Execute get field validation query.
 
         Args:
@@ -148,7 +165,7 @@ class GetFieldValidationQuery:
             value: Field value to validate
 
         Returns:
-            Success(ValidationResult) if validation completed,
+            Success(ValidationResultDTO) if validation completed,
             Failure(error) if unable to validate
         """
         from doc_helper.domain.schema.schema_ids import FieldDefinitionId
@@ -178,4 +195,5 @@ class GetFieldValidationQuery:
             field_definition=field_def,
         )
 
-        return Success(validation_result)
+        # Map to DTO before returning (with field_id for context)
+        return Success(self._validation_mapper.to_dto(validation_result, field_id))

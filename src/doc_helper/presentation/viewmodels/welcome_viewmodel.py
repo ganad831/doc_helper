@@ -1,11 +1,16 @@
-"""ViewModel for Welcome screen."""
+"""ViewModel for Welcome screen.
+
+RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md):
+- Presentation layer uses DTOs, NOT domain objects
+- Domain objects NEVER cross Application boundary
+"""
 
 from typing import Optional
 
 from doc_helper.application.commands.create_project_command import CreateProjectCommand
+from doc_helper.application.dto import ProjectSummaryDTO
 from doc_helper.application.queries.get_project_query import GetRecentProjectsQuery
 from doc_helper.domain.common.result import Failure, Success
-from doc_helper.domain.project.project import Project
 from doc_helper.domain.schema.schema_ids import EntityDefinitionId
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
 
@@ -46,16 +51,16 @@ class WelcomeViewModel(BaseViewModel):
         self._get_recent_query = get_recent_query
         self._create_project_command = create_project_command
 
-        self._recent_projects: list[Project] = []
+        self._recent_projects: list[ProjectSummaryDTO] = []
         self._is_loading = False
         self._error_message: Optional[str] = None
 
     @property
-    def recent_projects(self) -> list[Project]:
+    def recent_projects(self) -> list[ProjectSummaryDTO]:
         """Get list of recent projects.
 
         Returns:
-            List of recent Project objects
+            List of ProjectSummaryDTO objects (NOT domain objects)
         """
         return self._recent_projects
 

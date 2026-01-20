@@ -1698,6 +1698,8 @@ All architectural decisions are documented in separate ADR files in the [adrs/](
 | [ADR-011](adrs/ADR-011-unit-of-work.md) | Unit of Work for Transaction Management | Accepted | Patterns |
 | [ADR-012](adrs/ADR-012-registry-based-factory.md) | Registry-Based Factory for Extensibility | Accepted | Patterns |
 | [ADR-013](adrs/ADR-013-multi-app-type-platform-vision.md) | Multi-Document-Type Platform Vision | Proposed (v2+) | Vision |
+| [ADR-017](adrs/ADR-017-command-based-undo.md) | Command-Based Undo Model | Accepted | Undo System |
+| [ADR-021](adrs/ADR-021-undo-state-dto-isolation.md) | UndoState DTO Isolation | Accepted | Undo System |
 
 ### 15.2 ADR Summary by Category
 
@@ -1720,6 +1722,10 @@ All architectural decisions are documented in separate ADR files in the [adrs/](
 - **ADR-008**: Result[T, E] monad for explicit error handling (no exceptions in domain)
 - **ADR-009**: Strongly typed IDs (FieldId, EntityId, ProjectId) prevent mixing errors
 - **ADR-010**: Immutable value objects with frozen dataclasses
+
+#### Undo System
+- **ADR-017**: Command-based undo model with explicit state capture specification
+- **ADR-021**: UndoState DTOs separated from UI DTOs (internal to application layer)
 
 #### Future Vision
 - **ADR-013**: Multi-app-type platform architecture (deferred to v2+)

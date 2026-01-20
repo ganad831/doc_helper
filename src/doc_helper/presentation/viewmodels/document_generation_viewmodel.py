@@ -1,4 +1,10 @@
-"""ViewModel for Document Generation."""
+"""ViewModel for Document Generation.
+
+RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md):
+- Presentation layer uses DTOs, NOT domain objects
+- Domain objects NEVER cross Application boundary
+- Simple enums (DocumentFormat) and IDs (ProjectId) can cross boundaries
+"""
 
 from pathlib import Path
 from typing import Optional
@@ -6,11 +12,10 @@ from typing import Optional
 from doc_helper.application.commands.generate_document_command import (
     GenerateDocumentCommand,
 )
+from doc_helper.application.dto import ValidationResultDTO
 from doc_helper.domain.common.result import Failure, Success
 from doc_helper.domain.document.document_format import DocumentFormat
-from doc_helper.domain.project.project import Project
-from doc_helper.domain.schema.entity_definition import EntityDefinition
-from doc_helper.domain.validation.validation_result import ValidationResult
+from doc_helper.domain.project.project_ids import ProjectId
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
 
 
@@ -36,7 +41,7 @@ class DocumentGenerationViewModel(BaseViewModel):
 
     Example:
         vm = DocumentGenerationViewModel(generate_command)
-        vm.set_project(project, entity_def)
+        vm.set_project(project_id, entity_def_id, validation_result)
         if vm.can_generate:
             vm.generate_document(template_path, output_path, DocumentFormat.WORD)
     """
@@ -53,9 +58,10 @@ class DocumentGenerationViewModel(BaseViewModel):
         super().__init__()
         self._generate_document_command = generate_document_command
 
-        self._project: Optional[Project] = None
-        self._entity_definition: Optional[EntityDefinition] = None
-        self._validation_result: Optional[ValidationResult] = None
+        # Store IDs and DTOs, NOT domain objects
+        self._project_id: Optional[str] = None
+        self._entity_definition_id: Optional[str] = None
+        self._validation_result: Optional[ValidationResultDTO] = None
 
         self._is_generating = False
         self._generation_progress = 0.0
@@ -105,11 +111,11 @@ class DocumentGenerationViewModel(BaseViewModel):
         Returns:
             True if all requirements are met
         """
-        if not self._project or not self._entity_definition:
+        if not self._project_id or not self._entity_definition_id:
             return False
 
         # v1: Only check if there are no validation errors
-        if self._validation_result and self._validation_result.is_invalid():
+        if self._validation_result and not self._validation_result.is_valid:
             return False
 
         return True
@@ -128,19 +134,19 @@ class DocumentGenerationViewModel(BaseViewModel):
 
     def set_project(
         self,
-        project: Project,
-        entity_definition: EntityDefinition,
-        validation_result: ValidationResult,
+        project_id: str,
+        entity_definition_id: str,
+        validation_result: ValidationResultDTO,
     ) -> None:
         """Set current project for generation.
 
         Args:
-            project: Project to generate document for
-            entity_definition: Entity definition
-            validation_result: Current validation result
+            project_id: Project ID (string)
+            entity_definition_id: Entity definition ID (string)
+            validation_result: Current validation result DTO
         """
-        self._project = project
-        self._entity_definition = entity_definition
+        self._project_id = project_id
+        self._entity_definition_id = entity_definition_id
         self._validation_result = validation_result
 
         self.notify_change("can_generate")
@@ -167,7 +173,7 @@ class DocumentGenerationViewModel(BaseViewModel):
             self.notify_change("error_message")
             return False
 
-        if not self._project:
+        if not self._project_id:
             self._error_message = "No project set"
             self.notify_change("error_message")
             return False
@@ -183,12 +189,15 @@ class DocumentGenerationViewModel(BaseViewModel):
         self.notify_change("success_message")
 
         try:
+            # Convert string ID to typed ID for command
+            project_id = ProjectId(self._project_id)
+
             # v1: Simple generation without progress tracking
             result = self._generate_document_command.execute(
-                project=self._project,
+                project_id=project_id,
                 template_path=template_path,
                 output_path=output_path,
-                document_format=document_format,
+                format=document_format,
             )
 
             if isinstance(result, Success):
@@ -221,6 +230,6 @@ class DocumentGenerationViewModel(BaseViewModel):
     def dispose(self) -> None:
         """Clean up resources."""
         super().dispose()
-        self._project = None
-        self._entity_definition = None
+        self._project_id = None
+        self._entity_definition_id = None
         self._validation_result = None

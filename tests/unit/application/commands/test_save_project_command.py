@@ -85,7 +85,11 @@ class TestSaveProjectCommand:
         repository: InMemoryProjectRepository,
     ) -> None:
         """execute should save project to repository."""
-        result = command.execute(project)
+        # First save the project so it can be loaded by the command
+        repository.save(project)
+
+        # Execute command with project_id (new signature)
+        result = command.execute(project.id)
 
         assert isinstance(result, Success)
         assert result.value is None
@@ -95,28 +99,42 @@ class TestSaveProjectCommand:
         assert isinstance(saved_result, Success)
         assert saved_result.value == project
 
-    def test_execute_requires_project(
+    def test_execute_requires_project_id(
         self, command: SaveProjectCommand
     ) -> None:
-        """execute should require Project instance."""
-        result = command.execute("not a project")  # type: ignore
+        """execute should require ProjectId instance."""
+        result = command.execute("not a project_id")  # type: ignore
 
         assert isinstance(result, Failure)
-        assert "project" in result.error.lower()
+        assert "project_id" in result.error.lower()
+
+    def test_execute_fails_for_nonexistent_project(
+        self, command: SaveProjectCommand
+    ) -> None:
+        """execute should return Failure if project not found."""
+        nonexistent_id = ProjectId(uuid4())
+        result = command.execute(nonexistent_id)
+
+        assert isinstance(result, Failure)
+        assert "not found" in result.error.lower()
 
     def test_execute_handles_repository_error(
         self, project: Project
     ) -> None:
         """execute should return Failure if repository save fails."""
-        # Create repository that always fails
+        # Create repository that always fails on save but succeeds on get
         class FailingRepository(InMemoryProjectRepository):
+            def __init__(self, project: Project) -> None:
+                super().__init__()
+                self._projects[project.id] = project
+
             def save(self, project: Project) -> Result[None, str]:
                 return Failure("Repository error")
 
-        repository = FailingRepository()
+        repository = FailingRepository(project)
         command = SaveProjectCommand(repository)
 
-        result = command.execute(project)
+        result = command.execute(project.id)
 
         assert isinstance(result, Failure)
         assert "repository error" in result.error.lower()

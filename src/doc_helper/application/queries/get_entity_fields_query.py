@@ -1,10 +1,17 @@
-"""Query for retrieving entity field definitions."""
+"""Query for retrieving entity field definitions.
+
+RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md H3):
+- Queries return DTOs, NOT domain objects
+- Domain objects NEVER cross Application boundary
+- Use mappers to convert Domain → DTO
+"""
 
 from doc_helper.domain.common.result import Failure, Result, Success
-from doc_helper.domain.schema.entity_definition import EntityDefinition
-from doc_helper.domain.schema.field_definition import FieldDefinition
-from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
+from doc_helper.domain.common.translation import ITranslationService
+from doc_helper.domain.schema.schema_ids import EntityDefinitionId
 from doc_helper.domain.schema.schema_repository import ISchemaRepository
+from doc_helper.application.dto import FieldDefinitionDTO, EntityDefinitionDTO
+from doc_helper.application.mappers import FieldDefinitionMapper, EntityDefinitionMapper
 
 
 class GetEntityFieldsQuery:
@@ -12,35 +19,41 @@ class GetEntityFieldsQuery:
 
     RULES (IMPLEMENTATION_RULES.md Section 5):
     - Query handlers are stateless (dependencies injected)
-    - Queries return data and don't modify state
+    - Queries return DTOs, not domain objects
 
     Example:
-        query = GetEntityFieldsQuery(schema_repository=repo)
+        query = GetEntityFieldsQuery(schema_repository=repo, translation_service=ts)
         result = query.execute(entity_id=EntityDefinitionId("project"))
         if isinstance(result, Success):
-            fields = result.value
+            field_dtos = result.value  # Tuple of FieldDefinitionDTO
     """
 
-    def __init__(self, schema_repository: ISchemaRepository) -> None:
+    def __init__(
+        self,
+        schema_repository: ISchemaRepository,
+        translation_service: ITranslationService,
+    ) -> None:
         """Initialize query.
 
         Args:
             schema_repository: Repository for loading schema definitions
+            translation_service: Service for translating i18n keys
         """
         if not isinstance(schema_repository, ISchemaRepository):
             raise TypeError("schema_repository must implement ISchemaRepository")
         self._schema_repository = schema_repository
+        self._field_mapper = FieldDefinitionMapper(translation_service)
 
     def execute(
         self, entity_id: EntityDefinitionId
-    ) -> Result[dict[FieldDefinitionId, FieldDefinition], str]:
+    ) -> Result[tuple[FieldDefinitionDTO, ...], str]:
         """Execute get entity fields query.
 
         Args:
             entity_id: Entity ID to get fields for
 
         Returns:
-            Success(dict of field_id -> FieldDefinition) if successful,
+            Success(tuple of FieldDefinitionDTO) if successful,
             Failure(error) otherwise
         """
         if not isinstance(entity_id, EntityDefinitionId):
@@ -52,7 +65,13 @@ class GetEntityFieldsQuery:
             return Failure(f"Failed to load entity: {entity_result.error}")
 
         entity = entity_result.value
-        return Success(entity.fields)
+
+        # Map to DTOs before returning
+        field_dtos = tuple(
+            self._field_mapper.to_dto(field_def)
+            for field_def in entity.get_all_fields()
+        )
+        return Success(field_dtos)
 
 
 class GetEntityDefinitionQuery:
@@ -60,40 +79,51 @@ class GetEntityDefinitionQuery:
 
     RULES (IMPLEMENTATION_RULES.md Section 5):
     - Query handlers are stateless (dependencies injected)
-    - Queries return data and don't modify state
+    - Queries return DTOs, not domain objects
 
     Example:
-        query = GetEntityDefinitionQuery(schema_repository=repo)
+        query = GetEntityDefinitionQuery(schema_repository=repo, translation_service=ts)
         result = query.execute(entity_id=EntityDefinitionId("project"))
         if isinstance(result, Success):
-            entity_def = result.value
+            entity_dto = result.value  # Returns EntityDefinitionDTO
     """
 
-    def __init__(self, schema_repository: ISchemaRepository) -> None:
+    def __init__(
+        self,
+        schema_repository: ISchemaRepository,
+        translation_service: ITranslationService,
+    ) -> None:
         """Initialize query.
 
         Args:
             schema_repository: Repository for loading schema definitions
+            translation_service: Service for translating i18n keys
         """
         if not isinstance(schema_repository, ISchemaRepository):
             raise TypeError("schema_repository must implement ISchemaRepository")
         self._schema_repository = schema_repository
+        self._entity_mapper = EntityDefinitionMapper(translation_service)
 
     def execute(
         self, entity_id: EntityDefinitionId
-    ) -> Result[EntityDefinition, str]:
+    ) -> Result["EntityDefinitionDTO", str]:
         """Execute get entity definition query.
 
         Args:
             entity_id: Entity ID to retrieve
 
         Returns:
-            Success(EntityDefinition) if found, Failure(error) otherwise
+            Success(EntityDefinitionDTO) if found, Failure(error) otherwise
         """
         if not isinstance(entity_id, EntityDefinitionId):
             return Failure("entity_id must be an EntityDefinitionId")
 
-        return self._schema_repository.get_by_id(entity_id)
+        result = self._schema_repository.get_by_id(entity_id)
+        if isinstance(result, Failure):
+            return result
+
+        # Map to DTO before returning
+        return Success(self._entity_mapper.to_dto(result.value))
 
 
 class GetRootEntityQuery:
@@ -101,29 +131,40 @@ class GetRootEntityQuery:
 
     RULES (IMPLEMENTATION_RULES.md Section 5):
     - Query handlers are stateless (dependencies injected)
-    - Queries return data and don't modify state
+    - Queries return DTOs, not domain objects
 
     Example:
-        query = GetRootEntityQuery(schema_repository=repo)
+        query = GetRootEntityQuery(schema_repository=repo, translation_service=ts)
         result = query.execute()
         if isinstance(result, Success):
-            root_entity = result.value
+            root_entity_dto = result.value  # Returns EntityDefinitionDTO
     """
 
-    def __init__(self, schema_repository: ISchemaRepository) -> None:
+    def __init__(
+        self,
+        schema_repository: ISchemaRepository,
+        translation_service: ITranslationService,
+    ) -> None:
         """Initialize query.
 
         Args:
             schema_repository: Repository for loading schema definitions
+            translation_service: Service for translating i18n keys
         """
         if not isinstance(schema_repository, ISchemaRepository):
             raise TypeError("schema_repository must implement ISchemaRepository")
         self._schema_repository = schema_repository
+        self._entity_mapper = EntityDefinitionMapper(translation_service)
 
-    def execute(self) -> Result[EntityDefinition, str]:
+    def execute(self) -> Result[EntityDefinitionDTO, str]:
         """Execute get root entity query.
 
         Returns:
-            Success(EntityDefinition) if successful, Failure(error) otherwise
+            Success(EntityDefinitionDTO) if successful, Failure(error) otherwise
         """
-        return self._schema_repository.get_root_entity()
+        result = self._schema_repository.get_root_entity()
+        if isinstance(result, Failure):
+            return result
+
+        # Map to DTO before returning
+        return Success(self._entity_mapper.to_dto(result.value))

@@ -1,10 +1,14 @@
-"""Base field widget interface."""
+"""Base field widget interface.
+
+RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md):
+- Presentation layer uses DTOs, NOT domain objects
+- Domain objects NEVER cross Application boundary
+"""
 
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Optional
 
-from doc_helper.domain.schema.field_definition import FieldDefinition
-from doc_helper.domain.validation.validation_result import ValidationError
+from doc_helper.application.dto import FieldDefinitionDTO
 
 
 class IFieldWidget(ABC):
@@ -20,31 +24,31 @@ class IFieldWidget(ABC):
     Each field type (TEXT, NUMBER, DATE, etc.) has its own widget implementation.
 
     Example:
-        widget = TextFieldWidget(field_def)
+        widget = TextFieldWidget(field_dto)
         widget.set_value("Hello")
         widget.set_enabled(True)
         widget.on_value_changed(lambda v: print(f"New value: {v}"))
     """
 
-    def __init__(self, field_definition: Optional[FieldDefinition] = None) -> None:
+    def __init__(self, field_definition: Optional[FieldDefinitionDTO] = None) -> None:
         """Initialize field widget.
 
         Args:
-            field_definition: Field definition (optional for v1)
+            field_definition: Field definition DTO (optional for v1)
         """
         self._field_definition = field_definition
         self._value: Optional[Any] = None
-        self._validation_errors: list[ValidationError] = []
+        self._validation_errors: list[str] = []  # List of error message strings
         self._is_enabled = True
         self._is_visible = True
         self._value_changed_callback: Optional[Callable[[Any], None]] = None
 
     @property
-    def field_definition(self) -> Optional[FieldDefinition]:
+    def field_definition(self) -> Optional[FieldDefinitionDTO]:
         """Get field definition.
 
         Returns:
-            FieldDefinition for this widget (optional for v1)
+            FieldDefinitionDTO for this widget (optional for v1)
         """
         return self._field_definition
 
@@ -67,11 +71,11 @@ class IFieldWidget(ABC):
         return len(self._validation_errors) > 0
 
     @property
-    def validation_errors(self) -> list[ValidationError]:
+    def validation_errors(self) -> list[str]:
         """Get validation errors.
 
         Returns:
-            List of validation errors
+            List of validation error messages (strings, not domain objects)
         """
         return self._validation_errors
 
@@ -111,11 +115,11 @@ class IFieldWidget(ABC):
         self._is_visible = visible
         self._update_visibility()
 
-    def set_validation_errors(self, errors: list[ValidationError]) -> None:
+    def set_validation_errors(self, errors: list[str]) -> None:
         """Set validation errors for this field.
 
         Args:
-            errors: List of validation errors
+            errors: List of validation error messages (strings)
         """
         self._validation_errors = errors
         self._update_validation_display()
