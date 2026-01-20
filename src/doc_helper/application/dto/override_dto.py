@@ -36,3 +36,24 @@ class OverrideDTO:
     state: str  # "PENDING" | "ACCEPTED" | "SYNCED" | "INVALID"
     can_accept: bool  # Pre-computed: is accept action available?
     can_reject: bool  # Pre-computed: is reject action available?
+
+
+@dataclass(frozen=True)
+class ConflictDTO:
+    """UI-facing conflict data for display in conflict resolution dialog.
+
+    Represents a conflict between user override and system-computed values
+    (formulas or controls).
+
+    FORBIDDEN in this DTO (per unified_upgrade_plan.md H2):
+    - Domain types (ConflictInfo, FieldDefinitionId)
+    - Internal resolution state
+    """
+
+    field_id: str  # Field ID as string
+    field_label: str  # Human-readable field name (translated)
+    conflict_type: str  # "formula" | "control" | "formula_control"
+    user_value: str  # Display-formatted user override value
+    formula_value: str | None  # Display-formatted formula value (if formula conflict)
+    control_value: str | None  # Display-formatted control value (if control conflict)
+    description: str  # Human-readable conflict description (translated)

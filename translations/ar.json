@@ -109,7 +109,57 @@
     "error": "خطأ",
     "warning": "تحذير",
     "info": "معلومات",
-    "success": "نجاح"
+    "success": "نجاح",
+    "template_selection": {
+      "title": "اختيار القالب",
+      "instructions": "اختر قالباً لإنشاء المستند",
+      "available_templates": "القوالب المتاحة",
+      "details": "تفاصيل القالب",
+      "format": "التنسيق",
+      "default_template": "هذا هو القالب الافتراضي"
+    },
+    "override_management": {
+      "title": "إدارة التجاوزات",
+      "instructions": "مراجعة وإدارة تجاوزات الحقول من مستند Word",
+      "field": "الحقل",
+      "system_value": "القيمة النظامية",
+      "report_value": "قيمة التقرير",
+      "state": "الحالة",
+      "action": "الإجراء",
+      "accept": "قبول",
+      "reject": "رفض",
+      "accept_all": "قبول الكل",
+      "reject_all": "رفض الكل"
+    },
+    "conflict_resolution": {
+      "title": "حل التعارضات",
+      "instructions": "تم اكتشاف التعارضات التالية بين تجاوزات المستخدم والقيم المحسوبة من النظام",
+      "conflict_count": "تم اكتشاف {count} تعارض",
+      "field": "الحقل",
+      "type": "نوع التعارض",
+      "user_value": "قيمة المستخدم",
+      "system_value": "القيمة النظامية",
+      "description": "الوصف",
+      "type_formula": "صيغة",
+      "type_control": "تحكم",
+      "type_formula_control": "صيغة + تحكم",
+      "user_override": "تجاوز المستخدم",
+      "formula_computed": "محسوبة بالصيغة",
+      "control_set": "مضبوطة بالتحكم",
+      "resolution_note": "ملاحظة: هذه التعارضات للمعلومات فقط. تجاوزات المستخدم لها الأولوية في إنشاء المستند."
+    },
+    "pre_generation": {
+      "title": "قائمة التحقق قبل الإنشاء",
+      "ready": "جاهز للإنشاء!",
+      "ready_instructions": "لم يتم العثور على أخطاء في التحقق. يمكنك المتابعة لإنشاء المستند.",
+      "error_count": "تم العثور على {count} أخطاء في التحقق",
+      "error_instructions": "يرجى إصلاح الأخطاء التالية قبل إنشاء المستند:",
+      "errors_list": "الأخطاء",
+      "generate": "إنشاء"
+    }
+  },
+  "common": {
+    "default": "افتراضي"
   },
   "error": {
     "unknown": "حدث خطأ غير معروف",

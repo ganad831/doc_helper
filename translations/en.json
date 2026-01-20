@@ -109,7 +109,57 @@
     "error": "Error",
     "warning": "Warning",
     "info": "Information",
-    "success": "Success"
+    "success": "Success",
+    "template_selection": {
+      "title": "Select Template",
+      "instructions": "Choose a template for document generation",
+      "available_templates": "Available Templates",
+      "details": "Template Details",
+      "format": "Format",
+      "default_template": "This is the default template"
+    },
+    "override_management": {
+      "title": "Manage Overrides",
+      "instructions": "Review and manage field overrides from Word document",
+      "field": "Field",
+      "system_value": "System Value",
+      "report_value": "Report Value",
+      "state": "State",
+      "action": "Action",
+      "accept": "Accept",
+      "reject": "Reject",
+      "accept_all": "Accept All",
+      "reject_all": "Reject All"
+    },
+    "conflict_resolution": {
+      "title": "Resolve Conflicts",
+      "instructions": "The following conflicts were detected between user overrides and system-computed values",
+      "conflict_count": "{count} conflicts detected",
+      "field": "Field",
+      "type": "Conflict Type",
+      "user_value": "User Value",
+      "system_value": "System Value",
+      "description": "Description",
+      "type_formula": "Formula",
+      "type_control": "Control",
+      "type_formula_control": "Formula + Control",
+      "user_override": "User Override",
+      "formula_computed": "Formula Computed",
+      "control_set": "Control Set",
+      "resolution_note": "Note: These conflicts are informational. User overrides take priority in document generation."
+    },
+    "pre_generation": {
+      "title": "Pre-Generation Checklist",
+      "ready": "Ready to generate!",
+      "ready_instructions": "No validation errors found. You can proceed with document generation.",
+      "error_count": "{count} validation errors found",
+      "error_instructions": "Please fix the following errors before generating the document:",
+      "errors_list": "Errors",
+      "generate": "Generate"
+    }
+  },
+  "common": {
+    "default": "Default"
   },
   "error": {
     "unknown": "An unknown error occurred",

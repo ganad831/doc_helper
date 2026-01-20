@@ -31,6 +31,7 @@ from doc_helper.application.dto.validation_dto import (
 )
 from doc_helper.application.dto.override_dto import (
     OverrideDTO,
+    ConflictDTO,
 )
 from doc_helper.application.dto.document_dto import (
     DocumentFormatDTO,
@@ -58,6 +59,7 @@ __all__ = [
     "ValidationErrorDTO",
     # Override DTOs
     "OverrideDTO",
+    "ConflictDTO",
     # Document DTOs
     "DocumentFormatDTO",
     "TemplateDTO",
