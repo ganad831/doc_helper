@@ -22,12 +22,17 @@ from PyQt6.QtWidgets import QApplication
 from doc_helper.application.commands.create_project_command import (
     CreateProjectCommand,
 )
+from doc_helper.application.commands.save_project_command import SaveProjectCommand
+from doc_helper.application.commands.update_field_command import UpdateFieldCommand
 from doc_helper.application.document.document_generation_service import (
     DocumentGenerationService,
 )
+from doc_helper.application.queries.get_project_query import GetProjectQuery
 from doc_helper.application.queries.get_project_query import GetRecentProjectsQuery
 from doc_helper.application.services.control_service import ControlService
+from doc_helper.application.services.field_service import FieldService
 from doc_helper.application.services.formula_service import FormulaService
+from doc_helper.application.services.override_service import OverrideService
 from doc_helper.application.services.validation_service import ValidationService
 from doc_helper.domain.document.document_format import DocumentFormat
 from doc_helper.domain.document.transformer_registry import TransformerRegistry
@@ -54,7 +59,7 @@ from doc_helper.domain.document.transformers import (
 from doc_helper.domain.common.translation import ITranslationService
 from doc_helper.domain.project.project_repository import IProjectRepository
 from doc_helper.domain.schema.schema_repository import ISchemaRepository
-from doc_helper.infrastructure.di.container import Container
+from doc_helper.infrastructure.di.container import Container, register_undo_services
 from doc_helper.infrastructure.i18n.json_translation_service import (
     JsonTranslationService,
 )
@@ -71,6 +76,7 @@ from doc_helper.infrastructure.persistence.sqlite_project_repository import (
 from doc_helper.infrastructure.persistence.sqlite_schema_repository import (
     SqliteSchemaRepository,
 )
+from doc_helper.presentation.viewmodels.project_viewmodel import ProjectViewModel
 from doc_helper.presentation.viewmodels.welcome_viewmodel import WelcomeViewModel
 from doc_helper.presentation.views.welcome_view import WelcomeView
 
@@ -219,12 +225,64 @@ def configure_container() -> Container:
         ),
     )
 
+    container.register_singleton(
+        UpdateFieldCommand,
+        lambda: UpdateFieldCommand(
+            project_repository=container.resolve(IProjectRepository),
+        ),
+    )
+
+    container.register_singleton(
+        SaveProjectCommand,
+        lambda: SaveProjectCommand(
+            project_repository=container.resolve(IProjectRepository),
+        ),
+    )
+
     # Queries
     container.register_singleton(
         GetRecentProjectsQuery,
         lambda: GetRecentProjectsQuery(
             project_repository=container.resolve(IProjectRepository),
         ),
+    )
+
+    container.register_singleton(
+        GetProjectQuery,
+        lambda: GetProjectQuery(
+            project_repository=container.resolve(IProjectRepository),
+        ),
+    )
+
+    # ========================================================================
+    # APPLICATION: Field and Override Services (Singleton - U6 Phase 7)
+    # ========================================================================
+
+    # Field service - wraps UpdateFieldCommand for undo integration
+    container.register_singleton(
+        FieldService,
+        lambda: FieldService(
+            update_field_command=container.resolve(UpdateFieldCommand),
+            get_project_query=container.resolve(GetProjectQuery),
+        ),
+    )
+
+    # Override service - stub implementation for Phase 7
+    # Full implementation deferred to override UI integration
+    container.register_singleton(
+        OverrideService,
+        lambda: OverrideService(),
+    )
+
+    # ========================================================================
+    # APPLICATION: Undo Infrastructure (Singleton - U6 Phase 7)
+    # ========================================================================
+
+    # Register undo services: UndoManager, FieldUndoService, OverrideUndoService, HistoryAdapter
+    register_undo_services(
+        container,
+        field_service=container.resolve(FieldService),
+        override_service=container.resolve(OverrideService),
     )
 
     # ========================================================================
