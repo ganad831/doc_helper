@@ -119,7 +119,9 @@ class TemplateSelectionDialog(QDialog):
 
     def _populate_templates(self) -> None:
         """Populate template list with available templates."""
-        if not self._template_list:
+        # CRITICAL FIX: Check for None explicitly, not truthiness
+        # Empty QListWidget evaluates to False in boolean context!
+        if self._template_list is None:
             return
 
         for template in self._templates:

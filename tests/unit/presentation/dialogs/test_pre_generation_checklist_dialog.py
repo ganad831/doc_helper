@@ -2,6 +2,7 @@
 
 import pytest
 from unittest.mock import Mock
+from PyQt6.QtCore import QCoreApplication
 from PyQt6.QtWidgets import QDialog
 
 from doc_helper.application.dto import ValidationErrorDTO

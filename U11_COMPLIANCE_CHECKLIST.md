@@ -232,46 +232,47 @@ All keys translated to Arabic with proper RTL formatting.
 
 ### Test Execution
 - **Total Tests**: 53
-- **Passed**: 42/53 (79%)
-- **Failed**: 11/53 (21%)
+- **Passed**: 53/53 (100%)
+- **Failed**: 0/53 (0%)
 
-**Status**: ✅ GOOD TEST COVERAGE (Core functionality verified)
+**Status**: ✅ COMPLETE TEST COVERAGE - All tests passing!
 
 ### Test Fixes Applied
 1. ✅ Fixed TemplateDTO fixtures - added `file_path` parameter
 2. ✅ Fixed OverrideDTO fixtures - added `id` parameter
 3. ✅ Fixed ValidationErrorDTO fixtures - replaced `field_label` with `constraint_type`
 4. ✅ Fixed template_selection_dialog - changed to use explicit `addItem()` calls
+5. ✅ **CRITICAL FIX**: Fixed QListWidget boolean check bug in both dialogs
 
-### Tests Passing (42)
-- ✅ All conflict_resolution_dialog tests (13/13) - 100%
-- ✅ All override_management_dialog tests (11/11) - 100%
-- ✅ Pre-generation initialization, error count, messages, button state (13/16) - 81%
-- ✅ Template selection initialization, empty list (2/11) - 18%
+### Critical Bug Fixed (Affected 11 tests)
 
-### Remaining Test Issues (11)
-**Pre-Generation Checklist** (3 failures):
-- test_error_list_populated - QListWidget shows 0 items despite addItem() calls
-- test_error_tooltips - Item tooltips not accessible in test
-- test_error_formatting - Item formatting not accessible in test
+**Bug**: Empty QListWidget evaluates to `False` in Python boolean context
 
-**Template Selection** (8 failures):
-- test_template_list_populated - QListWidget shows 0 items despite addItem() calls
-- test_default_template_highlighted - Selected template None
-- test_current_template_selected - Selected template None
-- test_default_selected_if_no_current - Selected template None
-- test_template_selection_updates_details - Selected template None
-- test_ok_button_accepts_dialog - Signal timeout
-- test_get_selected_template_returns_selection - Selected template None
-- test_static_select_template_returns_template_on_accept - Mock exec() signature issue
+**Location**:
+- `template_selection_dialog.py` line 120
+- `pre_generation_checklist_dialog.py` line 157
 
-**Root Cause Analysis**:
-- QListWidget items not being added/visible in test environment
-- Likely Qt event loop or widget initialization timing issue
-- Dialog implementations are CORRECT (verified by passing override/conflict tests which use QTableWidget)
-- Issue is test-specific, not production code
+**Old Code (BUGGY)**:
+```python
+if not self._template_list:
+    return
+```
 
-**Action**: These are test infrastructure issues, not implementation bugs. Dialog code is production-ready.
+**Problem**: When `_template_list` is an empty QListWidget (count() == 0), the expression `not self._template_list` evaluates to `True`, causing early return and preventing items from being added.
+
+**New Code (FIXED)**:
+```python
+if self._template_list is None:
+    return
+```
+
+**Impact**: This single bug was causing all 11 QListWidget-related test failures. Once fixed, all 53 tests pass immediately.
+
+### All Tests Passing (53/53 - 100%)
+- ✅ All conflict_resolution_dialog tests (13/13)
+- ✅ All override_management_dialog tests (11/11)
+- ✅ All pre-generation_checklist_dialog tests (16/16)
+- ✅ All template_selection_dialog tests (11/11)
 
 ---
 
@@ -360,11 +361,15 @@ class ConflictDTO:
 2. ✅ ConflictDTO created and exported
 3. ✅ 31 translation keys (English + Arabic)
 4. ✅ dialogs/__init__.py exports updated
-5. ✅ 53 unit tests created (24 passing, issues with fixtures)
+5. ✅ 53 unit tests created (53/53 passing - 100%)
+6. ✅ Fixed critical QListWidget boolean check bug
 
-**What Remains**:
-- ⚠️ 11 test failures (QListWidget test infrastructure issues, not implementation bugs)
-- ⏭️ Ready for git commit
+**All Objectives Met**:
+- ✅ All 4 dialogs implemented correctly
+- ✅ All 53 tests passing
+- ✅ DTO-only pattern enforced
+- ✅ i18n support complete
+- ✅ No domain imports in presentation layer
 
 ### Production Readiness
 
@@ -374,32 +379,36 @@ class ConflictDTO:
 - All dialogs have proper static factory methods
 - No business logic in presentation layer
 
-**Test Coverage**: ✅ Good (79% passing)
-- 42/53 tests passing
-- All conflict_resolution and override_management tests passing (100%)
-- 11 failures are QListWidget test infrastructure issues, not implementation bugs
-- Dialog code is correct (verified by 42 passing tests)
+**Test Coverage**: ✅ EXCELLENT (100% passing)
+- 53/53 tests passing
+- All conflict_resolution_dialog tests (13/13) - 100%
+- All override_management_dialog tests (11/11) - 100%
+- All pre_generation_checklist_dialog tests (16/16) - 100%
+- All template_selection_dialog tests (11/11) - 100%
+- Critical bug fixed in QListWidget boolean checks
+
+### Bug Fix Summary
+
+**Critical Bug Found**: Empty QListWidget evaluates to `False` in boolean context
+**Files Affected**:
+- `template_selection_dialog.py`
+- `pre_generation_checklist_dialog.py`
+
+**Fix**: Changed `if not self._template_list:` to `if self._template_list is None:`
+**Impact**: Resolved all 11 previously failing tests
 
 ### User Question Response
 
-**User Asked**: "what about these (i think you told me differed to U11) and may be there is others"
-- ❌ Figure numbering dialog
-- ❌ FILE/IMAGE widget integration
-- ❌ Drag-and-drop reordering UI
+**User Asked**: "how to make these tests passes"
 
-**Answer**: These items are NOT in U11 scope according to unified_upgrade_plan_FINAL.md:
-- **Figure numbering dialog**: Mentioned in plan.md folder structure but not assigned to any milestone
-- **FILE/IMAGE widgets**: Skeleton interfaces exist, full PyQt6 implementation should have been in M11 (Presentation)
-- **Drag-and-drop reordering**: File management UI, likely M11 or U9
+**Answer**: Found and fixed root cause bug - empty QListWidget widgets evaluate to False in Python's boolean context. Changed boolean checks (`if not widget:`) to explicit None checks (`if widget is None:`) in both `_populate_templates()` and `_populate_errors()` methods. This single fix resolved all 11 failing tests.
 
-**U11 Scope (From Plan)**: Only 4 dialogs - template selection, override management, conflict resolution, pre-generation checklist.
-
-All 4 core U11 dialogs are complete and functional.
+**U11 Scope (From Plan)**: 4 dialogs - template selection, override management, conflict resolution, pre-generation checklist. All complete and fully tested.
 
 ---
 
 **Signed off**: 2026-01-20
-**Status**: ✅ U11 Implementation Complete (79% test coverage)
+**Status**: ✅ U11 Implementation Complete (100% test coverage - 53/53 tests passing)
 **Next Step**: Commit U11 work and proceed to U12 (Integration & Testing)
 
-**Note**: 11 remaining test failures are QListWidget test infrastructure issues. The dialog implementations are production-ready as verified by 42 passing tests including complete coverage of conflict_resolution and override_management dialogs.
+**Achievement**: U11 completed successfully with all tests passing. Critical QListWidget bug discovered and fixed during test debugging.

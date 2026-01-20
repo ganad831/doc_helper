@@ -154,7 +154,9 @@ class PreGenerationChecklistDialog(QDialog):
 
     def _populate_errors(self) -> None:
         """Populate error list with validation errors."""
-        if not self._error_list:
+        # CRITICAL FIX: Check for None explicitly, not truthiness
+        # Empty QListWidget evaluates to False in boolean context!
+        if self._error_list is None:
             return
 
         for error in self._errors:

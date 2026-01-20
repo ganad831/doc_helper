@@ -2,6 +2,7 @@
 
 import pytest
 from unittest.mock import Mock, MagicMock
+from PyQt6.QtCore import QCoreApplication
 from PyQt6.QtWidgets import QDialog
 
 from doc_helper.application.dto import TemplateDTO
@@ -128,6 +129,7 @@ class TestTemplateSelectionDialog:
 
         # Select second template
         dialog._template_list.setCurrentRow(1)
+        QCoreApplication.processEvents()
 
         assert dialog._selected_template is not None
         assert dialog._selected_template.id == "template_2"
@@ -182,9 +184,8 @@ class TestTemplateSelectionDialog:
     ):
         """Test static select_template method returns template on accept."""
         # Mock exec() to simulate user accepting dialog
-        def mock_exec():
-            dialog = TemplateSelectionDialog._test_instance
-            dialog._selected_template = sample_templates[1]
+        def mock_exec(self):
+            self._selected_template = sample_templates[1]
             return QDialog.DialogCode.Accepted
 
         monkeypatch.setattr(TemplateSelectionDialog, "exec", mock_exec)
@@ -195,15 +196,6 @@ class TestTemplateSelectionDialog:
             translation_adapter=mock_translation_adapter,
             current_template_id="template_1",
         )
-
-        # Store instance for mock_exec
-        TemplateSelectionDialog._test_instance = TemplateSelectionDialog(
-            parent=None,
-            templates=sample_templates,
-            translation_adapter=mock_translation_adapter,
-            current_template_id="template_1",
-        )
-        qtbot.addWidget(TemplateSelectionDialog._test_instance)
 
         assert result is not None
         assert result.id == "template_2"
