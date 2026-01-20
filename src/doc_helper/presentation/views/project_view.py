@@ -18,7 +18,9 @@ from PyQt6.QtWidgets import (
 )
 
 from doc_helper.application.dto import EntityDefinitionDTO, FieldDefinitionDTO
+from doc_helper.domain.common.translation import ITranslationService
 from doc_helper.domain.schema.schema_ids import FieldDefinitionId
+from doc_helper.presentation.dialogs import SettingsDialog
 from doc_helper.presentation.factories import FieldWidgetFactory
 from doc_helper.presentation.viewmodels.project_viewmodel import ProjectViewModel
 from doc_helper.presentation.views.base_view import BaseView
@@ -52,6 +54,7 @@ class ProjectView(BaseView):
         parent: Optional[QWidget],
         viewmodel: ProjectViewModel,
         entity_definition: EntityDefinitionDTO,
+        translation_service: ITranslationService,
         widget_factory: Optional[FieldWidgetFactory] = None,
     ) -> None:
         """Initialize project view.
@@ -60,11 +63,13 @@ class ProjectView(BaseView):
             parent: Parent widget
             viewmodel: ProjectViewModel instance
             entity_definition: Entity definition DTO (NOT domain object)
+            translation_service: Translation service for i18n
             widget_factory: Factory for creating field widgets (default: new instance)
         """
         super().__init__(parent)
         self._viewmodel = viewmodel
         self._entity_definition = entity_definition
+        self._translation_service = translation_service
         self._widget_factory = widget_factory or FieldWidgetFactory()
 
         # UI components
@@ -161,6 +166,13 @@ class ProjectView(BaseView):
         redo_action.setShortcut(QKeySequence("Ctrl+Y"))
         redo_action.triggered.connect(self._on_redo)
         edit_menu.addAction(redo_action)
+
+        # Tools menu
+        tools_menu = menubar.addMenu("Tools")
+
+        settings_action = QAction("Settings...", self._root)
+        settings_action.triggered.connect(self._on_settings)
+        tools_menu.addAction(settings_action)
 
     def _create_sidebar(self) -> QWidget:
         """Create sidebar.
@@ -402,6 +414,18 @@ class ProjectView(BaseView):
         # - History adapter with redo stack
         # - Field value redo commands
         pass
+
+    def _on_settings(self) -> None:
+        """Handle Settings action.
+
+        Opens settings dialog for user preferences (language, theme, etc.).
+        """
+        # Show settings dialog
+        SettingsDialog.show_settings(self._root, self._translation_service)
+
+        # Note: Language change takes effect immediately via translation service
+        # UI components that subscribe to language changes will update automatically
+        self._status_bar.showMessage("Settings updated")
 
     def _on_generate_document(self) -> None:
         """Handle Generate Document action.
