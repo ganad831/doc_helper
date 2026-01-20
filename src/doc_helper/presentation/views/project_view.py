@@ -78,6 +78,10 @@ class ProjectView(BaseView):
         self._generate_button: Optional[QPushButton] = None
         self._status_bar: Optional[QStatusBar] = None
 
+        # Undo/Redo actions (U6 Phase 5)
+        self._undo_action: Optional[QAction] = None
+        self._redo_action: Optional[QAction] = None
+
         # Field widgets mapped by field ID
         self._field_widgets: dict[str, IFieldWidget] = {}
 
@@ -126,6 +130,12 @@ class ProjectView(BaseView):
         # Bind to ViewModel property changes
         self._viewmodel.subscribe("has_unsaved_changes", self._on_unsaved_changes)
         self._viewmodel.subscribe("project_name", self._on_project_name_changed)
+        self._viewmodel.subscribe("can_undo", self._on_undo_state_changed)
+        self._viewmodel.subscribe("can_redo", self._on_redo_state_changed)
+
+        # Initialize undo/redo action states
+        self._update_undo_action()
+        self._update_redo_action()
 
         # Perform initial validation
         self._update_validation()
@@ -161,11 +171,13 @@ class ProjectView(BaseView):
         undo_action.setShortcut(QKeySequence("Ctrl+Z"))
         undo_action.triggered.connect(self._on_undo)
         edit_menu.addAction(undo_action)
+        self._undo_action = undo_action  # Store reference for state updates
 
         redo_action = QAction("Redo", self._root)
         redo_action.setShortcut(QKeySequence("Ctrl+Y"))
         redo_action.triggered.connect(self._on_redo)
         edit_menu.addAction(redo_action)
+        self._redo_action = redo_action  # Store reference for state updates
 
         # Tools menu
         tools_menu = menubar.addMenu("Tools")
@@ -377,6 +389,24 @@ class ProjectView(BaseView):
         suffix = " *" if self._viewmodel.has_unsaved_changes else ""
         self._root.setWindowTitle(f"Doc Helper - {self._viewmodel.project_name}{suffix}")
 
+    def _on_undo_state_changed(self) -> None:
+        """Handle undo state change from ViewModel."""
+        self._update_undo_action()
+
+    def _on_redo_state_changed(self) -> None:
+        """Handle redo state change from ViewModel."""
+        self._update_redo_action()
+
+    def _update_undo_action(self) -> None:
+        """Update undo action enabled state based on ViewModel."""
+        if self._undo_action:
+            self._undo_action.setEnabled(self._viewmodel.can_undo)
+
+    def _update_redo_action(self) -> None:
+        """Update redo action enabled state based on ViewModel."""
+        if self._redo_action:
+            self._redo_action.setEnabled(self._viewmodel.can_redo)
+
     def _on_save(self) -> None:
         """Handle Save action."""
         if self._viewmodel.save_project():
@@ -388,32 +418,32 @@ class ProjectView(BaseView):
             QMessageBox.critical(self._root, "Save Error", "Failed to save project")
 
     def _on_undo(self) -> None:
-        """Handle Undo action.
+        """Handle Undo action (Ctrl+Z).
 
-        Note:
-            Full undo/redo implementation is in Milestone U6.
-            This is a placeholder for U3 - menu item exists but not functional.
+        Triggers undo operation through ViewModel and displays command description
+        in status bar.
         """
-        self._status_bar.showMessage("Undo not yet implemented (Milestone U6)")
-        # Full implementation in U6:
-        # - Command-based undo model (ADR-017)
-        # - History adapter with undo stack
-        # - Field value undo commands
-        pass
+        self._viewmodel.undo()
+        # Show status message with command description if available
+        if hasattr(self._viewmodel, '_history_adapter'):
+            desc = self._viewmodel._history_adapter._undo_manager.undo_description
+            self._status_bar.showMessage(f"Undo: {desc}" if desc else "Undo")
+        else:
+            self._status_bar.showMessage("Undo")
 
     def _on_redo(self) -> None:
-        """Handle Redo action.
+        """Handle Redo action (Ctrl+Y).
 
-        Note:
-            Full undo/redo implementation is in Milestone U6.
-            This is a placeholder for U3 - menu item exists but not functional.
+        Triggers redo operation through ViewModel and displays command description
+        in status bar.
         """
-        self._status_bar.showMessage("Redo not yet implemented (Milestone U6)")
-        # Full implementation in U6:
-        # - Command-based undo model (ADR-017)
-        # - History adapter with redo stack
-        # - Field value redo commands
-        pass
+        self._viewmodel.redo()
+        # Show status message with command description if available
+        if hasattr(self._viewmodel, '_history_adapter'):
+            desc = self._viewmodel._history_adapter._undo_manager.redo_description
+            self._status_bar.showMessage(f"Redo: {desc}" if desc else "Redo")
+        else:
+            self._status_bar.showMessage("Redo")
 
     def _on_settings(self) -> None:
         """Handle Settings action.
@@ -503,6 +533,8 @@ class ProjectView(BaseView):
         if self._viewmodel:
             self._viewmodel.unsubscribe("has_unsaved_changes", self._on_unsaved_changes)
             self._viewmodel.unsubscribe("project_name", self._on_project_name_changed)
+            self._viewmodel.unsubscribe("can_undo", self._on_undo_state_changed)
+            self._viewmodel.unsubscribe("can_redo", self._on_redo_state_changed)
 
         # Dispose field widgets
         for widget in self._field_widgets.values():
