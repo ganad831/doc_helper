@@ -17,16 +17,18 @@ class Override(Entity[OverrideId]):
     Override represents a user's decision to override a computed or controlled
     field value. It tracks the override lifecycle through state transitions.
 
-    State Machine:
-        PENDING → ACCEPTED → SYNCED
-             ↓
-          (reject)
+    State Machine (U8 - with cleanup):
+        PENDING → ACCEPTED → SYNCED → cleanup (non-formula)
+             ↓                  ↓
+          INVALID         SYNCED_FORMULA (preserved)
 
     RULES:
     - Override is an entity (has identity, lifecycle)
     - State transitions are enforced (can't skip states)
     - Tracks both the override value and reason
     - Links to project and field
+    - SYNCED overrides cleaned up after document generation
+    - SYNCED_FORMULA overrides preserved across generations
 
     Example:
         from uuid import uuid4
@@ -39,18 +41,20 @@ class Override(Entity[OverrideId]):
             override_value=1600,
             original_value=1500,
             reason="Manual adjustment for special case",
-            state=OverrideState.PENDING
+            state=OverrideState.PENDING,
+            conflict_type="formula"  # Indicates formula conflict
         )
 
         # User accepts override
         override.accept()  # PENDING → ACCEPTED
 
-        # System syncs override
-        override.mark_synced()  # ACCEPTED → SYNCED
+        # System syncs override (formula)
+        override.mark_synced_formula()  # ACCEPTED → SYNCED_FORMULA
+        # Will be preserved after document generation
 
         # Check state
         assert override.is_accepted
-        assert override.state == OverrideState.SYNCED
+        assert override.state == OverrideState.SYNCED_FORMULA
     """
 
     project_id: ProjectId  # Project containing the field
@@ -88,8 +92,26 @@ class Override(Entity[OverrideId]):
         self.state = OverrideState.ACCEPTED
         self._touch()
 
+    def mark_invalid(self) -> None:
+        """Mark override as invalid (PENDING → INVALID).
+
+        Called when validation fails for the override value.
+
+        Raises:
+            ValueError: If override is not in PENDING state
+        """
+        if not self.state.can_mark_invalid():
+            raise ValueError(
+                f"Cannot mark override invalid in state {self.state.value}. "
+                f"Override must be PENDING."
+            )
+        self.state = OverrideState.INVALID
+        self._touch()
+
     def mark_synced(self) -> None:
         """Mark override as synced (ACCEPTED → SYNCED).
+
+        For non-formula overrides. These will be cleaned up after document generation.
 
         Raises:
             ValueError: If override is not in ACCEPTED state
@@ -100,6 +122,22 @@ class Override(Entity[OverrideId]):
                 f"Override must be ACCEPTED."
             )
         self.state = OverrideState.SYNCED
+        self._touch()
+
+    def mark_synced_formula(self) -> None:
+        """Mark override as synced with formula value (ACCEPTED → SYNCED_FORMULA).
+
+        For formula overrides. These are preserved across document generations.
+
+        Raises:
+            ValueError: If override is not in ACCEPTED state
+        """
+        if not self.state.can_sync_formula():
+            raise ValueError(
+                f"Cannot sync formula override in state {self.state.value}. "
+                f"Override must be ACCEPTED."
+            )
+        self.state = OverrideState.SYNCED_FORMULA
         self._touch()
 
     def update_reason(self, reason: Optional[str]) -> None:
@@ -157,13 +195,41 @@ class Override(Entity[OverrideId]):
         return self.state.is_accepted
 
     @property
+    def is_invalid(self) -> bool:
+        """Check if override is invalid.
+
+        Returns:
+            True if state is INVALID
+        """
+        return self.state.is_invalid
+
+    @property
     def is_synced(self) -> bool:
-        """Check if override is synced.
+        """Check if override is synced (non-formula).
 
         Returns:
             True if state is SYNCED
         """
         return self.state.is_synced
+
+    @property
+    def is_synced_formula(self) -> bool:
+        """Check if override is synced with formula value.
+
+        Returns:
+            True if state is SYNCED_FORMULA
+        """
+        return self.state.is_synced_formula
+
+    @property
+    def should_cleanup_after_generation(self) -> bool:
+        """Check if override should be cleaned up after document generation.
+
+        Returns:
+            True if SYNCED (non-formula overrides are deleted)
+            False if SYNCED_FORMULA (formula overrides preserved)
+        """
+        return self.state.should_cleanup_after_generation()
 
     @property
     def has_conflict(self) -> bool:

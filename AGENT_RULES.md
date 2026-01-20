@@ -189,6 +189,38 @@ After implementation, the agent MUST:
 
 ---
 
+## 13. COMPLETED MILESTONES
+
+### U8: Legacy Behavior Parity (✅ COMPLETE - 2026-01-20)
+
+**Goal**: Implement hidden behaviors from legacy app for document generation workflow.
+
+**Implemented**:
+1. **Auto-save before document generation**
+   - Modified: `GenerateDocumentCommand`
+   - Behavior: Project automatically saves before generating document
+   - Location: [generate_document_command.py](src/doc_helper/application/commands/generate_document_command.py)
+
+2. **Override cleanup post-generation**
+   - Added: `INVALID` and `SYNCED_FORMULA` states to `OverrideState` enum
+   - Added: `IOverrideRepository` interface in domain layer
+   - Implemented: `cleanup_synced_overrides()` in `OverrideService`
+   - Behavior: SYNCED (non-formula) overrides deleted after successful generation, SYNCED_FORMULA overrides preserved
+   - Location: [override_service.py](src/doc_helper/application/services/override_service.py)
+
+**Tests**:
+- ✅ 8/8 tests passing for OverrideService cleanup ([test_override_service_cleanup.py](tests/unit/application/services/test_override_service_cleanup.py))
+- ✅ 8/8 tests passing for GenerateDocumentCommand U8 behavior ([test_generate_document_command_u8.py](tests/unit/application/commands/test_generate_document_command_u8.py))
+- ✅ 758/758 domain & application tests passing (no regressions)
+
+**Compliance**:
+- ✅ No v2 features introduced
+- ✅ Clean Architecture layers respected
+- ✅ DTO-only MVVM maintained
+- ✅ All new code tested
+
+---
+
 ## FINAL NOTE
 
 This document exists to **prevent architectural drift**.

@@ -1,38 +1,90 @@
 """Concrete override service implementing IOverrideService protocol.
 
-STUB IMPLEMENTATION for Phase 7 DI container wiring.
-Full implementation deferred to override UI integration milestone.
+PARTIAL IMPLEMENTATION:
+- Phase 7 (U6): Basic methods for undo integration (stubs)
+- Phase 8 (U8): Added cleanup_synced_overrides for document generation
+- Full implementation deferred to override UI integration milestone
 
-RULES (unified_upgrade_plan_FINAL.md U6 Phase 7):
-- Implements IOverrideService protocol for OverrideUndoService
-- Currently returns stub values - override functionality not yet exposed in ViewModel
-- Will be fully implemented when override UI is added
+RULES (unified_upgrade_plan_FINAL.md):
+- U6: Implements IOverrideService protocol for OverrideUndoService
+- U8: Cleanup SYNCED (non-formula) overrides after document generation
+- Preserves SYNCED_FORMULA overrides across generations
 
-NOTE: T3 temporal test was skipped pending this integration.
+NOTE: Most methods still stubs until override UI is integrated.
 """
 
 from typing import Any
 
 from doc_helper.domain.common.result import Failure, Result, Success
+from doc_helper.domain.override.repositories import IOverrideRepository
+from doc_helper.domain.project.project_ids import ProjectId
 
 
 class OverrideService:
-    """Stub override service for Phase 7 DI wiring.
+    """Override service for managing override lifecycle and cleanup.
+
+    PARTIAL IMPLEMENTATION:
+    - cleanup_synced_overrides: Full implementation (U8)
+    - Other methods: Stubs (pending override UI integration)
 
     Implements IOverrideService protocol required by OverrideUndoService.
-    Returns stub values until override functionality is fully integrated.
+
+    Dependencies:
+        - IOverrideRepository: For persisting and querying override entities
 
     Example:
-        override_service = OverrideService()
+        override_repo = SqliteOverrideRepository(...)
+        override_service = OverrideService(override_repo)
 
-        # Get override state (stub)
-        result = override_service.get_override_state("project-123", "override-456")
-        # Returns Failure("Override functionality not yet integrated")
+        # U8: Cleanup after document generation
+        result = override_service.cleanup_synced_overrides(project_id)
+        if isinstance(result, Success):
+            print(f"Cleaned up {result.value} overrides")
     """
 
-    def __init__(self) -> None:
-        """Initialize OverrideService stub."""
-        pass
+    def __init__(self, override_repository: IOverrideRepository) -> None:
+        """Initialize OverrideService.
+
+        Args:
+            override_repository: Repository for override persistence
+        """
+        self._override_repository = override_repository
+
+    def cleanup_synced_overrides(self, project_id: ProjectId) -> Result[int, str]:
+        """Clean up SYNCED (non-formula) overrides after document generation.
+
+        U8 Behavior: After successful document generation:
+        - Delete overrides in SYNCED state (should_cleanup_after_generation = True)
+        - Preserve overrides in SYNCED_FORMULA state
+
+        Args:
+            project_id: Project identifier
+
+        Returns:
+            Success(count) with number of overrides cleaned up
+            Failure(error) if cleanup failed
+        """
+        if not isinstance(project_id, ProjectId):
+            return Failure("project_id must be a ProjectId instance")
+
+        # Get all overrides for this project
+        overrides_result = self._override_repository.list_by_project(project_id)
+        if not overrides_result.is_success:
+            return Failure(f"Failed to list overrides: {overrides_result.error}")
+
+        overrides = overrides_result.value
+        cleanup_count = 0
+
+        # Filter overrides that should be cleaned up (SYNCED state)
+        for override in overrides:
+            if override.should_cleanup_after_generation:
+                # Delete this override
+                delete_result = self._override_repository.delete(override.id)
+                if delete_result.is_success:
+                    cleanup_count += 1
+                # Continue even if delete fails - try to clean up as many as possible
+
+        return Success(cleanup_count)
 
     def get_override_state(
         self,
