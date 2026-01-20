@@ -223,3 +223,80 @@ class Container:
         self._scoped.clear()
         self._factories.clear()
         self._lifetimes.clear()
+
+
+def register_undo_services(
+    container: Container,
+    field_service: Any,
+    override_service: Any,
+) -> None:
+    """Register undo/redo infrastructure services.
+
+    Services registered:
+    - UndoManager: Singleton (shared across application)
+    - FieldUndoService: Singleton (wraps field operations with undo)
+    - OverrideUndoService: Singleton (wraps override operations with undo)
+    - HistoryAdapter: Singleton (Qt signal bridge for UI)
+
+    Dependencies:
+    - FieldUndoService requires: IFieldService, UndoManager
+    - OverrideUndoService requires: IOverrideService, IFieldService, UndoManager
+    - HistoryAdapter requires: UndoManager
+
+    Args:
+        container: DI container instance
+        field_service: Concrete implementation of IFieldService protocol
+        override_service: Concrete implementation of IOverrideService protocol
+
+    Note:
+        IFieldService and IOverrideService are structural protocols.
+        Pass concrete implementations that match the protocol interface.
+
+    Example:
+        container = Container()
+        field_svc = MockFieldService()  # implements IFieldService protocol
+        override_svc = MockOverrideService()  # implements IOverrideService protocol
+        register_undo_services(container, field_svc, override_svc)
+        undo_manager = container.resolve(UndoManager)
+    """
+    from doc_helper.application.services.field_undo_service import FieldUndoService
+    from doc_helper.application.services.override_undo_service import (
+        OverrideUndoService,
+    )
+    from doc_helper.application.undo.undo_manager import UndoManager
+    from doc_helper.presentation.adapters.history_adapter import HistoryAdapter
+
+    # Register UndoManager as singleton (shared across application)
+    container.register_singleton(
+        UndoManager,
+        lambda: UndoManager(),
+    )
+
+    # Register FieldUndoService (depends on IFieldService + UndoManager)
+    # field_service parameter must implement IFieldService protocol
+    container.register_singleton(
+        FieldUndoService,
+        lambda: FieldUndoService(
+            field_service=field_service,
+            undo_manager=container.resolve(UndoManager),
+        ),
+    )
+
+    # Register OverrideUndoService (depends on IOverrideService + IFieldService + UndoManager)
+    # override_service and field_service parameters must implement respective protocols
+    container.register_singleton(
+        OverrideUndoService,
+        lambda: OverrideUndoService(
+            override_service=override_service,
+            field_service=field_service,
+            undo_manager=container.resolve(UndoManager),
+        ),
+    )
+
+    # Register HistoryAdapter (depends on UndoManager)
+    container.register_singleton(
+        HistoryAdapter,
+        lambda: HistoryAdapter(
+            undo_manager=container.resolve(UndoManager),
+        ),
+    )
