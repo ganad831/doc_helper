@@ -18,8 +18,8 @@ from PyQt6.QtWidgets import (
 )
 
 from doc_helper.application.dto import EntityDefinitionDTO, FieldDefinitionDTO
-from doc_helper.domain.common.translation import ITranslationService
 from doc_helper.domain.schema.schema_ids import FieldDefinitionId
+from doc_helper.presentation.adapters.qt_translation_adapter import QtTranslationAdapter
 from doc_helper.presentation.dialogs import SettingsDialog
 from doc_helper.presentation.factories import FieldWidgetFactory
 from doc_helper.presentation.viewmodels.project_viewmodel import ProjectViewModel
@@ -54,7 +54,7 @@ class ProjectView(BaseView):
         parent: Optional[QWidget],
         viewmodel: ProjectViewModel,
         entity_definition: EntityDefinitionDTO,
-        translation_service: ITranslationService,
+        translation_adapter: QtTranslationAdapter,
         widget_factory: Optional[FieldWidgetFactory] = None,
     ) -> None:
         """Initialize project view.
@@ -63,13 +63,13 @@ class ProjectView(BaseView):
             parent: Parent widget
             viewmodel: ProjectViewModel instance
             entity_definition: Entity definition DTO (NOT domain object)
-            translation_service: Translation service for i18n
+            translation_adapter: Qt translation adapter for i18n with RTL/LTR support
             widget_factory: Factory for creating field widgets (default: new instance)
         """
         super().__init__(parent)
         self._viewmodel = viewmodel
         self._entity_definition = entity_definition
-        self._translation_service = translation_service
+        self._translation_adapter = translation_adapter
         self._widget_factory = widget_factory or FieldWidgetFactory()
 
         # UI components
@@ -514,10 +514,11 @@ class ProjectView(BaseView):
         Opens settings dialog for user preferences (language, theme, etc.).
         """
         # Show settings dialog
-        SettingsDialog.show_settings(self._root, self._translation_service)
+        SettingsDialog.show_settings(self._root, self._translation_adapter)
 
-        # Note: Language change takes effect immediately via translation service
-        # UI components that subscribe to language changes will update automatically
+        # Note: Language change takes effect immediately via translation adapter
+        # The adapter emits signals and applies RTL/LTR layout direction
+        # UI components that subscribe to language_changed will update automatically
         self._status_bar.showMessage("Settings updated")
 
     def _on_generate_document(self) -> None:

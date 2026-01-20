@@ -67,6 +67,7 @@ from doc_helper.infrastructure.di.container import (
 from doc_helper.infrastructure.i18n.json_translation_service import (
     JsonTranslationService,
 )
+from doc_helper.presentation.adapters.qt_translation_adapter import QtTranslationAdapter
 from doc_helper.infrastructure.document.excel_document_adapter import (
     ExcelDocumentAdapter,
 )
@@ -348,6 +349,18 @@ def main() -> int:
 
     # Create Qt application
     app = create_app(container)
+
+    # ========================================================================
+    # PRESENTATION: Qt Translation Adapter (Singleton - requires QApplication)
+    # ========================================================================
+
+    # Register QtTranslationAdapter after QApplication is created
+    # This adapter bridges ITranslationService to Qt UI with RTL/LTR support
+    qt_translation_adapter = QtTranslationAdapter(
+        translation_service=container.resolve(ITranslationService),
+        app=app,
+    )
+    container.register_instance(QtTranslationAdapter, qt_translation_adapter)
 
     # Create welcome view
     welcome_vm = container.resolve(WelcomeViewModel)

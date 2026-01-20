@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 from doc_helper.domain.common.i18n import Language
-from doc_helper.domain.common.translation import ITranslationService
+from doc_helper.presentation.adapters.qt_translation_adapter import QtTranslationAdapter
 
 
 class SettingsDialog(QDialog):
@@ -33,22 +33,22 @@ class SettingsDialog(QDialog):
 
     RULES (AGENT_RULES.md Section 3-4):
     - Uses DTOs only (no domain objects)
-    - Translation service for i18n
+    - Qt translation adapter for i18n with RTL/LTR support
     """
 
     def __init__(
         self,
         parent: Optional[QWidget],
-        translation_service: ITranslationService,
+        translation_adapter: QtTranslationAdapter,
     ) -> None:
         """Initialize settings dialog.
 
         Args:
             parent: Parent widget
-            translation_service: Translation service for language switching
+            translation_adapter: Qt translation adapter for language switching
         """
         super().__init__(parent)
-        self._translation_service = translation_service
+        self._translation_adapter = translation_adapter
 
         # UI components
         self._language_combo: Optional[QComboBox] = None
@@ -80,7 +80,7 @@ class SettingsDialog(QDialog):
             )
 
         # Set current language
-        current_language = self._translation_service.get_current_language()
+        current_language = self._translation_adapter.get_current_language()
         current_index = list(Language).index(current_language)
         self._language_combo.setCurrentIndex(current_index)
 
@@ -100,14 +100,20 @@ class SettingsDialog(QDialog):
         main_layout.addWidget(button_box)
 
     def _on_ok(self) -> None:
-        """Handle OK button click."""
+        """Handle OK button click.
+
+        Changes the language via QtTranslationAdapter, which:
+        1. Updates translation service
+        2. Applies RTL/LTR layout direction
+        3. Emits signals for UI updates
+        """
         # Get selected language
         if self._language_combo:
             selected_language = self._language_combo.currentData()
 
-            # Set language via translation service
+            # Change language via adapter (triggers RTL/LTR + signals)
             if selected_language:
-                self._translation_service.set_language(selected_language)
+                self._translation_adapter.change_language(selected_language)
 
         # Close dialog
         self.accept()
@@ -120,17 +126,17 @@ class SettingsDialog(QDialog):
     @staticmethod
     def show_settings(
         parent: Optional[QWidget],
-        translation_service: ITranslationService,
+        translation_adapter: QtTranslationAdapter,
     ) -> bool:
         """Show settings dialog and return whether user clicked OK.
 
         Args:
             parent: Parent widget
-            translation_service: Translation service
+            translation_adapter: Qt translation adapter
 
         Returns:
             True if user clicked OK, False if cancelled
         """
-        dialog = SettingsDialog(parent, translation_service)
+        dialog = SettingsDialog(parent, translation_adapter)
         result = dialog.exec()
         return result == QDialog.DialogCode.Accepted
