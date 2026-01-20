@@ -1,0 +1,283 @@
+"""Main entry point for Doc Helper application.
+
+This is the composition root where all dependencies are wired together.
+
+ARCHITECTURAL RULES (AGENT_RULES.md Section 2):
+- Presentation → Application only
+- Application → Domain only
+- Infrastructure → Domain + Application
+- Domain → NOTHING
+
+LIFETIME RULES:
+- Singleton: Shared across application (repositories, registries, adapters)
+- Scoped: Per-project session (cleared on project open/close)
+- Transient: Created each time (rarely used)
+"""
+
+import sys
+from pathlib import Path
+
+from PyQt6.QtWidgets import QApplication
+
+from doc_helper.application.commands.create_project_command import (
+    CreateProjectCommand,
+)
+from doc_helper.application.document.document_generation_service import (
+    DocumentGenerationService,
+)
+from doc_helper.application.queries.get_project_query import GetRecentProjectsQuery
+from doc_helper.application.services.control_service import ControlService
+from doc_helper.application.services.formula_service import FormulaService
+from doc_helper.application.services.validation_service import ValidationService
+from doc_helper.domain.document.document_format import DocumentFormat
+from doc_helper.domain.document.transformer_registry import TransformerRegistry
+from doc_helper.domain.document.transformers import (
+    BooleanTransformer,
+    CapitalizeTransformer,
+    ConcatTransformer,
+    CurrencyTransformer,
+    DateTimeTransformer,
+    DateTransformer,
+    DecimalTransformer,
+    IfEmptyTransformer,
+    IfNullTransformer,
+    IntegerTransformer,
+    LowercaseTransformer,
+    NumberTransformer,
+    ReplaceTransformer,
+    SubstringTransformer,
+    TimeTransformer,
+    TitleTransformer,
+    UppercaseTransformer,
+    YesNoTransformer,
+)
+from doc_helper.domain.project.project_repository import IProjectRepository
+from doc_helper.domain.schema.schema_repository import ISchemaRepository
+from doc_helper.infrastructure.di.container import Container
+from doc_helper.infrastructure.document.excel_document_adapter import (
+    ExcelDocumentAdapter,
+)
+from doc_helper.infrastructure.document.pdf_document_adapter import PdfDocumentAdapter
+from doc_helper.infrastructure.document.word_document_adapter import (
+    WordDocumentAdapter,
+)
+from doc_helper.infrastructure.persistence.sqlite_project_repository import (
+    SqliteProjectRepository,
+)
+from doc_helper.infrastructure.persistence.sqlite_schema_repository import (
+    SqliteSchemaRepository,
+)
+from doc_helper.presentation.viewmodels.welcome_viewmodel import WelcomeViewModel
+from doc_helper.presentation.views.welcome_view import WelcomeView
+
+
+def configure_container() -> Container:
+    """Configure the dependency injection container.
+
+    This is the single composition root for the entire application.
+
+    Returns:
+        Configured container with all services registered
+    """
+    container = Container()
+
+    # ========================================================================
+    # INFRASTRUCTURE: Persistence (Singleton)
+    # ========================================================================
+
+    # Schema repository - reads from config.db (v1: hardcoded path)
+    schema_db_path = Path("app_types/soil_investigation/config.db")
+    container.register_singleton(
+        ISchemaRepository,
+        lambda: SqliteSchemaRepository(db_path=schema_db_path),
+    )
+
+    # Project repository - scoped per project session
+    # Note: In v1, we use a placeholder path. This will be updated when
+    # opening a specific project via container.begin_scope()
+    container.register_scoped(
+        IProjectRepository,
+        lambda: SqliteProjectRepository(db_path="current_project.db"),
+    )
+
+    # ========================================================================
+    # INFRASTRUCTURE: Document Adapters (Singleton)
+    # ========================================================================
+
+    # Word adapter
+    word_adapter = WordDocumentAdapter()
+    container.register_instance(WordDocumentAdapter, word_adapter)
+
+    # Excel adapter
+    excel_adapter = ExcelDocumentAdapter()
+    container.register_instance(ExcelDocumentAdapter, excel_adapter)
+
+    # PDF adapter
+    pdf_adapter = PdfDocumentAdapter()
+    container.register_instance(PdfDocumentAdapter, pdf_adapter)
+
+    # ========================================================================
+    # DOMAIN: Transformer Registry (Singleton)
+    # ========================================================================
+
+    # Create and populate transformer registry
+    transformer_registry = TransformerRegistry()
+
+    # Register text transformers
+    transformer_registry.register(UppercaseTransformer())
+    transformer_registry.register(LowercaseTransformer())
+    transformer_registry.register(CapitalizeTransformer())
+    transformer_registry.register(TitleTransformer())
+
+    # Register number transformers
+    transformer_registry.register(NumberTransformer())
+    transformer_registry.register(DecimalTransformer())
+    transformer_registry.register(IntegerTransformer())
+
+    # Register date transformers
+    transformer_registry.register(DateTransformer())
+    transformer_registry.register(DateTimeTransformer())
+    transformer_registry.register(TimeTransformer())
+
+    # Register currency transformers
+    transformer_registry.register(CurrencyTransformer())
+
+    # Register boolean transformers
+    transformer_registry.register(BooleanTransformer())
+    transformer_registry.register(YesNoTransformer())
+
+    # Register string operation transformers
+    transformer_registry.register(ConcatTransformer())
+    transformer_registry.register(SubstringTransformer())
+    transformer_registry.register(ReplaceTransformer())
+
+    # Register conditional transformers
+    transformer_registry.register(IfEmptyTransformer())
+    transformer_registry.register(IfNullTransformer())
+
+    container.register_instance(TransformerRegistry, transformer_registry)
+
+    # ========================================================================
+    # APPLICATION: Services (Singleton - Stateless)
+    # ========================================================================
+
+    # Formula service (stateless)
+    container.register_singleton(
+        FormulaService,
+        lambda: FormulaService(),
+    )
+
+    # Validation service (stateless)
+    container.register_singleton(
+        ValidationService,
+        lambda: ValidationService(),
+    )
+
+    # Control service (stateless)
+    container.register_singleton(
+        ControlService,
+        lambda: ControlService(),
+    )
+
+    # Document generation service
+    container.register_singleton(
+        DocumentGenerationService,
+        lambda: DocumentGenerationService(
+            adapters={
+                DocumentFormat.WORD.value: container.resolve(WordDocumentAdapter),
+                DocumentFormat.EXCEL.value: container.resolve(ExcelDocumentAdapter),
+                DocumentFormat.PDF.value: container.resolve(PdfDocumentAdapter),
+            },
+            transformer_registry=container.resolve(TransformerRegistry),
+        ),
+    )
+
+    # ========================================================================
+    # APPLICATION: Commands & Queries (Singleton - Stateless)
+    # ========================================================================
+
+    # Commands
+    container.register_singleton(
+        CreateProjectCommand,
+        lambda: CreateProjectCommand(
+            project_repository=container.resolve(IProjectRepository),
+        ),
+    )
+
+    # Queries
+    container.register_singleton(
+        GetRecentProjectsQuery,
+        lambda: GetRecentProjectsQuery(
+            project_repository=container.resolve(IProjectRepository),
+        ),
+    )
+
+    # ========================================================================
+    # PRESENTATION: ViewModels (Scoped - Per Project Session)
+    # ========================================================================
+
+    # WelcomeViewModel (singleton - no project context)
+    container.register_singleton(
+        WelcomeViewModel,
+        lambda: WelcomeViewModel(
+            get_recent_query=container.resolve(GetRecentProjectsQuery),
+            create_project_command=container.resolve(CreateProjectCommand),
+        ),
+    )
+
+    # TODO: Register remaining ViewModels
+    # - ProjectViewModel (scoped)
+    # - FieldViewModel (scoped)
+    # - EntityViewModel (scoped)
+    # - SchemaEditorViewModel (singleton)
+    # - OverrideViewModel (scoped)
+    # - DocumentGenerationViewModel (scoped)
+
+    return container
+
+
+def create_app(container: Container) -> QApplication:
+    """Create and configure Qt application.
+
+    Args:
+        container: Configured DI container
+
+    Returns:
+        Configured QApplication instance
+    """
+    app = QApplication(sys.argv)
+    app.setApplicationName("Doc Helper")
+    app.setApplicationVersion("0.1.0")
+    app.setOrganizationName("Doc Helper")
+
+    return app
+
+
+def main() -> int:
+    """Application entry point.
+
+    Returns:
+        Exit code (0 = success, non-zero = error)
+    """
+    # Configure dependency injection
+    container = configure_container()
+
+    # Create Qt application
+    app = create_app(container)
+
+    # Create welcome view
+    welcome_vm = container.resolve(WelcomeViewModel)
+    welcome_view = WelcomeView(parent=None, viewmodel=welcome_vm)
+    welcome_view.show()
+
+    # Start event loop
+    exit_code = app.exec()
+
+    # Cleanup
+    container.clear()
+
+    return exit_code
+
+
+if __name__ == "__main__":
+    sys.exit(main())

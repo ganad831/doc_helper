@@ -10,8 +10,8 @@ If a rule here conflicts with any other instruction, **this file wins**.
 ## 1. VERSION & SCOPE LOCK
 
 - Target version: **Doc Helper v1 only**
-- Source of truth: **Unified Upgrade Plan v1.3.1**
-- v2+ features are **strictly forbidden** unless explicitly marked as v1 in the plan
+- Source of truth: **unified_upgrade_plan_FINAL.md**
+- v2+ features are **strictly forbidden** unless explicitly marked as v1 in the FINAL plan
 
 The agent must not anticipate, prototype, or partially implement v2 features.
 
@@ -67,8 +67,8 @@ Domain objects must **never** cross the Application boundary.
 
 Two categories of DTOs exist:
 
-1. **UI DTOs** → may be consumed by Presentation
-2. **Undo-state DTOs** → internal to Application only
+1. **UI DTOs** – may be consumed by Presentation
+2. **Undo-state DTOs** – internal to Application only
 
 Undo-state DTOs must never reach Presentation.
 
@@ -166,9 +166,9 @@ The following are explicitly forbidden:
 If a conflict exists:
 
 1. AGENT_RULES.md
-2. Unified Upgrade Plan v1.3.1
-3. ADRs referenced in the plan
-4. Historical plans or discussions
+2. unified_upgrade_plan_FINAL.md
+3. ADRs referenced in the FINAL plan
+4. Deprecated plan versions or historical discussions
 
 If unclear, STOP and ask for clarification.
 
@@ -194,3 +194,4 @@ After implementation, the agent MUST:
 This document exists to **prevent architectural drift**.
 
 Correctness and discipline take priority over speed or convenience.
+
