@@ -22,6 +22,12 @@ from PyQt6.QtWidgets import QApplication
 from doc_helper.application.commands.create_project_command import (
     CreateProjectCommand,
 )
+from doc_helper.application.commands.export_project_command import (
+    ExportProjectCommand,
+)
+from doc_helper.application.commands.import_project_command import (
+    ImportProjectCommand,
+)
 from doc_helper.application.commands.save_project_command import SaveProjectCommand
 from doc_helper.application.commands.update_field_command import UpdateFieldCommand
 from doc_helper.application.queries.get_field_history_query import (
@@ -51,6 +57,12 @@ from doc_helper.infrastructure.persistence.sqlite_field_history_repository impor
 )
 from doc_helper.infrastructure.persistence.sqlite_search_repository import (
     SqliteSearchRepository,
+)
+from doc_helper.infrastructure.interchange.json_project_exporter import (
+    JsonProjectExporter,
+)
+from doc_helper.infrastructure.interchange.json_project_importer import (
+    JsonProjectImporter,
 )
 from doc_helper.domain.document.transformer_registry import TransformerRegistry
 from doc_helper.domain.document.transformers import (
@@ -153,6 +165,22 @@ def configure_container() -> Container:
     container.register_singleton(
         ISearchRepository,
         lambda: SqliteSearchRepository(db_path=projects_db_path),
+    )
+
+    # ========================================================================
+    # INFRASTRUCTURE: Import/Export Services (Singleton - ADR-039)
+    # ========================================================================
+
+    # JSON Project Exporter - Serializes projects to JSON interchange format
+    container.register_singleton(
+        JsonProjectExporter,
+        lambda: JsonProjectExporter(),
+    )
+
+    # JSON Project Importer - Deserializes projects from JSON interchange format
+    container.register_singleton(
+        JsonProjectImporter,
+        lambda: JsonProjectImporter(),
     )
 
     # ========================================================================
@@ -281,6 +309,26 @@ def configure_container() -> Container:
         SaveProjectCommand,
         lambda: SaveProjectCommand(
             project_repository=container.resolve(IProjectRepository),
+        ),
+    )
+
+    # Import/Export commands (ADR-039)
+    container.register_singleton(
+        ExportProjectCommand,
+        lambda: ExportProjectCommand(
+            project_repository=container.resolve(IProjectRepository),
+            schema_repository=container.resolve(ISchemaRepository),
+            project_exporter=container.resolve(JsonProjectExporter),
+        ),
+    )
+
+    container.register_singleton(
+        ImportProjectCommand,
+        lambda: ImportProjectCommand(
+            project_repository=container.resolve(IProjectRepository),
+            schema_repository=container.resolve(ISchemaRepository),
+            project_importer=container.resolve(JsonProjectImporter),
+            validation_service=container.resolve(ValidationService),
         ),
     )
 

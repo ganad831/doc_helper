@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -79,6 +80,7 @@ class ProjectView(BaseView):
 
         # UI components
         self._fields_widget: Optional[QWidget] = None
+        self._scroll_area: Optional[QScrollArea] = None
         self._save_button: Optional[QPushButton] = None
         self._generate_button: Optional[QPushButton] = None
         self._status_bar: Optional[QStatusBar] = None
@@ -93,6 +95,11 @@ class ProjectView(BaseView):
 
         # Field widgets mapped by field ID
         self._field_widgets: dict[str, IFieldWidget] = {}
+        # Field containers (QWidgets) mapped by field ID for navigation
+        self._field_containers: dict[str, QWidget] = {}
+
+        # Track if we've shown undo restoration message (ADR-031)
+        self._shown_undo_restore_message = False
 
     def _build_ui(self) -> None:
         """Build the UI components."""
@@ -115,18 +122,18 @@ class ProjectView(BaseView):
         main_layout.addWidget(sidebar)
 
         # Content area (fields form) with scroll
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(
+        self._scroll_area = QScrollArea()
+        self._scroll_area.setWidgetResizable(True)
+        self._scroll_area.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         self._fields_widget = QWidget()
         fields_layout = QVBoxLayout(self._fields_widget)
-        scroll_area.setWidget(self._fields_widget)
+        self._scroll_area.setWidget(self._fields_widget)
 
-        main_layout.addWidget(scroll_area, 1)  # Stretch factor 1
+        main_layout.addWidget(self._scroll_area, 1)  # Stretch factor 1
 
         # Build field widgets
         self._build_field_widgets()
@@ -190,12 +197,22 @@ class ProjectView(BaseView):
 
         undo_action = QAction("Undo", self._root)
         undo_action.setShortcut(QKeySequence("Ctrl+Z"))
+        undo_action.setToolTip(
+            "Undo last change (Ctrl+Z)\n\n"
+            "Undo history persists across saves and restarts.\n"
+            "Cleared only when closing the project."
+        )
         undo_action.triggered.connect(self._on_undo)
         edit_menu.addAction(undo_action)
         self._undo_action = undo_action  # Store reference for state updates
 
         redo_action = QAction("Redo", self._root)
         redo_action.setShortcut(QKeySequence("Ctrl+Y"))
+        redo_action.setToolTip(
+            "Redo previously undone change (Ctrl+Y)\n\n"
+            "Redo history persists across saves and restarts.\n"
+            "Cleared only when closing the project."
+        )
         redo_action.triggered.connect(self._on_redo)
         edit_menu.addAction(redo_action)
         self._redo_action = redo_action  # Store reference for state updates
@@ -286,6 +303,7 @@ class ProjectView(BaseView):
 
         # Clear existing widgets
         self._field_widgets.clear()
+        self._field_containers.clear()
 
         # Create widget for each field in entity definition
         for field_def in self._entity_definition.fields:
@@ -301,6 +319,8 @@ class ProjectView(BaseView):
 
             # Store widget by field ID for later access
             self._field_widgets[field_def.id] = widget
+            # Store container for navigation (ADR-026)
+            self._field_containers[field_def.id] = field_container
 
             # Wire up value change callback
             field_id_value = field_def.id  # Capture for closure
@@ -356,6 +376,14 @@ class ProjectView(BaseView):
         widget_placeholder = QLabel(f"[{field_def.field_type} widget placeholder]")
         widget_placeholder.setStyleSheet("padding: 4px; background-color: #f0f0f0; border: 1px solid #cccccc;")
         container_layout.addWidget(widget_placeholder)
+
+        # Enable context menu for field history (ADR-027)
+        container.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        container.customContextMenuRequested.connect(
+            lambda pos, fid=field_def.id, fdef=field_def: self._show_field_context_menu(
+                pos, fid, fdef, container
+            )
+        )
 
         return container
 
@@ -423,6 +451,63 @@ class ProjectView(BaseView):
             self._status_bar.showMessage(f"{error_count} validation error(s)")
             self._status_bar.setStyleSheet("background-color: #ffe6e6;")
 
+    def _show_field_context_menu(
+        self,
+        pos,
+        field_id: str,
+        field_def: FieldDefinitionDTO,
+        container: QWidget,
+    ) -> None:
+        """Show context menu for field container.
+
+        ADR-027: Field History Storage
+        Provides access to field history via right-click context menu.
+
+        Args:
+            pos: Position where menu was requested
+            field_id: Field ID
+            field_def: Field definition DTO
+            container: Container widget that was right-clicked
+        """
+        # Create context menu
+        menu = QMenu(container)
+
+        # Add "View History" action
+        history_action = menu.addAction("View History")
+        history_action.triggered.connect(
+            lambda: self._show_field_history(field_id, field_def)
+        )
+
+        # Show menu at cursor position
+        menu.exec(container.mapToGlobal(pos))
+
+    def _show_field_history(
+        self, field_id: str, field_def: FieldDefinitionDTO
+    ) -> None:
+        """Show field history dialog for the specified field.
+
+        ADR-027: Field History Storage
+
+        Args:
+            field_id: Field ID
+            field_def: Field definition DTO
+        """
+        # Get field history from ViewModel
+        history_result = self._viewmodel.get_field_history(field_id)
+
+        # Build field path for dialog (format: "entity_id.field_id")
+        field_path = f"{self._entity_definition.id}.{field_id}"
+
+        # Show field history dialog
+        FieldHistoryDialog.show_field_history(
+            parent=self._root,
+            field_label=field_def.label,
+            field_path=field_path,
+            history_result=history_result,
+        )
+
+        self._status_bar.showMessage(f"Field history viewed: {field_def.label}")
+
     def _on_unsaved_changes(self) -> None:
         """Handle unsaved changes state change."""
         if self._viewmodel.has_unsaved_changes:
@@ -433,13 +518,37 @@ class ProjectView(BaseView):
             self._status_bar.showMessage("Saved")
 
     def _on_project_name_changed(self) -> None:
-        """Handle project name change."""
+        """Handle project name change.
+
+        ADR-031: Undo History Persistence
+        Resets undo restoration message flag when project changes.
+        """
         suffix = " *" if self._viewmodel.has_unsaved_changes else ""
         self._root.setWindowTitle(f"Doc Helper - {self._viewmodel.project_name}{suffix}")
 
+        # Reset undo restoration message flag for new project
+        self._shown_undo_restore_message = False
+
     def _on_undo_state_changed(self) -> None:
-        """Handle undo state change from ViewModel."""
+        """Handle undo state change from ViewModel.
+
+        ADR-031: Undo History Persistence
+        Shows informative message when undo history is restored after project load.
+        """
         self._update_undo_action()
+
+        # Show undo restoration message once per project load (ADR-031)
+        if self._viewmodel.can_undo and not self._shown_undo_restore_message:
+            self._shown_undo_restore_message = True
+            # Get undo description if available
+            desc = ""
+            if hasattr(self._viewmodel, '_history_adapter'):
+                desc = self._viewmodel._history_adapter._undo_manager.undo_description
+                if desc:
+                    desc = f": {desc}"
+            self._status_bar.showMessage(
+                f"Undo history restored{desc} (persists across saves)"
+            )
 
     def _on_redo_state_changed(self) -> None:
         """Handle redo state change from ViewModel."""
@@ -474,11 +583,32 @@ class ProjectView(BaseView):
             self._forward_action.setEnabled(self._viewmodel.can_go_forward)
 
     def _on_save(self) -> None:
-        """Handle Save action."""
+        """Handle Save action.
+
+        ADR-031: Undo History Persistence
+        Undo history is preserved across saves (not cleared).
+        """
         if self._viewmodel.save_project():
-            self._status_bar.showMessage("Project saved")
+            # Check if undo history exists to provide informative message
+            undo_count = 0
+            if self._viewmodel.can_undo and hasattr(self._viewmodel, '_history_adapter'):
+                # Count available undo actions (approximate from can_undo state)
+                undo_count = 1 if self._viewmodel.can_undo else 0
+
+            # Show status message with undo preservation info
+            if undo_count > 0:
+                self._status_bar.showMessage(
+                    "Project saved - undo history preserved"
+                )
+            else:
+                self._status_bar.showMessage("Project saved")
+
             QMessageBox.information(
-                self._root, "Save", "Project saved successfully"
+                self._root,
+                "Save",
+                "Project saved successfully.\n\n"
+                "Your undo history has been preserved and will be "
+                "restored when you reopen this project.",
             )
         else:
             QMessageBox.critical(self._root, "Save Error", "Failed to save project")
@@ -581,6 +711,62 @@ class ProjectView(BaseView):
         )
         self._status_bar.showMessage("Ready for document generation (U11)")
 
+    def navigate_to_field(self, field_path: str) -> bool:
+        """Navigate to a field by its path.
+
+        ADR-026: Search Architecture
+        Field path format: "entity_id.field_id"
+
+        Args:
+            field_path: Dot-separated path to the field (e.g., "project.site_location")
+
+        Returns:
+            True if navigation successful, False if field not found
+
+        Side Effects:
+            - Scrolls field container into view
+            - Highlights field container briefly
+        """
+        # Parse field path (format: "entity_id.field_id")
+        parts = field_path.split(".", 1)
+        if len(parts) != 2:
+            self._status_bar.showMessage(f"Invalid field path: {field_path}")
+            return False
+
+        entity_id, field_id = parts
+
+        # Find field container by field ID
+        container = self._field_containers.get(field_id)
+        if not container or not self._scroll_area:
+            self._status_bar.showMessage(f"Field not found: {field_id}")
+            return False
+
+        # Scroll to make container visible
+        self._scroll_area.ensureWidgetVisible(container, 50, 50)  # 50px margins
+
+        # Briefly highlight the field container for visual feedback
+        # Store original style
+        original_style = container.styleSheet()
+
+        # Apply highlight
+        container.setStyleSheet(
+            "QWidget { background-color: #ffffcc; border: 2px solid #ff9900; }"
+        )
+
+        # Use a timer to remove highlight after 1 second
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(1000, lambda: container.setStyleSheet(original_style))
+
+        # Get field label for status message
+        field_def = next(
+            (f for f in self._entity_definition.fields if f.id == field_id), None
+        )
+        field_label = field_def.label if field_def else field_id
+
+        # Show success message
+        self._status_bar.showMessage(f"Navigated to: {field_label}")
+        return True
+
     def _on_find_fields(self) -> None:
         """Handle Find Fields action (Ctrl+F).
 
@@ -594,9 +780,7 @@ class ProjectView(BaseView):
 
         def navigate_callback(field_path: str) -> None:
             """Navigate to field by path."""
-            # TODO: Implement field navigation by path
-            # This requires field path parsing and focus management
-            self._status_bar.showMessage(f"Navigate to: {field_path}")
+            self.navigate_to_field(field_path)
 
         # Show non-modal search dialog
         SearchDialog.show_search(
@@ -607,24 +791,22 @@ class ProjectView(BaseView):
         self._status_bar.showMessage("Search dialog opened")
 
     def _on_field_history(self) -> None:
-        """Handle Field History action.
+        """Handle Field History menu action.
 
         ADR-027: Field History Storage
-        Opens field history dialog for the currently selected field.
+        Provides instructions for accessing field history via context menu.
         """
-        # TODO: Get currently selected/focused field ID
-        # For now, show a message asking user to select a field first
         QMessageBox.information(
             self._root,
             "Field History",
-            "Field history feature available.\n\n"
-            "To view history:\n"
-            "1. Select a field in the form\n"
-            "2. Right-click for context menu\n"
-            "3. Choose 'View History'\n\n"
-            "Full field context menu integration coming soon.",
+            "Field history is available via field context menus.\n\n"
+            "To view a field's history:\n"
+            "1. Right-click on any field in the form\n"
+            "2. Select 'View History' from the context menu\n\n"
+            "The history shows all changes made to that field, "
+            "including timestamps and previous values.",
         )
-        self._status_bar.showMessage("Field history info displayed")
+        self._status_bar.showMessage("Field history instructions displayed")
 
     def _on_import_export(self) -> None:
         """Handle Import/Export action.
@@ -634,42 +816,12 @@ class ProjectView(BaseView):
         """
 
         def export_callback(output_path: str):
-            """Execute export command."""
-            from doc_helper.application.dto import ExportResultDTO
-
-            success, message = self._viewmodel.export_project(output_path)
-
-            # Create stub DTO for now
-            return ExportResultDTO(
-                success=success,
-                file_path=output_path if success else None,
-                project_id=self._viewmodel.project_id or "",
-                project_name=self._viewmodel.project_name,
-                error_message=None if success else message,
-                format_version="1.0",
-                exported_at="",
-                entity_count=0,
-                record_count=0,
-                field_value_count=0,
-            )
+            """Execute export command via ViewModel."""
+            return self._viewmodel.export_project(output_path)
 
         def import_callback(input_path: str):
-            """Execute import command."""
-            from doc_helper.application.dto import ImportResultDTO
-
-            success, message = self._viewmodel.import_project(input_path)
-
-            # Create stub DTO for now
-            return ImportResultDTO(
-                success=success,
-                project_id=None,
-                project_name=None,
-                error_message=message if not success else None,
-                validation_errors=tuple(),
-                format_version="1.0",
-                source_app_version=None,
-                warnings=tuple(),
-            )
+            """Execute import command via ViewModel."""
+            return self._viewmodel.import_project(input_path)
 
         # Show import/export dialog
         ImportExportDialog.show_import_export(
@@ -728,5 +880,6 @@ class ProjectView(BaseView):
         for widget in self._field_widgets.values():
             widget.dispose()
         self._field_widgets.clear()
+        self._field_containers.clear()
 
         super().dispose()

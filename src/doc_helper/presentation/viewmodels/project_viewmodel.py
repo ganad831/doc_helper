@@ -15,12 +15,16 @@ UNDO/REDO (unified_upgrade_plan_FINAL.md U6 Phase 4):
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
+from doc_helper.application.commands.export_project_command import ExportProjectCommand
+from doc_helper.application.commands.import_project_command import ImportProjectCommand
 from doc_helper.application.commands.save_project_command import SaveProjectCommand
 from doc_helper.application.commands.update_field_command import UpdateFieldCommand
 from doc_helper.application.dto import (
     EntityDefinitionDTO,
     EvaluationResultDTO,
+    ExportResultDTO,
     FieldHistoryResultDTO,
+    ImportResultDTO,
     ProjectDTO,
     SearchResultDTO,
     ValidationErrorDTO,
@@ -81,6 +85,8 @@ class ProjectViewModel(BaseViewModel):
         navigation_adapter: NavigationAdapter,
         search_fields_query: Optional[SearchFieldsQuery] = None,
         get_field_history_query: Optional[GetFieldHistoryQuery] = None,
+        export_project_command: Optional[ExportProjectCommand] = None,
+        import_project_command: Optional[ImportProjectCommand] = None,
     ) -> None:
         """Initialize ProjectViewModel.
 
@@ -96,6 +102,8 @@ class ProjectViewModel(BaseViewModel):
             navigation_adapter: Qt signal bridge for navigation state (NEW - U7)
             search_fields_query: Query for searching fields (ADR-026)
             get_field_history_query: Query for field history (ADR-027)
+            export_project_command: Command for exporting projects (ADR-039)
+            import_project_command: Command for importing projects (ADR-039)
         """
         super().__init__()
         self._get_project_query = get_project_query
@@ -109,6 +117,8 @@ class ProjectViewModel(BaseViewModel):
         self._navigation_adapter = navigation_adapter
         self._search_fields_query = search_fields_query
         self._get_field_history_query = get_field_history_query
+        self._export_project_command = export_project_command
+        self._import_project_command = import_project_command
 
         # Store IDs and DTOs, NOT domain objects
         self._project_id: Optional[str] = None
@@ -660,41 +670,131 @@ class ProjectViewModel(BaseViewModel):
     # IMPORT/EXPORT (ADR-039) - STUBS
     # ====================================================
 
-    def export_project(self, output_file_path: str) -> tuple[bool, str]:
+    def export_project(self, output_file_path: str) -> ExportResultDTO:
         """Export current project to interchange format.
 
         ADR-039: Import/Export Data Format
-        NOTE: Full implementation deferred (infrastructure layer missing).
 
         Args:
             output_file_path: Path where to save the export file
 
         Returns:
-            Tuple of (success: bool, message: str)
+            ExportResultDTO with success/failure information
         """
-        # Stub implementation - infrastructure layer not complete
-        return (
-            False,
-            "Export feature coming soon. Infrastructure implementation in progress.",
-        )
+        if not self._export_project_command:
+            return ExportResultDTO(
+                success=False,
+                file_path=None,
+                project_id=self._project_id or "",
+                project_name=self._project_dto.name if self._project_dto else "",
+                error_message="Export feature not available.",
+                format_version="1.0",
+                exported_at="",
+                entity_count=0,
+                record_count=0,
+                field_value_count=0,
+            )
 
-    def import_project(self, input_file_path: str) -> tuple[bool, str]:
+        if not self._project_id:
+            return ExportResultDTO(
+                success=False,
+                file_path=None,
+                project_id="",
+                project_name="",
+                error_message="No project loaded.",
+                format_version="1.0",
+                exported_at="",
+                entity_count=0,
+                record_count=0,
+                field_value_count=0,
+            )
+
+        # Convert string ID to ProjectId
+        from doc_helper.domain.project.project_ids import ProjectId
+        from uuid import UUID
+
+        try:
+            project_id = ProjectId(UUID(self._project_id))
+        except (ValueError, AttributeError) as e:
+            return ExportResultDTO(
+                success=False,
+                file_path=None,
+                project_id=self._project_id,
+                project_name=self._project_dto.name if self._project_dto else "",
+                error_message=f"Invalid project ID: {str(e)}",
+                format_version="1.0",
+                exported_at="",
+                entity_count=0,
+                record_count=0,
+                field_value_count=0,
+            )
+
+        # Execute export command
+        result = self._export_project_command.execute(project_id, output_file_path)
+
+        if result.is_success():
+            return result.value
+        else:
+            return ExportResultDTO(
+                success=False,
+                file_path=None,
+                project_id=self._project_id,
+                project_name=self._project_dto.name if self._project_dto else "",
+                error_message=result.error,
+                format_version="1.0",
+                exported_at="",
+                entity_count=0,
+                record_count=0,
+                field_value_count=0,
+            )
+
+    def import_project(self, input_file_path: str) -> ImportResultDTO:
         """Import project from interchange format.
 
         ADR-039: Import/Export Data Format
-        NOTE: Full implementation deferred (infrastructure layer missing).
 
         Args:
             input_file_path: Path to the import file
 
         Returns:
-            Tuple of (success: bool, message: str)
+            ImportResultDTO with success/failure information
+
+        Side Effects:
+            - On success, the newly imported project is NOT automatically loaded
+            - Caller should prompt user to open the imported project
         """
-        # Stub implementation - infrastructure layer not complete
-        return (
-            False,
-            "Import feature coming soon. Infrastructure implementation in progress.",
-        )
+        if not self._import_project_command:
+            return ImportResultDTO(
+                success=False,
+                project_id="",
+                project_name="",
+                error_message="Import feature not available.",
+                format_version="",
+                imported_at="",
+                entity_count=0,
+                record_count=0,
+                field_value_count=0,
+                validation_warnings=[],
+            )
+
+        # Execute import command
+        result = self._import_project_command.execute(input_file_path)
+
+        if result.is_success():
+            return result.value
+        else:
+            return ImportResultDTO(
+                success=False,
+                project_id="",
+                project_name="",
+                error_message=result.error,
+                format_version="",
+                imported_at="",
+                entity_count=0,
+                record_count=0,
+                field_value_count=0,
+                validation_warnings=[],
+            )
 
     # ====================================================
 
