@@ -51,6 +51,9 @@ from doc_helper.application.dto.field_history_dto import (
     FieldHistoryEntryDTO,
     FieldHistoryResultDTO,
 )
+from doc_helper.application.dto.search_result_dto import (
+    SearchResultDTO,
+)
 
 __all__ = [
     # Project DTOs
@@ -83,4 +86,6 @@ __all__ = [
     # Field History DTOs
     "FieldHistoryEntryDTO",
     "FieldHistoryResultDTO",
+    # Search DTOs
+    "SearchResultDTO",
 ]

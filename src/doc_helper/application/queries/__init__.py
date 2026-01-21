@@ -16,6 +16,7 @@ from doc_helper.application.queries.get_project_query import (
 from doc_helper.application.queries.get_validation_result_query import (
     GetValidationResultQuery,
 )
+from doc_helper.application.queries.search_fields_query import SearchFieldsQuery
 
 __all__ = [
     "GetProjectQuery",
@@ -24,4 +25,5 @@ __all__ = [
     "GetEntityFieldsQuery",
     "GetValidationResultQuery",
     "GetFieldHistoryQuery",
+    "SearchFieldsQuery",
 ]
