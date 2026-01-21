@@ -105,29 +105,75 @@ class DocumentGenerationViewModel(BaseViewModel):
     def can_generate(self) -> bool:
         """Check if document can be generated.
 
+        ADR-025: Generation is blocked only by ERROR-level failures.
+        WARNING and INFO failures do not block generation (user confirmation handled in UI).
+
         Returns:
-            True if all requirements are met
+            True if all requirements are met and no blocking errors exist
         """
         if not self._project_id or not self._entity_definition_id:
             return False
 
-        # v1: Only check if there are no validation errors
-        if self._validation_result and not self._validation_result.is_valid:
+        # ADR-025: Check for blocking errors only (ERROR severity)
+        # WARNING and INFO severity do not block generation
+        if self._validation_result and self._validation_result.blocks_workflow():
             return False
 
         return True
 
     @property
     def validation_errors(self) -> list[str]:
-        """Get validation error messages.
+        """Get all validation error messages (all severities).
 
         Returns:
-            List of validation error messages
+            List of all validation error messages
         """
         if not self._validation_result:
             return []
 
         return [error.message for error in self._validation_result.errors]
+
+    @property
+    def has_blocking_errors(self) -> bool:
+        """Check if validation result contains ERROR-level failures.
+
+        ADR-025: ERROR-level failures block generation.
+
+        Returns:
+            True if blocking errors exist
+        """
+        if not self._validation_result:
+            return False
+
+        return self._validation_result.has_blocking_errors()
+
+    @property
+    def has_warnings(self) -> bool:
+        """Check if validation result contains WARNING-level failures.
+
+        ADR-025: WARNING-level failures require user confirmation.
+
+        Returns:
+            True if warnings exist
+        """
+        if not self._validation_result:
+            return False
+
+        return self._validation_result.has_warnings()
+
+    @property
+    def has_info(self) -> bool:
+        """Check if validation result contains INFO-level messages.
+
+        ADR-025: INFO-level messages are informational only.
+
+        Returns:
+            True if info messages exist
+        """
+        if not self._validation_result:
+            return False
+
+        return self._validation_result.has_info()
 
     def set_project(
         self,

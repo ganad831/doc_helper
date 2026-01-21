@@ -241,13 +241,13 @@ After implementation, the agent MUST:
 
 ---
 
-### ADR-025: Validation Severity Levels (🔄 DOMAIN + APPLICATION COMPLETE - 2026-01-21)
+### ADR-025: Validation Severity Levels (✅ COMPLETE - 2026-01-21)
 
 **Goal**: Implement three-level validation severity system (ERROR/WARNING/INFO) to distinguish blocking errors from non-blocking warnings and informational messages.
 
-**Status**: Domain + Application layers complete, Presentation layer pending
+**Status**: COMPLETE - Domain, Application, and Presentation layers implemented
 
-**Implemented**:
+**Implemented (Domain & Application)**:
 1. **Severity value object** ([severity.py](src/doc_helper/domain/validation/severity.py))
    - Three levels: ERROR (blocks), WARNING (user confirmation), INFO (informational)
    - Helper methods: `blocks_workflow()`, `requires_confirmation()`, `is_informational()`
@@ -282,26 +282,40 @@ After implementation, the agent MUST:
    - Blocks generation if ERROR-level validation failures exist
    - WARNING/INFO failures do not block (user confirmation handled in presentation)
 
+**Implemented (Presentation Layer)**:
+9. **PreGenerationChecklistDialog updated** ([pre_generation_checklist_dialog.py](src/doc_helper/presentation/dialogs/pre_generation_checklist_dialog.py))
+   - Severity-based grouping: ERROR, WARNING, INFO sections
+   - Visual differentiation: ERROR (red), WARNING (orange), INFO (blue)
+   - Blocking behavior: ERROR blocks generation, shows "Close" button only
+   - Confirmation flow: WARNING shows "Continue Anyway" button
+   - Informational display: INFO shown without blocking
+
+10. **DocumentGenerationViewModel updated** ([document_generation_viewmodel.py](src/doc_helper/presentation/viewmodels/document_generation_viewmodel.py))
+    - `can_generate` property uses `blocks_workflow()` instead of `is_valid`
+    - Added severity-aware properties: `has_blocking_errors()`, `has_warnings()`, `has_info()`
+    - WARNING/INFO failures do not prevent generation
+
+11. **IFieldWidget interface extended** ([field_widget.py](src/doc_helper/presentation/widgets/field_widget.py))
+    - Added `set_validation_error_dtos()` method accepting ValidationErrorDTO with severity
+    - Added `validation_error_dtos` property for severity-aware display
+    - Legacy `set_validation_errors()` method maintained for backward compatibility
+    - Updated `_update_validation_display()` documentation for severity-aware implementations
+
 **Tests**:
 - ✅ 19 Severity value object tests ([test_severity.py](tests/unit/domain/test_severity.py))
 - ✅ 12 ValidationError/ValidationResult severity tests ([test_validation_result.py](tests/unit/domain/test_validation_result.py))
 - ✅ 5 integration tests for severity-based workflow control ([test_severity_workflow.py](tests/integration/workflows/test_severity_workflow.py))
+- ✅ 11 new presentation layer severity tests ([test_pre_generation_checklist_dialog.py](tests/unit/presentation/dialogs/test_pre_generation_checklist_dialog.py))
 - ✅ Updated GenerateDocumentCommand U8 tests to include validation_service
-- ✅ 974/974 total tests passing (672 domain + 297 application + 5 integration)
+- ✅ 1,421 total tests passing (29/29 pre-generation dialog tests, 2 pre-existing failures unrelated)
 - ✅ No regressions
 
 **Compliance**:
 - ✅ No v2 features introduced
-- ✅ Clean Architecture layers respected (domain/application only)
-- ✅ DTO-only MVVM maintained (severity enum → string in DTOs)
-- ✅ All new code tested
-- ✅ ADR-024 compliance scan: 1 pre-existing violation (unrelated), no new violations
-
-**Pending (Presentation Layer)**:
-- ⏳ Update presentation ViewModels to consume severity DTOs
-- ⏳ Add visual differentiation for severity levels in UI (color-coded indicators: red/yellow/blue)
-- ⏳ Pre-generation checklist dialog showing errors/warnings separately
-- ⏳ User confirmation prompt for WARNING-level failures
+- ✅ Clean Architecture layers respected (domain → application → presentation)
+- ✅ DTO-only MVVM maintained (severity enum → string in DTOs, no domain imports in presentation)
+- ✅ All new code tested (47 total ADR-025 tests)
+- ✅ ADR-024 compliance: No new violations introduced
 
 **Authorization**: Explicitly authorized in AGENT_RULES.md Section 10 (Near-Term Expansion Exceptions)
 

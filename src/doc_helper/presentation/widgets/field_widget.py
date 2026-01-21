@@ -3,12 +3,18 @@
 RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md):
 - Presentation layer uses DTOs, NOT domain objects
 - Domain objects NEVER cross Application boundary
+
+ADR-025: Validation Severity Levels
+- Widgets display validation errors with severity-based visual differentiation
+- ERROR (red): Critical issues
+- WARNING (yellow): Non-critical issues
+- INFO (blue): Informational messages
 """
 
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Optional
 
-from doc_helper.application.dto import FieldDefinitionDTO
+from doc_helper.application.dto import FieldDefinitionDTO, ValidationErrorDTO
 
 
 class IFieldWidget(ABC):
@@ -38,7 +44,8 @@ class IFieldWidget(ABC):
         """
         self._field_definition = field_definition
         self._value: Optional[Any] = None
-        self._validation_errors: list[str] = []  # List of error message strings
+        self._validation_errors: list[str] = []  # List of error message strings (legacy)
+        self._validation_error_dtos: list[ValidationErrorDTO] = []  # ADR-025: Full DTOs with severity
         self._is_enabled = True
         self._is_visible = True
         self._value_changed_callback: Optional[Callable[[Any], None]] = None
@@ -63,21 +70,37 @@ class IFieldWidget(ABC):
 
     @property
     def has_validation_errors(self) -> bool:
-        """Check if field has validation errors.
+        """Check if field has validation errors (any severity).
+
+        ADR-025: Checks for errors of any severity (ERROR, WARNING, INFO).
 
         Returns:
             True if validation errors exist
         """
-        return len(self._validation_errors) > 0
+        return len(self._validation_error_dtos) > 0 or len(self._validation_errors) > 0
 
     @property
     def validation_errors(self) -> list[str]:
-        """Get validation errors.
+        """Get validation error messages (legacy, no severity info).
 
         Returns:
             List of validation error messages (strings, not domain objects)
         """
+        # If DTOs available, extract messages; otherwise use legacy list
+        if self._validation_error_dtos:
+            return [error.message for error in self._validation_error_dtos]
         return self._validation_errors
+
+    @property
+    def validation_error_dtos(self) -> list[ValidationErrorDTO]:
+        """Get validation error DTOs with severity information.
+
+        ADR-025: Returns full ValidationErrorDTO objects with severity field.
+
+        Returns:
+            List of ValidationErrorDTO objects
+        """
+        return self._validation_error_dtos
 
     @abstractmethod
     def set_value(self, value: Any) -> None:
@@ -116,12 +139,28 @@ class IFieldWidget(ABC):
         self._update_visibility()
 
     def set_validation_errors(self, errors: list[str]) -> None:
-        """Set validation errors for this field.
+        """Set validation errors for this field (legacy method, no severity).
+
+        Deprecated: Use set_validation_error_dtos() for severity support.
 
         Args:
             errors: List of validation error messages (strings)
         """
         self._validation_errors = errors
+        self._validation_error_dtos = []  # Clear DTOs when using legacy method
+        self._update_validation_display()
+
+    def set_validation_error_dtos(self, error_dtos: list[ValidationErrorDTO]) -> None:
+        """Set validation errors with severity information.
+
+        ADR-025: Accepts ValidationErrorDTO objects with severity field for
+        severity-aware display (ERROR/WARNING/INFO visual differentiation).
+
+        Args:
+            error_dtos: List of ValidationErrorDTO objects with severity
+        """
+        self._validation_error_dtos = error_dtos
+        self._validation_errors = []  # Clear legacy list when using DTOs
         self._update_validation_display()
 
     def on_value_changed(self, callback: Callable[[Any], None]) -> None:
@@ -149,10 +188,20 @@ class IFieldWidget(ABC):
 
     @abstractmethod
     def _update_validation_display(self) -> None:
-        """Update UI to display validation errors."""
+        """Update UI to display validation errors.
+
+        ADR-025: Implementations should check self._validation_error_dtos for
+        severity-aware display:
+        - ERROR severity: Red color/icon
+        - WARNING severity: Yellow/orange color/icon
+        - INFO severity: Blue color/icon
+
+        If _validation_error_dtos is empty, fall back to _validation_errors (legacy).
+        """
         pass
 
     def dispose(self) -> None:
         """Clean up resources."""
         self._value_changed_callback = None
         self._validation_errors.clear()
+        self._validation_error_dtos.clear()
