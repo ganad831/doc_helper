@@ -43,6 +43,38 @@ from doc_helper.domain.common.result import Success, Failure
 from doc_helper.infrastructure.persistence.sqlite_project_repository import (
     SqliteProjectRepository,
 )
+from doc_helper.platform.registry.app_type_registry import AppTypeRegistry
+from doc_helper.platform.discovery.manifest_parser import (
+    ParsedManifest,
+    ManifestSchema,
+    ManifestTemplates,
+    ManifestCapabilities,
+)
+from doc_helper.app_types.contracts.app_type_metadata import AppTypeMetadata
+
+
+@pytest.fixture
+def app_type_registry() -> AppTypeRegistry:
+    """Create registry with default AppType for testing."""
+    registry = AppTypeRegistry()
+    # Register soil_investigation AppType (default for v1)
+    soil_manifest = ParsedManifest(
+        metadata=AppTypeMetadata(
+            app_type_id="soil_investigation",
+            name="Soil Investigation",
+            version="1.0.0",
+            description="Soil investigation reports",
+        ),
+        schema=ManifestSchema(
+            source="config.db",
+            schema_type="sqlite",
+        ),
+        templates=ManifestTemplates(),
+        capabilities=ManifestCapabilities(),
+        manifest_path=Path("app_types/soil_investigation/manifest.json"),
+    )
+    registry.register(soil_manifest)
+    return registry
 
 
 @pytest.fixture
@@ -186,6 +218,7 @@ class TestCreateEditSaveGenerateWorkflow:
         temp_db: Path,
         temp_project_dir: Path,
         test_schema: EntityDefinition,
+        app_type_registry: AppTypeRegistry,
     ) -> None:
         """
         E2E Workflow Test: Complete user journey from project creation to document generation.
@@ -207,7 +240,10 @@ class TestCreateEditSaveGenerateWorkflow:
         """
         # === STEP 1: Create Project (via CreateProjectCommand) ===
         project_repo = SqliteProjectRepository(temp_db)
-        create_command = CreateProjectCommand(project_repository=project_repo)
+        create_command = CreateProjectCommand(
+            project_repository=project_repo,
+            app_type_registry=app_type_registry,
+        )
 
         project_name = "E2E Test Project"
         project_description = "Testing all 12 field types"
@@ -420,6 +456,7 @@ class TestCreateEditSaveGenerateWorkflow:
         self,
         temp_db: Path,
         test_schema: EntityDefinition,
+        app_type_registry: AppTypeRegistry,
     ) -> None:
         """
         E2E Workflow Test: Validation prevents save when required fields are empty.
@@ -433,7 +470,10 @@ class TestCreateEditSaveGenerateWorkflow:
         6. Save successfully
         """
         project_repo = SqliteProjectRepository(temp_db)
-        create_command = CreateProjectCommand(project_repository=project_repo)
+        create_command = CreateProjectCommand(
+            project_repository=project_repo,
+            app_type_registry=app_type_registry,
+        )
 
         # Create project
         create_result = create_command.execute(
@@ -515,6 +555,7 @@ class TestCreateEditSaveGenerateWorkflow:
         self,
         temp_db: Path,
         test_schema: EntityDefinition,
+        app_type_registry: AppTypeRegistry,
     ) -> None:
         """
         E2E Workflow Test: Project data persists across multiple save/load cycles.
@@ -531,7 +572,10 @@ class TestCreateEditSaveGenerateWorkflow:
         project_repo = SqliteProjectRepository(temp_db)
 
         # === SESSION 1: Create and Initial Save ===
-        create_command = CreateProjectCommand(project_repository=project_repo)
+        create_command = CreateProjectCommand(
+            project_repository=project_repo,
+            app_type_registry=app_type_registry,
+        )
         create_result = create_command.execute(
             name="Persistence Test",
             entity_definition_id=EntityDefinitionId("soil_investigation"),

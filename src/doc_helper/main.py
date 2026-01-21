@@ -347,6 +347,7 @@ def configure_container() -> Container:
         CreateProjectCommand,
         lambda: CreateProjectCommand(
             project_repository=container.resolve(IProjectRepository),
+            app_type_registry=container.resolve(AppTypeRegistry),
         ),
     )
 

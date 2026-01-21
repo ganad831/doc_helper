@@ -33,6 +33,38 @@ from doc_helper.domain.validation.constraints import RequiredConstraint
 from doc_helper.infrastructure.persistence.sqlite_project_repository import (
     SqliteProjectRepository,
 )
+from doc_helper.platform.registry.app_type_registry import AppTypeRegistry
+from doc_helper.platform.discovery.manifest_parser import (
+    ParsedManifest,
+    ManifestSchema,
+    ManifestTemplates,
+    ManifestCapabilities,
+)
+from doc_helper.app_types.contracts.app_type_metadata import AppTypeMetadata
+
+
+@pytest.fixture
+def app_type_registry() -> AppTypeRegistry:
+    """Create registry with default AppType for testing."""
+    registry = AppTypeRegistry()
+    # Register soil_investigation AppType (default for v1)
+    soil_manifest = ParsedManifest(
+        metadata=AppTypeMetadata(
+            app_type_id="soil_investigation",
+            name="Soil Investigation",
+            version="1.0.0",
+            description="Soil investigation reports",
+        ),
+        schema=ManifestSchema(
+            source="config.db",
+            schema_type="sqlite",
+        ),
+        templates=ManifestTemplates(),
+        capabilities=ManifestCapabilities(),
+        manifest_path=Path("app_types/soil_investigation/manifest.json"),
+    )
+    registry.register(soil_manifest)
+    return registry
 
 
 @pytest.fixture
@@ -168,7 +200,7 @@ class TestUndoRedoWorkflow:
     """E2E tests for Workflow 2: Open → Edit → Undo → Save."""
 
     def test_basic_undo_redo_workflow(
-        self, temp_db: Path, temp_project_dir: Path, test_schema: EntityDefinition
+        self, temp_db: Path, temp_project_dir: Path, test_schema: EntityDefinition, app_type_registry: AppTypeRegistry
     ) -> None:
         """Test complete undo/redo workflow with persistence.
 
@@ -187,7 +219,7 @@ class TestUndoRedoWorkflow:
         # Step 1: Create project
         print("\nStep 1: Create Project")
         project_repo = SqliteProjectRepository(temp_db)
-        create_command = CreateProjectCommand(project_repository=project_repo)
+        create_command = CreateProjectCommand(project_repository=project_repo, app_type_registry=app_type_registry)
 
         create_result = create_command.execute(
             name="Undo Test Project",
@@ -312,7 +344,8 @@ class TestUndoRedoWorkflow:
         print("=" * 70)
 
     def test_multiple_undo_redo_sequence(
-        self, temp_db: Path, temp_project_dir: Path, test_schema: EntityDefinition
+        self, temp_db: Path, temp_project_dir: Path, test_schema: EntityDefinition,
+        app_type_registry: AppTypeRegistry
     ) -> None:
         """Test multiple sequential undo/redo operations.
 
@@ -331,7 +364,10 @@ class TestUndoRedoWorkflow:
         # Step 1: Create project
         print("\nStep 1: Create Project & Setup")
         project_repo = SqliteProjectRepository(temp_db)
-        create_command = CreateProjectCommand(project_repository=project_repo)
+        create_command = CreateProjectCommand(
+            project_repository=project_repo,
+            app_type_registry=app_type_registry
+        )
 
         create_result = create_command.execute(
             name="Multi Undo Test",
@@ -487,7 +523,8 @@ class TestUndoRedoWorkflow:
         print("=" * 70)
 
     def test_undo_stack_behavior_on_save_and_close(
-        self, temp_db: Path, temp_project_dir: Path, test_schema: EntityDefinition
+        self, temp_db: Path, temp_project_dir: Path, test_schema: EntityDefinition,
+        app_type_registry: AppTypeRegistry
     ) -> None:
         """Test undo stack behavior: cleared on close, NOT on save (v1.3.1).
 
@@ -507,7 +544,10 @@ class TestUndoRedoWorkflow:
         # Step 1: Create project and make edits
         print("\nStep 1: Create Project & Make Edits")
         project_repo = SqliteProjectRepository(temp_db)
-        create_command = CreateProjectCommand(project_repository=project_repo)
+        create_command = CreateProjectCommand(
+            project_repository=project_repo,
+            app_type_registry=app_type_registry
+        )
 
         create_result = create_command.execute(
             name="Stack Behavior Test",

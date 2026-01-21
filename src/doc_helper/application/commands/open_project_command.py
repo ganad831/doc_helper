@@ -8,6 +8,9 @@ ADR-031: Undo History Persistence
 - Restores undo history after successful project open
 - Undo history restoration is best-effort (failure doesn't prevent open)
 - Reconstructs undo commands with fresh runtime dependencies
+
+v2 PHASE 3: AppType-aware project lifecycle enforcement.
+Validates that project's AppType exists in registry before opening.
 """
 
 from typing import Optional
@@ -21,6 +24,7 @@ from doc_helper.application.undo.undo_manager import UndoManager
 from doc_helper.application.undo.undo_persistence_dto import UndoCommandPersistenceDTO
 from doc_helper.application.undo.undoable_command import UndoableCommand
 from doc_helper.application.undo.field_undo_command import SetFieldValueCommand, IFieldService
+from doc_helper.platform.registry.interfaces import IAppTypeRegistry
 
 
 class OpenProjectCommand:
@@ -35,9 +39,15 @@ class OpenProjectCommand:
     to allow undo/redo continuation from previous session. Undo restoration
     failure is non-blocking (logs warning, project opens with empty undo stack).
 
+    v2 PHASE 3 (AGENT_RULES.md Section 16):
+    - Validates that project's app_type_id exists in registry after loading
+    - Returns clear error if AppType not found or incompatible
+    - Enforces AppType as first-class invariant of project lifecycle
+
     Example:
         command = OpenProjectCommand(
             project_repository=repo,
+            app_type_registry=registry,
             undo_history_repository=undo_repo,
             undo_manager=undo_mgr,
             field_service=field_svc
@@ -51,6 +61,7 @@ class OpenProjectCommand:
     def __init__(
         self,
         project_repository: IProjectRepository,
+        app_type_registry: IAppTypeRegistry,
         undo_history_repository: Optional[IUndoHistoryRepository] = None,
         undo_manager: Optional[UndoManager] = None,
         field_service: Optional[IFieldService] = None,
@@ -59,13 +70,17 @@ class OpenProjectCommand:
 
         Args:
             project_repository: Repository for loading projects
+            app_type_registry: Registry for validating AppType existence
             undo_history_repository: Repository for loading undo history (optional)
             undo_manager: Undo manager for importing undo state (optional)
             field_service: Field service for reconstructing undo commands (optional)
         """
         if not isinstance(project_repository, IProjectRepository):
             raise TypeError("project_repository must implement IProjectRepository")
+        if not isinstance(app_type_registry, IAppTypeRegistry):
+            raise TypeError("app_type_registry must implement IAppTypeRegistry")
         self._project_repository = project_repository
+        self._app_type_registry = app_type_registry
         self._undo_history_repository = undo_history_repository
         self._undo_manager = undo_manager
         self._field_service = field_service
@@ -74,12 +89,19 @@ class OpenProjectCommand:
         """Execute open project command.
 
         ADR-031: After successful load, restores undo history for session continuation.
+        v2 PHASE 3: Validates that project's AppType exists in registry.
 
         Args:
             project_id: ID of project to open
 
         Returns:
             Success(Project) if loaded, Failure(error) otherwise
+
+        Validation Failures:
+            - "project_id must be a ProjectId" - Invalid project ID type
+            - "Failed to load project: ..." - Repository load failed
+            - "Project not found: ..." - Project ID doesn't exist
+            - "Cannot open project: AppType '{id}' not found. Available: ..." - AppType missing
         """
         if not isinstance(project_id, ProjectId):
             return Failure("project_id must be a ProjectId")
@@ -92,6 +114,16 @@ class OpenProjectCommand:
         project = load_result.value
         if project is None:
             return Failure(f"Project not found: {project_id.value}")
+
+        # v2 PHASE 3: Validate project's AppType exists in registry
+        if not self._app_type_registry.exists(project.app_type_id):
+            available = self._app_type_registry.list_app_type_ids()
+            available_str = ", ".join(sorted(available)) if available else "none"
+            return Failure(
+                f"Cannot open project: AppType '{project.app_type_id}' not found. "
+                f"Available AppTypes: {available_str}. "
+                f"The project requires AppType '{project.app_type_id}' which is not installed or registered."
+            )
 
         # ADR-031: Restore undo history after successful project load
         # (failure is non-blocking - logs warning, opens with empty undo stack)

@@ -36,6 +36,14 @@ from doc_helper.domain.validation.constraints import (
 from doc_helper.infrastructure.persistence.sqlite_project_repository import (
     SqliteProjectRepository,
 )
+from doc_helper.platform.registry.app_type_registry import AppTypeRegistry
+from doc_helper.platform.discovery.manifest_parser import (
+    ParsedManifest,
+    ManifestSchema,
+    ManifestTemplates,
+    ManifestCapabilities,
+)
+from doc_helper.app_types.contracts import AppTypeMetadata
 
 
 @pytest.fixture
@@ -121,11 +129,35 @@ def test_schema() -> EntityDefinition:
     return entity_def
 
 
+@pytest.fixture
+def app_type_registry() -> AppTypeRegistry:
+    """Create registry with default AppType for testing."""
+    registry = AppTypeRegistry()
+    soil_manifest = ParsedManifest(
+        metadata=AppTypeMetadata(
+            app_type_id="soil_investigation",
+            name="Soil Investigation",
+            version="1.0.0",
+            description="Soil investigation reports",
+        ),
+        schema=ManifestSchema(
+            source="config.db",
+            schema_type="sqlite",
+        ),
+        templates=ManifestTemplates(),
+        capabilities=ManifestCapabilities(),
+        manifest_path=Path("app_types/soil_investigation/manifest.json"),
+    )
+    registry.register(soil_manifest)
+    return registry
+
+
 class TestValidationWorkflow:
     """E2E tests for Workflow 3: Validation workflow."""
 
     def test_required_field_validation(
-        self, temp_db: Path, temp_project_dir: Path, test_schema: EntityDefinition
+        self, temp_db: Path, temp_project_dir: Path, test_schema: EntityDefinition,
+        app_type_registry: AppTypeRegistry
     ) -> None:
         """Test required field validation workflow.
 
@@ -142,7 +174,10 @@ class TestValidationWorkflow:
         # Step 1: Create project
         print("\nStep 1: Create Project")
         project_repo = SqliteProjectRepository(temp_db)
-        create_command = CreateProjectCommand(project_repository=project_repo)
+        create_command = CreateProjectCommand(
+            project_repository=project_repo,
+            app_type_registry=app_type_registry
+        )
 
         create_result = create_command.execute(
             name="Validation Test Project",
@@ -232,7 +267,8 @@ class TestValidationWorkflow:
         print("=" * 70)
 
     def test_length_constraint_validation(
-        self, temp_db: Path, temp_project_dir: Path, test_schema: EntityDefinition
+        self, temp_db: Path, temp_project_dir: Path, test_schema: EntityDefinition,
+        app_type_registry: AppTypeRegistry
     ) -> None:
         """Test min/max length constraint validation.
 
@@ -252,7 +288,10 @@ class TestValidationWorkflow:
         # Step 1: Create project
         print("\nStep 1: Create Project with Required Fields")
         project_repo = SqliteProjectRepository(temp_db)
-        create_command = CreateProjectCommand(project_repository=project_repo)
+        create_command = CreateProjectCommand(
+            project_repository=project_repo,
+            app_type_registry=app_type_registry
+        )
 
         create_result = create_command.execute(
             name="Length Test Project",
@@ -349,7 +388,8 @@ class TestValidationWorkflow:
         print("=" * 70)
 
     def test_numeric_constraint_validation(
-        self, temp_db: Path, temp_project_dir: Path, test_schema: EntityDefinition
+        self, temp_db: Path, temp_project_dir: Path, test_schema: EntityDefinition,
+        app_type_registry: AppTypeRegistry
     ) -> None:
         """Test min/max value constraint validation.
 
@@ -369,7 +409,10 @@ class TestValidationWorkflow:
         # Step 1: Create project
         print("\nStep 1: Create Project")
         project_repo = SqliteProjectRepository(temp_db)
-        create_command = CreateProjectCommand(project_repository=project_repo)
+        create_command = CreateProjectCommand(
+            project_repository=project_repo,
+            app_type_registry=app_type_registry
+        )
 
         create_result = create_command.execute(
             name="Numeric Test Project",
@@ -458,7 +501,8 @@ class TestValidationWorkflow:
         print("=" * 70)
 
     def test_pattern_constraint_validation(
-        self, temp_db: Path, temp_project_dir: Path, test_schema: EntityDefinition
+        self, temp_db: Path, temp_project_dir: Path, test_schema: EntityDefinition,
+        app_type_registry: AppTypeRegistry
     ) -> None:
         """Test pattern (regex) constraint validation.
 
@@ -476,7 +520,10 @@ class TestValidationWorkflow:
         # Step 1: Create project with required fields
         print("\nStep 1: Create Project with Required Fields")
         project_repo = SqliteProjectRepository(temp_db)
-        create_command = CreateProjectCommand(project_repository=project_repo)
+        create_command = CreateProjectCommand(
+            project_repository=project_repo,
+            app_type_registry=app_type_registry
+        )
 
         create_result = create_command.execute(
             name="Pattern Test Project",
