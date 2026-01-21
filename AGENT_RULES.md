@@ -9,11 +9,13 @@ If a rule here conflicts with any other instruction, **this file wins**.
 
 ## 1. VERSION & SCOPE LOCK
 
-- Target version: **Doc Helper v1 only**
-- Source of truth: **unified_upgrade_plan_FINAL.md**
-- v2+ features are **strictly forbidden** unless explicitly marked as v1 in the FINAL plan
+- Target version: **Doc Helper v1 (stable) + v2 Platform Work (in progress)**
+- v1 Source of truth: **unified_upgrade_plan_FINAL.md**
+- v2 Source of truth: **V2_PLATFORM_IMPLEMENTATION_PLAN.md** + v2 ADRs
 
-The agent must not anticipate, prototype, or partially implement v2 features.
+**v1 Behavior Lock**: All v1 implemented behavior is LOCKED. Changes to v1 behavior require explicit justification via v2 ADR.
+
+**v2 Platform Work**: Authorized as of 2026-01-21. See Section 16 for v2 Platform Work Rules.
 
 ---
 
@@ -209,14 +211,16 @@ After implementation, the agent MUST:
 
 ---
 
-## 14. ARCHITECTURE FREEZE (ACTIVE)
+## 14. ARCHITECTURE FREEZE STATUS
 
-**Status**: ACTIVE
+**Status**: INACTIVE (Unfrozen for v2 Platform Work)
 **Date Declared**: 2026-01-21
+**Date Unfrozen**: 2026-01-21
+**Reason**: Begin v2 Platform: Multi-App Support
 
-### Frozen Scope
+### Previously Frozen Scope (Now v1 Baseline)
 
-The following architectural decisions are **FROZEN** and may NOT be modified:
+The following architectural decisions were **FROZEN** during v1 development and are now the **v1 BASELINE**:
 
 **Phase A Foundational ADRs** (16 total):
 - ADR-001 through ADR-012 (excluding gaps)
@@ -229,43 +233,34 @@ The following architectural decisions are **FROZEN** and may NOT be modified:
 - ADR-031: Undo History Persistence
 - ADR-039: Import/Export Data Format
 
-### Freeze Rules
+### v1 Baseline Rules (STILL ENFORCED)
 
-**ABSOLUTELY FORBIDDEN**:
-- ❌ Modifying any frozen ADR decision
-- ❌ Removing architectural constraints defined in frozen ADRs
-- ❌ Introducing alternatives to frozen patterns
-- ❌ Weakening or bypassing frozen architectural rules
+**ABSOLUTELY FORBIDDEN** (v1 behavior protection):
+- ❌ Modifying decisions in any v1 ADR (ADR-001 through ADR-039)
+- ❌ Removing architectural constraints defined in v1 ADRs
+- ❌ Weakening DTO-only MVVM, Clean Architecture, or layer boundaries
+- ❌ Breaking existing v1 tests or behavior
 - ❌ "Temporary" violations with intent to refactor later
 
-**ALLOWED WITHOUT AUTHORIZATION**:
-- ✅ Bug fixes maintaining ADR compliance
-- ✅ Performance optimizations within architectural constraints
+**ALLOWED** (v1 maintenance):
+- ✅ Bug fixes maintaining v1 ADR compliance
+- ✅ Performance optimizations within v1 constraints
 - ✅ Documentation clarifications
 - ✅ Test coverage improvements
-- ✅ Implementation details not specified in ADRs
+- ✅ Implementation details not specified in v1 ADRs
 
-**REQUIRES EXPLICIT AUTHORIZATION**:
-- Major refactors affecting frozen architecture
-- Changes to code implementing frozen ADRs (ADR-025, ADR-039)
-- New ADRs extending or modifying frozen decisions
+**ALLOWED** (v2 Platform Work - see Section 16):
+- ✅ Creating new v2 ADRs (ADR-V2-XXX series)
+- ✅ Platform boundary design and interfaces
+- ✅ New composition root planning for multi-app
+- ✅ Extending interfaces (not breaking them)
 
-### Enforcement
+### Freeze History
 
-Violations of frozen ADRs are **blocking errors**.
-
-The agent MUST:
-- Check frozen ADR list before any architectural change
-- Reject requests that violate frozen architecture
-- Request explicit authorization for changes to frozen scope
-
-### Unfreezing
-
-To modify a frozen ADR:
-1. Submit formal proposal with rationale
-2. Document impact analysis
-3. Obtain project lead authorization
-4. Update freeze status in this document
+| Date | Status | Reason |
+|------|--------|--------|
+| 2026-01-21 | ACTIVE | Phase A + Near-Term Expansion complete |
+| 2026-01-21 | INACTIVE | Begin v2 Platform: Multi-App Support |
 
 ---
 
@@ -378,6 +373,91 @@ To modify a frozen ADR:
 - ✅ ADR-024 compliance: No new violations introduced
 
 **Authorization**: Explicitly authorized in AGENT_RULES.md Section 10 (Near-Term Expansion Exceptions)
+
+---
+
+---
+
+## 16. V2 PLATFORM WORK RULES
+
+**Status**: ACTIVE
+**Date Authorized**: 2026-01-21
+**Objective**: Multi-App Support (Multi-AppType Platform)
+
+### 16.1 Scope of v2 Platform Work
+
+**ALLOWED** (v2 Platform Development):
+- ✅ Creating new v2 ADRs (ADR-V2-001, ADR-V2-002, ADR-V2-003, etc.)
+- ✅ Defining platform host responsibilities and interfaces
+- ✅ Designing AppType boundary contracts
+- ✅ Planning new composition root architecture
+- ✅ Creating new modules/packages for platform infrastructure
+- ✅ Adding new interfaces that AppTypes must implement
+- ✅ Extending existing interfaces (additive changes only)
+- ✅ Creating platform-level services for AppType discovery/registry
+
+**FORBIDDEN** (v1 Protection):
+- ❌ Changing existing implemented behavior of v1 code
+- ❌ Breaking Clean Architecture layer boundaries (Section 2)
+- ❌ Weakening DTO-only MVVM (Section 3)
+- ❌ Retroactively editing v1 ADR decisions (ADR-001 through ADR-039)
+- ❌ Breaking existing v1 tests
+- ❌ Removing v1 functionality
+- ❌ Coupling AppTypes to each other (cross-app imports)
+- ❌ Platform host depending on specific AppType internals
+
+### 16.2 v2 ADR Governance
+
+**New v2 ADRs**:
+- Use ADR-V2-XXX numbering series
+- MUST document: Context, Decision, Options, Consequences, Migration Plan
+- MUST specify: Non-goals, v1 impact assessment
+- Status: DRAFT → ACCEPTED (requires explicit approval)
+
+**v1 Behavior Changes**:
+- Any change to existing v1 behavior MUST be proposed via v2 ADR
+- v2 ADR MUST include explicit justification
+- v2 ADR MUST include backward compatibility analysis
+- v2 ADR MUST include migration path from v1
+
+### 16.3 Platform-AppType Dependency Rules
+
+```
+Platform Host (doc_helper.platform)
+    ├── Owns: AppType registry, discovery, lifecycle
+    ├── Depends on: Domain layer, Application interfaces
+    └── DOES NOT depend on: Specific AppType implementations
+
+AppType Module (doc_helper.app_types.{name})
+    ├── Implements: Platform contracts (IAppType, IAppTypeSchema, etc.)
+    ├── Depends on: Platform contracts, Domain layer
+    └── DOES NOT depend on: Other AppType modules
+
+Cross-AppType Imports: FORBIDDEN
+```
+
+### 16.4 v2 Execution Discipline
+
+**Before implementing any v2 change**:
+1. Verify it aligns with accepted v2 ADRs
+2. Confirm no v1 behavior is modified
+3. Check Clean Architecture compliance
+4. Check DTO-only MVVM compliance
+
+**After implementing any v2 change**:
+1. Run full test suite (v1 tests MUST still pass)
+2. Run architectural compliance scan
+3. Update v2 implementation documentation
+4. Confirm no v1 regressions
+
+### 16.5 v2 Implementation Phases
+
+**Phase 1**: Platform Host + AppType Registry (infrastructure only, no second app)
+**Phase 2**: Extract v1 as First AppType (Soil Investigation becomes an AppType module)
+**Phase 3**: Add Second AppType (proof of isolation, may be minimal/stub)
+**Phase 4**: UI Updates (AppType selection, project-to-AppType mapping)
+
+Each phase requires explicit authorization before implementation.
 
 ---
 

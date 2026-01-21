@@ -210,17 +210,26 @@ This marker represents the completion of Phase A (U1-U12) and establishes a stab
 
 ---
 
-## 2.5 ARCHITECTURE FREEZE (ACTIVE)
+## 2.5 ARCHITECTURE FREEZE STATUS
 
-**Status**: ACTIVE
+**Status**: INACTIVE (Unfrozen for v2 Platform Work)
 **Date Declared**: 2026-01-21
+**Date Unfrozen**: 2026-01-21
+**Reason**: Begin v2 Platform: Multi-App Support
 **Scope**: Phase A (U1-U12) + Near-Term Expansion (ADR-025, ADR-026, ADR-027, ADR-031, ADR-039)
 
-### Frozen Architectural Decisions
+### Freeze History
 
-The following architectural decisions are **FROZEN** and may not be modified without explicit authorization:
+| Date | Status | Reason |
+|------|--------|--------|
+| 2026-01-21 | ACTIVE | Phase A + Near-Term Expansion complete |
+| 2026-01-21 | INACTIVE | Begin v2 Platform: Multi-App Support |
 
-**Phase A (U1-U12) - Foundational ADRs**:
+### v1 Baseline (Previously Frozen)
+
+The following architectural decisions established during v1 are now the **v1 BASELINE**. They remain authoritative for v1 behavior but may be extended (not modified) for v2:
+
+**Phase A (U1-U12) - Foundational ADRs** (16 total):
 - ADR-001: Controlled Big Bang Rewrite Strategy
 - ADR-002: Clean Architecture with Domain-Driven Design
 - ADR-003: Framework-Independent Domain Layer
@@ -238,56 +247,50 @@ The following architectural decisions are **FROZEN** and may not be modified wit
 - ADR-021: UndoState DTO Isolation
 - ADR-024: Architectural Compliance Scanning
 
-**Near-Term Expansion ADRs**:
+**Near-Term Expansion ADRs** (5 total):
 - ADR-025: Validation Severity Levels (Implemented ✅)
 - ADR-026: Search Architecture (Decision Frozen, Implementation Pending)
 - ADR-027: Field History Storage (Decision Frozen, Implementation Pending)
 - ADR-031: Undo History Persistence (Decision Frozen, Implementation Pending)
 - ADR-039: Import/Export Data Format (Implemented ✅)
 
-### Freeze Rules
+### v1 Baseline Rules (STILL ENFORCED)
 
-**FORBIDDEN** (without explicit authorization):
-- ❌ Modifying frozen ADR decisions
-- ❌ Changing architectural patterns defined in frozen ADRs
-- ❌ Removing or relaxing constraints defined in frozen ADRs
-- ❌ Introducing alternatives to frozen patterns (e.g., alternative DTO patterns)
-- ❌ Architectural experiments that conflict with frozen decisions
+**ABSOLUTELY FORBIDDEN** (v1 behavior protection):
+- ❌ Modifying decisions in any v1 ADR (ADR-001 through ADR-039)
+- ❌ Removing architectural constraints defined in v1 ADRs
+- ❌ Weakening DTO-only MVVM, Clean Architecture, or layer boundaries
+- ❌ Breaking existing v1 tests or behavior
+- ❌ "Temporary" violations with intent to refactor later
 
-**ALLOWED** (with proper review):
-- ✅ Bug fixes that maintain ADR compliance
-- ✅ Implementation details not specified in ADRs (e.g., query optimization)
+**ALLOWED** (v1 maintenance):
+- ✅ Bug fixes maintaining v1 ADR compliance
+- ✅ Performance optimizations within v1 constraints
 - ✅ Documentation clarifications
 - ✅ Test coverage improvements
-- ✅ Performance optimizations that don't violate architectural constraints
+- ✅ Implementation details not specified in v1 ADRs
 
-**REQUIRES EXPLICIT AUTHORIZATION**:
-- Major refactors affecting frozen architecture
-- New ADRs that extend or modify frozen decisions
-- Implementation changes to completed Near-Term Expansion ADRs (ADR-025, ADR-039)
+**ALLOWED** (v2 Platform Work - see Section 5.1):
+- ✅ Creating new v2 ADRs (ADR-V2-XXX series)
+- ✅ Platform boundary design and interfaces
+- ✅ New composition root planning for multi-app
+- ✅ Extending interfaces (not breaking them)
+
+### v2 Platform Work Authorization
+
+**Status**: ACTIVE
+**Date Authorized**: 2026-01-21
+**Objective**: Multi-App Support (Multi-AppType Platform)
+**Governance**: See [AGENT_RULES.md](AGENT_RULES.md) Section 16 for full v2 Platform Work Rules
+**Implementation Plan**: See [V2_PLATFORM_IMPLEMENTATION_PLAN.md](V2_PLATFORM_IMPLEMENTATION_PLAN.md)
 
 ### Rationale
 
-The Architecture Freeze establishes immutability for core architectural decisions after Phase A completion and Near-Term Expansion ADR acceptance. This ensures:
-- **Stability**: No architectural drift during long-term expansion
-- **Predictability**: Future work builds on known patterns
-- **Team Alignment**: Clear boundaries for what can and cannot change
-- **Risk Management**: Prevents regression of tested architecture
+The Architecture Freeze was established to ensure stability after Phase A completion and Near-Term Expansion ADR acceptance. The freeze is now INACTIVE to allow v2 Platform Work to begin, while still protecting v1 behavior and architectural constraints.
 
-### Unfreezing Process
-
-To unfreeze or modify a frozen ADR:
-1. Submit formal proposal with rationale
-2. Document impact analysis on existing codebase
-3. Obtain explicit project lead authorization
-4. Update this section with new freeze status
-
-### Freeze Status
-
-- **Current State**: ACTIVE
-- **Frozen Scope**: 21 ADRs (16 Phase A + 5 Near-Term Expansion)
-- **Implementation Status**: 18 implemented, 3 pending (ADR-026, ADR-027, ADR-031)
-- **Next Review**: As needed (trigger: request to modify frozen ADR)
+- **v1 Stability**: All v1 behavior remains locked
+- **v2 Extension**: New platform capabilities may be added
+- **Controlled Evolution**: v2 work follows strict governance (AGENT_RULES.md Section 16)
 
 ---
 
@@ -625,24 +628,40 @@ This section lists architectural leaps and capabilities significantly beyond cur
 
 ---
 
-### 5.1 Multi-App-Type Platform
+### 5.1 Multi-App-Type Platform (v2 - AUTHORIZED)
 
+**Status**: AUTHORIZED (2026-01-21)
 **Vision**: Transform Doc Helper from single-purpose to universal document generation platform.
+**Governance**: See [AGENT_RULES.md](AGENT_RULES.md) Section 16 for v2 Platform Work Rules
+**Implementation Plan**: See [V2_PLATFORM_IMPLEMENTATION_PLAN.md](V2_PLATFORM_IMPLEMENTATION_PLAN.md)
 
-**Components**:
-- `AppTypeInfo` aggregate (app type metadata)
-- `IAppTypeRegistry` (register/query available types)
-- `AppTypeDiscoveryService` (scan `app_types/` for manifest.json)
-- Extension loading for custom transformers
-- App type selection UI (welcome screen cards)
-- Project metadata: `app_type_id` field
+**v2 ADRs** (DRAFT):
+- ADR-V2-001: Platform AppType Boundary and Host Contract
+- ADR-V2-002: AppType Configuration and Project Identity Model
+- ADR-V2-003: Multi-App Module Layout and Dependency Rules
 
-**ADRs Required**:
-- ADR-028: Multi-App-Type Architecture (expand ADR-013)
-- ADR-029: Manifest Schema Specification
-- ADR-030: Extension Loading Protocol
+**Implementation Phases**:
+- **Phase 1**: Platform Host + AppType Registry (infrastructure only, no second app)
+- **Phase 2**: Extract v1 as First AppType (Soil Investigation becomes AppType module)
+- **Phase 3**: Add Second AppType (proof of isolation, may be minimal/stub)
+- **Phase 4**: UI Updates (AppType selection, project-to-AppType mapping)
 
-**Estimated Effort**: 40-50 days
+**Key Components**:
+- Platform Host (`doc_helper.platform`) - owns AppType registry, discovery, lifecycle
+- AppType Module (`doc_helper.app_types.{name}`) - implements platform contracts
+- `IAppType` interface - contract for AppType modules
+- `IAppTypeRegistry` - register/query available types
+- `AppTypeDiscoveryService` - scan `app_types/` for manifests
+- Project metadata: `app_type_id` field for project-to-AppType association
+
+**Constraints**:
+- v1 behavior MUST remain locked (no changes to existing implemented behavior)
+- Clean Architecture layer boundaries MUST be preserved
+- DTO-only MVVM MUST be maintained
+- Cross-AppType imports FORBIDDEN
+- Platform Host MUST NOT depend on specific AppType internals
+
+**Estimated Effort**: 40-50 days (4 phases)
 
 ---
 

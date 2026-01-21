@@ -3,8 +3,10 @@
 This document provides a centralized index of all ADRs for the Doc Helper project.
 
 **Last Updated**: 2026-01-21
-**Total ADRs**: 22 (21 Accepted, 1 Proposed)
-**Frozen ADRs**: 21 (16 Phase A + 5 Near-Term Expansion)
+**Total ADRs**: 25 (21 v1 Accepted + 1 Proposed + 3 v2 Draft)
+**v1 Baseline ADRs**: 21 (16 Phase A + 5 Near-Term Expansion)
+**v2 Platform ADRs**: 3 (ADR-V2-XXX series)
+**Architecture Freeze Status**: INACTIVE (Unfrozen for v2 Platform Work)
 
 ---
 
@@ -34,6 +36,14 @@ This document provides a centralized index of all ADRs for the Doc Helper projec
 | [ADR-027](adrs/ADR-027-field-history-storage.md) | Field History Storage | Accepted \| Implemented \| Frozen | Patterns |
 | [ADR-031](adrs/ADR-031-undo-history-persistence.md) | Undo History Persistence | Accepted \| Implemented \| Frozen | Undo System |
 | [ADR-039](adrs/ADR-039-import-export-data-format.md) | Import/Export Data Format | Accepted \| Implemented \| Frozen | Patterns |
+
+### v2 Platform ADRs (Draft)
+
+| ADR | Title | Status | Category |
+|-----|-------|--------|----------|
+| [ADR-V2-001](adrs/ADR-V2-001-platform-apptype-boundary.md) | Platform AppType Boundary and Host Contract | Draft | v2 Platform |
+| [ADR-V2-002](adrs/ADR-V2-002-apptype-configuration-project-identity.md) | AppType Configuration and Project Identity Model | Draft | v2 Platform |
+| [ADR-V2-003](adrs/ADR-V2-003-multi-app-module-layout.md) | Multi-App Module Layout and Dependency Rules | Draft | v2 Platform |
 
 ---
 
@@ -151,6 +161,28 @@ This document provides a centralized index of all ADRs for the Doc Helper projec
 
 ---
 
+## v2 Platform ADR Summaries
+
+### ADR-V2-001: Platform AppType Boundary and Host Contract
+**Status**: Draft
+**Decision**: Define the boundary contract between the Platform Host and AppType modules, establishing responsibilities, interfaces, and interaction patterns for multi-app support.
+**Rationale**: The current v1 architecture implicitly couples the application to a single AppType (Soil Investigation). To support multiple AppTypes without code modification, a clean boundary must be established where the Platform Host owns discovery, lifecycle management, and routing, while AppTypes implement domain-specific behavior through standardized contracts.
+**File**: [ADR-V2-001-platform-apptype-boundary.md](adrs/ADR-V2-001-platform-apptype-boundary.md)
+
+### ADR-V2-002: AppType Configuration and Project Identity Model
+**Status**: Draft
+**Decision**: Define how AppTypes are configured via manifests and how projects identify their associated AppType.
+**Rationale**: Projects must be permanently associated with their AppType at creation time. This association must survive project close/reopen cycles and cannot be changed after creation. AppTypes must declare their capabilities and requirements through a standardized manifest format.
+**File**: [ADR-V2-002-apptype-configuration-project-identity.md](adrs/ADR-V2-002-apptype-configuration-project-identity.md)
+
+### ADR-V2-003: Multi-App Module Layout and Dependency Rules
+**Status**: Draft
+**Decision**: Define the physical module layout and dependency rules for the multi-app architecture.
+**Rationale**: Clean Architecture and DDD principles require clear module boundaries. The multi-app architecture introduces new dependency relationships between Platform Host and AppType modules that must be explicitly governed to prevent coupling and maintain testability.
+**File**: [ADR-V2-003-multi-app-module-layout.md](adrs/ADR-V2-003-multi-app-module-layout.md)
+
+---
+
 ## ADR Gaps
 
 **Reserved Number Ranges**:
@@ -188,6 +220,14 @@ These gaps allow for inserting related ADRs without renumbering existing ones.
 - ✅ ADR-031: Undo History Persistence (accepted, implemented, **FROZEN**)
 - ✅ ADR-039: Import/Export Data Format (accepted, implemented, **FROZEN**)
 - ADR-013: Multi-Document-Type Platform Vision (deferred to v2+, not frozen)
+
+### v2 Platform Work: AUTHORIZED (Draft)
+- ADR-V2-001: Platform AppType Boundary and Host Contract (draft, pending implementation)
+- ADR-V2-002: AppType Configuration and Project Identity Model (draft, pending implementation)
+- ADR-V2-003: Multi-App Module Layout and Dependency Rules (draft, pending implementation)
+
+**Note**: v2 ADRs use the ADR-V2-XXX numbering series to distinguish from v1 ADRs.
+**Governance**: See [AGENT_RULES.md](AGENT_RULES.md) Section 16 for v2 Platform Work Rules.
 
 ### Long-Term Expansion: Vision
 - ADRs for plugin architecture, performance/scaling, advanced features (planned)
