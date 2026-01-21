@@ -4,13 +4,24 @@ RULES (unified_upgrade_plan.md v1.3, H1):
 - Command-based undo model (not snapshot)
 - LIFO stacks for undo and redo
 - Max depth: 100 (configurable)
-- Cleared on: project close, project save
+- Cleared on: project close, project save (UPDATED by ADR-031: cleared ONLY on project close)
 - New action clears redo stack
+
+ADR-031: Undo History Persistence
+- export_state(): Serialize undo/redo stacks to persistence DTO
+- import_state(): Restore undo/redo stacks from persistence DTO
+- Undo history persists across application restarts and saves
 """
 
+from datetime import datetime
 from typing import Callable, Optional
 
 from doc_helper.application.undo.undoable_command import UndoableCommand
+from doc_helper.application.undo.undo_persistence_dto import (
+    UndoCommandPersistenceDTO,
+    UndoHistoryPersistenceDTO,
+)
+from doc_helper.application.undo.field_undo_command import SetFieldValueCommand
 
 
 class UndoManager:
@@ -212,7 +223,8 @@ class UndoManager:
     def clear(self) -> None:
         """Clear both undo and redo stacks.
 
-        Called on project close or project save.
+        ADR-031: Called ONLY on explicit project close (not on save).
+        Undo history now persists across saves and application restarts.
 
         Side Effects:
             - Clears undo stack
@@ -240,6 +252,116 @@ class UndoManager:
         """
         if callback in self._on_state_changed:
             self._on_state_changed.remove(callback)
+
+    def export_state(self, project_id: str) -> UndoHistoryPersistenceDTO:
+        """Export undo/redo stacks to persistence DTO for saving.
+
+        ADR-031: Converts in-memory command objects to serializable DTOs
+        containing only the minimal state needed to reconstruct commands.
+
+        Args:
+            project_id: Project ID for the undo history
+
+        Returns:
+            UndoHistoryPersistenceDTO containing serialized undo/redo stacks
+
+        Example:
+            persistence_dto = undo_manager.export_state(project_id="proj-123")
+            undo_history_repo.save(persistence_dto)
+        """
+        # Convert commands to persistence DTOs
+        undo_persistence_stack = tuple(
+            self._command_to_persistence_dto(cmd) for cmd in self._undo_stack
+        )
+        redo_persistence_stack = tuple(
+            self._command_to_persistence_dto(cmd) for cmd in self._redo_stack
+        )
+
+        return UndoHistoryPersistenceDTO(
+            project_id=project_id,
+            undo_stack=undo_persistence_stack,
+            redo_stack=redo_persistence_stack,
+            max_stack_depth=self._max_depth,
+            last_modified=datetime.utcnow().isoformat(),
+        )
+
+    def import_state(
+        self,
+        history: UndoHistoryPersistenceDTO,
+        command_factory: Callable[[UndoCommandPersistenceDTO], Optional[UndoableCommand]],
+    ) -> None:
+        """Restore undo/redo stacks from persistence DTO.
+
+        ADR-031: Reconstructs command objects from persistence DTOs using
+        provided factory. The factory must inject runtime dependencies
+        (field_service, etc.) when creating commands.
+
+        Args:
+            history: Persistence DTO containing serialized undo/redo stacks
+            command_factory: Factory function to reconstruct commands from DTOs.
+                            Returns None if command cannot be reconstructed.
+
+        Side Effects:
+            - Clears existing undo and redo stacks
+            - Restores stacks from persistence DTO
+            - Notifies state change listeners
+
+        Example:
+            def factory(dto: UndoCommandPersistenceDTO) -> Optional[UndoableCommand]:
+                if dto.command_type == "field_value":
+                    state = dto.to_field_state()
+                    return SetFieldValueCommand(
+                        project_id=project_id,
+                        state=state,
+                        field_service=field_service  # Fresh dependency
+                    )
+                return None
+
+            undo_manager.import_state(persistence_dto, factory)
+        """
+        # Clear existing stacks
+        self._undo_stack.clear()
+        self._redo_stack.clear()
+
+        # Reconstruct commands from persistence DTOs
+        for persistence_dto in history.undo_stack:
+            command = command_factory(persistence_dto)
+            if command is not None:
+                self._undo_stack.append(command)
+
+        for persistence_dto in history.redo_stack:
+            command = command_factory(persistence_dto)
+            if command is not None:
+                self._redo_stack.append(command)
+
+        # Update max depth from persisted value
+        self._max_depth = history.max_stack_depth
+
+        self._notify_state_changed()
+
+    def _command_to_persistence_dto(
+        self, command: UndoableCommand
+    ) -> UndoCommandPersistenceDTO:
+        """Convert an UndoableCommand to a persistence DTO.
+
+        ADR-031: Extracts only the state needed to reconstruct the command,
+        omitting runtime dependencies (field_service, etc.).
+
+        Args:
+            command: Command to convert
+
+        Returns:
+            UndoCommandPersistenceDTO containing command state
+
+        Raises:
+            ValueError: If command type is unknown
+        """
+        if isinstance(command, SetFieldValueCommand):
+            return UndoCommandPersistenceDTO.from_field_state(command.state)
+
+        # Add more command types as they're implemented (e.g., override commands)
+        # For now, raise error for unknown types
+        raise ValueError(f"Unknown command type: {type(command).__name__}")
 
     def _notify_state_changed(self) -> None:
         """Notify all subscribers of state change."""

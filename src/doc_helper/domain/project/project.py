@@ -5,7 +5,9 @@ from typing import Optional
 
 from doc_helper.domain.common.entity import AggregateRoot
 from doc_helper.domain.common.i18n import TranslationKey
+from doc_helper.domain.project.field_history import ChangeSource
 from doc_helper.domain.project.field_value import FieldValue
+from doc_helper.domain.project.project_events import FieldValueChanged
 from doc_helper.domain.project.project_ids import ProjectId
 from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
 
@@ -121,19 +123,25 @@ class Project(AggregateRoot[ProjectId]):
             raise TypeError("field_id must be a FieldDefinitionId")
         return field_id in self.field_values
 
-    def set_field_value(self, field_id: FieldDefinitionId, value: any) -> None:
+    def set_field_value(
+        self, field_id: FieldDefinitionId, value: any, user_id: Optional[str] = None
+    ) -> None:
         """Set field value (user-provided).
 
         If the field already has a computed value, this creates an override.
 
+        ADR-027: Emits FieldValueChanged event for field history tracking.
+
         Args:
             field_id: Field definition ID
             value: Value to set
+            user_id: Optional user ID who made the change
         """
         if not isinstance(field_id, FieldDefinitionId):
             raise TypeError("field_id must be a FieldDefinitionId")
 
         existing = self.field_values.get(field_id)
+        previous_value = existing.value if existing is not None else None
 
         if existing is not None:
             # Update existing field value
@@ -147,6 +155,20 @@ class Project(AggregateRoot[ProjectId]):
         self.field_values[field_id] = new_field_value
         self._touch()
 
+        # ADR-027: Emit domain event for field history
+        # Only emit if value actually changed
+        if previous_value != value:
+            self._add_domain_event(
+                FieldValueChanged(
+                    project_id=self.id,
+                    field_id=field_id,
+                    previous_value=previous_value,
+                    new_value=value,
+                    change_source=ChangeSource.USER_EDIT,
+                    user_id=user_id,
+                )
+            )
+
     def set_computed_field_value(
         self, field_id: FieldDefinitionId, computed_value: any, formula: str
     ) -> None:
@@ -154,6 +176,8 @@ class Project(AggregateRoot[ProjectId]):
 
         If the field has an override, the override is preserved and only
         the original_computed_value is updated.
+
+        ADR-027: Emits FieldValueChanged event for field history tracking.
 
         Args:
             field_id: Field definition ID
@@ -166,6 +190,8 @@ class Project(AggregateRoot[ProjectId]):
             raise TypeError("formula must be a string")
 
         existing = self.field_values.get(field_id)
+        # For computed values, track the actual displayed value (including overrides)
+        previous_value = existing.value if existing is not None else None
 
         if existing is not None:
             # Update existing field value
@@ -182,11 +208,32 @@ class Project(AggregateRoot[ProjectId]):
         self.field_values[field_id] = new_field_value
         self._touch()
 
-    def clear_field_override(self, field_id: FieldDefinitionId) -> None:
+        # ADR-027: Emit domain event for field history
+        # Only emit if computed value actually changed
+        # Note: If field has override, the displayed value doesn't change, only the underlying computed value
+        new_displayed_value = new_field_value.value
+        if previous_value != new_displayed_value:
+            self._add_domain_event(
+                FieldValueChanged(
+                    project_id=self.id,
+                    field_id=field_id,
+                    previous_value=previous_value,
+                    new_value=new_displayed_value,
+                    change_source=ChangeSource.FORMULA_RECOMPUTATION,
+                    user_id=None,  # System-initiated change
+                )
+            )
+
+    def clear_field_override(
+        self, field_id: FieldDefinitionId, user_id: Optional[str] = None
+    ) -> None:
         """Clear override for a field, restoring computed value.
+
+        ADR-027: Emits FieldValueChanged event for field history tracking.
 
         Args:
             field_id: Field definition ID
+            user_id: Optional user ID who cleared the override
 
         Raises:
             KeyError: If field not found
@@ -199,9 +246,26 @@ class Project(AggregateRoot[ProjectId]):
             raise KeyError(f"Field '{field_id.value}' not found in project")
 
         existing = self.field_values[field_id]
+        previous_value = existing.value
+
         new_field_value = existing.clear_override()
         self.field_values[field_id] = new_field_value
         self._touch()
+
+        # ADR-027: Emit domain event for field history
+        # Clearing override restores the computed value
+        new_value = new_field_value.value
+        if previous_value != new_value:
+            self._add_domain_event(
+                FieldValueChanged(
+                    project_id=self.id,
+                    field_id=field_id,
+                    previous_value=previous_value,
+                    new_value=new_value,
+                    change_source=ChangeSource.USER_EDIT,
+                    user_id=user_id,
+                )
+            )
 
     def remove_field_value(self, field_id: FieldDefinitionId) -> None:
         """Remove field value.

@@ -47,6 +47,10 @@ from doc_helper.application.dto.i18n_dto import (
     TextDirectionDTO,
     LanguageInfoDTO,
 )
+from doc_helper.application.dto.field_history_dto import (
+    FieldHistoryEntryDTO,
+    FieldHistoryResultDTO,
+)
 
 __all__ = [
     # Project DTOs
@@ -76,4 +80,7 @@ __all__ = [
     "LanguageDTO",
     "TextDirectionDTO",
     "LanguageInfoDTO",
+    # Field History DTOs
+    "FieldHistoryEntryDTO",
+    "FieldHistoryResultDTO",
 ]

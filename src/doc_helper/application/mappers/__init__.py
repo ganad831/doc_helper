@@ -20,6 +20,7 @@ from doc_helper.application.mappers.control_mapper import (
     ControlEffectMapper,
     EvaluationResultMapper,
 )
+from doc_helper.application.mappers.field_history_mapper import FieldHistoryMapper
 
 __all__ = [
     "ProjectMapper",
@@ -30,4 +31,5 @@ __all__ = [
     "OverrideMapper",
     "ControlEffectMapper",
     "EvaluationResultMapper",
+    "FieldHistoryMapper",
 ]

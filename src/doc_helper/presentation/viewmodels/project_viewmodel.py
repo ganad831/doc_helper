@@ -12,7 +12,7 @@ UNDO/REDO (unified_upgrade_plan_FINAL.md U6 Phase 4):
 - Undo stack cleared on project close/open (NOT on save)
 """
 
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
 from doc_helper.application.commands.save_project_command import SaveProjectCommand
@@ -30,11 +30,13 @@ from doc_helper.application.services.control_service import ControlService
 from doc_helper.application.services.field_undo_service import FieldUndoService
 from doc_helper.application.services.formula_service import FormulaService
 from doc_helper.application.services.validation_service import ValidationService
-from doc_helper.domain.project.project_ids import ProjectId  # Simple ID type can cross boundaries
-# Domain imports moved to local scope to comply with DTO-only MVVM rule
 from doc_helper.presentation.adapters.history_adapter import HistoryAdapter
 from doc_helper.presentation.adapters.navigation_adapter import NavigationAdapter
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
+
+# ADR-020: DTO-only MVVM - Domain imports only for type checking
+if TYPE_CHECKING:
+    from doc_helper.domain.project.project_ids import ProjectId
 
 
 class ProjectViewModel(BaseViewModel):
@@ -173,7 +175,7 @@ class ProjectViewModel(BaseViewModel):
 
     def load_project(
         self,
-        project_id: ProjectId,
+        project_id: "ProjectId",
         entity_definition: EntityDefinitionDTO,
     ) -> bool:
         """Load a project.
