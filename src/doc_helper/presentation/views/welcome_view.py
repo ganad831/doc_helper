@@ -7,8 +7,10 @@ from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QListWidget,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -168,9 +170,29 @@ class WelcomeView(BaseView):
 
     def _on_create_project(self) -> None:
         """Handle Create New Project button click."""
-        # TODO: Show create project dialog
-        # This will be handled by the application controller
-        pass
+        # Show input dialog for project name
+        name, ok = QInputDialog.getText(
+            self._root,
+            "Create New Project",
+            "Enter project name:",
+        )
+
+        if not ok or not name.strip():
+            return
+
+        # Call viewmodel to create project
+        success, project_id = self._viewmodel.create_new_project(name.strip())
+
+        if success:
+            QMessageBox.information(
+                self._root,
+                "Project Created",
+                f"Project '{name}' created successfully.",
+            )
+            # TODO: Open the newly created project in project view
+        else:
+            # Error is already displayed via error_message binding
+            pass
 
     def dispose(self) -> None:
         """Dispose of the view."""

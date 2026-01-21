@@ -33,6 +33,7 @@ from doc_helper.application.services.control_service import ControlService
 from doc_helper.application.services.field_service import FieldService
 from doc_helper.application.services.formula_service import FormulaService
 from doc_helper.application.services.override_service import OverrideService
+from doc_helper.application.services.translation_service import TranslationApplicationService
 from doc_helper.application.services.validation_service import ValidationService
 from doc_helper.domain.document.document_format import DocumentFormat
 from doc_helper.domain.override.repositories import IOverrideRepository
@@ -111,12 +112,13 @@ def configure_container() -> Container:
         lambda: SqliteSchemaRepository(db_path=schema_db_path),
     )
 
-    # Project repository - scoped per project session
-    # Note: In v1, we use a placeholder path. This will be updated when
-    # opening a specific project via container.begin_scope()
-    container.register_scoped(
+    # Project repository - singleton for v1 (all projects in one database)
+    # Note: v1 uses a single database file for all projects.
+    # v2+ might use per-project databases with a separate registry.
+    projects_db_path = Path("data/projects.db")
+    container.register_singleton(
         IProjectRepository,
-        lambda: SqliteProjectRepository(db_path="current_project.db"),
+        lambda: SqliteProjectRepository(db_path=projects_db_path),
     )
 
     # Override repository - fake in-memory implementation (v1 temporary)
@@ -369,8 +371,11 @@ def main() -> int:
 
     # Register QtTranslationAdapter after QApplication is created
     # This adapter bridges ITranslationService to Qt UI with RTL/LTR support
+    # Wrap domain ITranslationService with application-layer service (DTO-based)
+    domain_translation_service = container.resolve(ITranslationService)
+    translation_app_service = TranslationApplicationService(domain_translation_service)
     qt_translation_adapter = QtTranslationAdapter(
-        translation_service=container.resolve(ITranslationService),
+        translation_service=translation_app_service,
         app=app,
     )
     container.register_instance(QtTranslationAdapter, qt_translation_adapter)
