@@ -17,6 +17,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test Project",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
         )
         assert project.name == "Test Project"
@@ -33,6 +34,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test Project",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
             field_values={
                 FieldDefinitionId("field1"): field1,
@@ -48,6 +50,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test Project",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
             description="Project description",
         )
@@ -59,6 +62,7 @@ class TestProject:
             Project(
                 id=ProjectId(uuid4()),
                 name=123,  # type: ignore
+                app_type_id="soil_investigation",
                 entity_definition_id=EntityDefinitionId("project"),
             )
 
@@ -68,6 +72,7 @@ class TestProject:
             Project(
                 id=ProjectId(uuid4()),
                 name="   ",  # Whitespace only
+                app_type_id="soil_investigation",
                 entity_definition_id=EntityDefinitionId("project"),
             )
 
@@ -77,6 +82,7 @@ class TestProject:
             Project(
                 id=ProjectId(uuid4()),
                 name="Test",
+                app_type_id="soil_investigation",
                 entity_definition_id="project",  # type: ignore
             )
 
@@ -86,6 +92,7 @@ class TestProject:
             Project(
                 id=ProjectId(uuid4()),
                 name="Test",
+                app_type_id="soil_investigation",
                 entity_definition_id=EntityDefinitionId("project"),
                 field_values=[],  # type: ignore
             )
@@ -97,6 +104,7 @@ class TestProject:
             Project(
                 id=ProjectId(uuid4()),
                 name="Test",
+                app_type_id="soil_investigation",
                 entity_definition_id=EntityDefinitionId("project"),
                 field_values={"field1": field1},  # type: ignore - string key
             )
@@ -107,6 +115,7 @@ class TestProject:
             Project(
                 id=ProjectId(uuid4()),
                 name="Test",
+                app_type_id="soil_investigation",
                 entity_definition_id=EntityDefinitionId("project"),
                 field_values={FieldDefinitionId("field1"): "value1"},  # type: ignore
             )
@@ -118,6 +127,7 @@ class TestProject:
             Project(
                 id=ProjectId(uuid4()),
                 name="Test",
+                app_type_id="soil_investigation",
                 entity_definition_id=EntityDefinitionId("project"),
                 field_values={FieldDefinitionId("field2"): field1},  # Mismatch!
             )
@@ -128,6 +138,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
             field_values={FieldDefinitionId("field1"): field1},
         )
@@ -139,6 +150,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
         )
         result = project.get_field_value(FieldDefinitionId("nonexistent"))
@@ -149,6 +161,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
         )
         with pytest.raises(TypeError, match="field_id must be a FieldDefinitionId"):
@@ -160,6 +173,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
             field_values={FieldDefinitionId("field1"): field1},
         )
@@ -171,6 +185,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
         )
         project.set_field_value(FieldDefinitionId("field1"), "value1")
@@ -186,6 +201,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
             field_values={FieldDefinitionId("field1"): field1},
         )
@@ -206,6 +222,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
             field_values={FieldDefinitionId("total"): computed_field},
         )
@@ -224,6 +241,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
         )
         original_modified = project.modified_at
@@ -236,6 +254,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
         )
         project.set_computed_field_value(FieldDefinitionId("total"), 1500, "a + b")
@@ -257,6 +276,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
             field_values={FieldDefinitionId("total"): override_field},
         )
@@ -273,6 +293,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
         )
         with pytest.raises(TypeError, match="formula must be a string"):
@@ -289,6 +310,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
             field_values={FieldDefinitionId("total"): override_field},
         )
@@ -304,6 +326,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
         )
         with pytest.raises(KeyError, match="Field 'nonexistent' not found"):
@@ -315,6 +338,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
             field_values={FieldDefinitionId("field1"): field1},
         )
@@ -327,6 +351,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
             field_values={FieldDefinitionId("field1"): field1},
         )
@@ -339,6 +364,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
         )
         with pytest.raises(KeyError, match="Field 'nonexistent' not found"):
@@ -351,6 +377,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
             field_values={
                 FieldDefinitionId("field1"): field1,
@@ -375,6 +402,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
             field_values={
                 FieldDefinitionId("field1"): field1,
@@ -398,6 +426,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
             field_values={
                 FieldDefinitionId("field1"): field1,
@@ -414,6 +443,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Old Name",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
         )
         project.rename("New Name")
@@ -424,6 +454,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
         )
         with pytest.raises(TypeError, match="new_name must be a string"):
@@ -434,6 +465,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
         )
         with pytest.raises(ValueError, match="new_name cannot be empty"):
@@ -444,6 +476,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
         )
         project.update_description("New description")
@@ -454,6 +487,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
             description="Old description",
         )
@@ -465,6 +499,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
         )
         project.set_file_path("/path/to/project.dhproj")
@@ -475,6 +510,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
         )
         with pytest.raises(TypeError, match="file_path must be a string"):
@@ -487,6 +523,7 @@ class TestProject:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
             field_values={
                 FieldDefinitionId("field1"): field1,
@@ -500,6 +537,7 @@ class TestProject:
         project1 = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
         )
         assert project1.is_saved is False
@@ -507,6 +545,7 @@ class TestProject:
         project2 = Project(
             id=ProjectId(uuid4()),
             name="Test",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
             file_path="/path/to/project.dhproj",
         )

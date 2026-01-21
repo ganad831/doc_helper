@@ -170,6 +170,7 @@ class TestExportProjectCommand:
         return Project(
             id=ProjectId(uuid4()),
             name="Test Project",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("test_entity"),
             field_values={},
         )

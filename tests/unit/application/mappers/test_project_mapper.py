@@ -20,6 +20,7 @@ class TestProjectMapper:
         return Project(
             id=ProjectId(uuid4()),
             name="Test Project",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("soil_investigation"),
             field_values={},
             description="A test project",
@@ -32,6 +33,7 @@ class TestProjectMapper:
         return Project(
             id=ProjectId(uuid4()),
             name="Unsaved Project",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("soil_investigation"),
             field_values={},
             description="An unsaved project",

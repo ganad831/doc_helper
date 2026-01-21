@@ -119,6 +119,7 @@ class JsonProjectExporter:
         return {
             "project_id": str(project.id.value),
             "project_name": project.name,
+            "app_type_id": project.app_type_id,
             "entity_definition_id": project.entity_definition_id.value,
             "created_at": project.created_at.isoformat() if hasattr(project, 'created_at') else exported_at,
             "modified_at": project.modified_at.isoformat() if hasattr(project, 'modified_at') else exported_at,

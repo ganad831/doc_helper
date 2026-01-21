@@ -116,6 +116,7 @@ class TestFormulaServiceEvaluateProjectFormulas:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test Project",
+            app_type_id="soil_investigation",
             entity_definition_id=entity_def.id,
             field_values={},
         )
@@ -147,6 +148,7 @@ class TestFormulaServiceEvaluateProjectFormulas:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test Project",
+            app_type_id="soil_investigation",
             entity_definition_id=entity_def.id,
             field_values={},
         )
@@ -177,6 +179,7 @@ class TestFormulaServiceEvaluateProjectFormulas:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test Project",
+            app_type_id="soil_investigation",
             entity_definition_id=entity_def.id,
             field_values={},
         )

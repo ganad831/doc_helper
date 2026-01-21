@@ -84,6 +84,7 @@ class TestGenerateDocumentCommandU8:
         return Project(
             id=project_id,
             name="Test Project",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
         )
 

@@ -24,6 +24,7 @@ class FileProjectStorage:
             "version": "1.0",
             "project_id": "uuid-string",
             "name": "Project Name",
+            "app_type_id": "soil_investigation",
             "entity_definition_id": "project",
             "description": "Optional description",
             "created_at": "ISO timestamp",
@@ -47,6 +48,8 @@ class FileProjectStorage:
     """
 
     VERSION = "1.0"
+    # Default app_type_id for backward compatibility with v1 files
+    DEFAULT_APP_TYPE_ID = "soil_investigation"
 
     def save(self, project: Project, file_path: str | Path) -> Result[None, str]:
         """Save project to .dhproj file.
@@ -75,6 +78,7 @@ class FileProjectStorage:
                 "version": self.VERSION,
                 "project_id": str(project.id.value),
                 "name": project.name,
+                "app_type_id": project.app_type_id,
                 "entity_definition_id": project.entity_definition_id.value,
                 "description": project.description,
                 "created_at": project.created_at.isoformat(),
@@ -174,10 +178,14 @@ class FileProjectStorage:
             except (KeyError, ValueError) as e:
                 return Failure(f"Invalid timestamp: {str(e)}")
 
+            # Get app_type_id (default for backward compatibility)
+            app_type_id = project_data.get("app_type_id", self.DEFAULT_APP_TYPE_ID)
+
             # Build Project
             project = Project(
                 id=project_id,
                 name=project_data["name"],
+                app_type_id=app_type_id,
                 entity_definition_id=entity_definition_id,
                 field_values=field_values,
                 description=project_data.get("description"),

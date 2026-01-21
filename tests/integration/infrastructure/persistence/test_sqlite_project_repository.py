@@ -56,6 +56,7 @@ class TestSqliteProjectRepository:
         return Project(
             id=project_id,
             name="Test Project",
+            app_type_id="soil_investigation",
             entity_definition_id=entity_id,
             field_values=field_values,
             description="Test description",
@@ -231,6 +232,7 @@ class TestSqliteProjectRepository:
             project = Project(
                 id=ProjectId(uuid4()),
                 name=f"Project {i}",
+                app_type_id="soil_investigation",
                 entity_definition_id=EntityDefinitionId("project"),
             )
             repository.save(project)

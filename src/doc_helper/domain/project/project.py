@@ -21,11 +21,13 @@ class Project(AggregateRoot[ProjectId]):
     - Tracks project metadata (name, description, file path)
     - Controls access to field values
     - Validates field changes
+    - Associates project with an AppType (v2 platform support)
 
     RULES (v1 scope):
     - Project is an aggregate root
     - Field values accessed only through Project
     - Project manages consistency of field values
+    - app_type_id is required and immutable after creation
     - NO field history (v2+)
     - NO auto-save (v2+)
     - NO document versioning (v2+)
@@ -36,6 +38,7 @@ class Project(AggregateRoot[ProjectId]):
         project = Project(
             id=ProjectId(uuid4()),
             name="Downtown Soil Investigation",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project"),
             field_values={
                 FieldDefinitionId("site_location"): FieldValue(...),
@@ -57,6 +60,7 @@ class Project(AggregateRoot[ProjectId]):
     """
 
     name: str  # Project name (user-visible)
+    app_type_id: str  # AppType identifier (e.g., "soil_investigation")
     entity_definition_id: EntityDefinitionId  # Schema definition for this project
     field_values: dict = field(
         default_factory=dict
@@ -70,6 +74,10 @@ class Project(AggregateRoot[ProjectId]):
             raise TypeError("name must be a string")
         if not self.name.strip():
             raise ValueError("name cannot be empty")
+        if not isinstance(self.app_type_id, str):
+            raise TypeError("app_type_id must be a string")
+        if not self.app_type_id.strip():
+            raise ValueError("app_type_id cannot be empty")
         if not isinstance(self.entity_definition_id, EntityDefinitionId):
             raise TypeError("entity_definition_id must be an EntityDefinitionId")
         if not isinstance(self.field_values, dict):

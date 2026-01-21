@@ -38,6 +38,7 @@ class TestIntegrationSmoke:
         project = Project(
             id=project_id,
             name="Test Project",
+            app_type_id="soil_investigation",
             entity_definition_id=entity_id,
             field_values={},
             description="Test description",
@@ -77,6 +78,7 @@ class TestIntegrationSmoke:
         project = Project(
             id=project_id,
             name="Project with Fields",
+            app_type_id="soil_investigation",
             entity_definition_id=entity_id,
             field_values=field_values,
         )
@@ -150,6 +152,7 @@ class TestIntegrationSmoke:
         project1 = Project(
             id=project1_id,
             name="Project 1",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("soil_investigation"),
             field_values={},
         )
@@ -160,6 +163,7 @@ class TestIntegrationSmoke:
         project2 = Project(
             id=project2_id,
             name="Project 2",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("soil_investigation"),
             field_values={},
         )

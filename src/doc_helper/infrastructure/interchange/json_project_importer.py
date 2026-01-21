@@ -189,6 +189,9 @@ class JsonProjectImporter:
 
         return warnings
 
+    # Default app_type_id for backward compatibility with v1 files
+    DEFAULT_APP_TYPE_ID = "soil_investigation"
+
     def _create_project_from_data(
         self,
         metadata: dict[str, Any],
@@ -214,6 +217,9 @@ class JsonProjectImporter:
         # Get project name from metadata
         project_name = metadata.get("project_name", "Imported Project")
 
+        # Get app_type_id from metadata (default for backward compatibility)
+        app_type_id = metadata.get("app_type_id", self.DEFAULT_APP_TYPE_ID)
+
         # Get entity_definition_id from metadata
         # If not present (old format), use first entity from schema or raise error
         entity_def_id_str = metadata.get("entity_definition_id")
@@ -231,6 +237,7 @@ class JsonProjectImporter:
             project = Project.create(
                 project_id=new_project_id,
                 name=project_name,
+                app_type_id=app_type_id,
                 entity_definition_id=entity_definition_id,
             )
         else:
@@ -238,6 +245,7 @@ class JsonProjectImporter:
             project = Project(
                 id=new_project_id,
                 name=project_name,
+                app_type_id=app_type_id,
                 entity_definition_id=entity_definition_id,
             )
 

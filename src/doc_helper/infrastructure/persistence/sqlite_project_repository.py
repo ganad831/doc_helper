@@ -98,13 +98,14 @@ class SqliteProjectRepository(IProjectRepository):
                     cursor.execute(
                         """
                         INSERT INTO projects
-                        (project_id, name, entity_definition_id, description,
+                        (project_id, name, app_type_id, entity_definition_id, description,
                          file_path, created_at, modified_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             str(project.id.value),
                             project.name,
+                            project.app_type_id,
                             project.entity_definition_id.value,
                             project.description,
                             project.file_path,
@@ -197,9 +198,19 @@ class SqliteProjectRepository(IProjectRepository):
                     field_values[field_id] = field_value
 
                 # Build Project
+                # Use default app_type_id if not present (backward compatibility)
+                # Note: sqlite3.Row doesn't support .get(), so we check column existence
+                try:
+                    app_type_id = project_row["app_type_id"]
+                    if app_type_id is None:
+                        app_type_id = self.DEFAULT_APP_TYPE_ID
+                except (KeyError, IndexError):
+                    app_type_id = self.DEFAULT_APP_TYPE_ID
+
                 project = Project(
                     id=project_id,
                     name=project_row["name"],
+                    app_type_id=app_type_id,
                     entity_definition_id=EntityDefinitionId(
                         project_row["entity_definition_id"]
                     ),
@@ -355,10 +366,14 @@ class SqliteProjectRepository(IProjectRepository):
         except Exception as e:
             return Failure(f"Error loading recent projects: {str(e)}")
 
+    # Default app_type_id for migration of existing projects
+    DEFAULT_APP_TYPE_ID = "soil_investigation"
+
     def _ensure_schema(self) -> None:
         """Ensure database schema exists.
 
         Creates tables if they don't exist.
+        Runs migrations for schema changes (e.g., adding app_type_id column).
         """
         # Create database file if it doesn't exist
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -373,6 +388,7 @@ class SqliteProjectRepository(IProjectRepository):
                 CREATE TABLE IF NOT EXISTS projects (
                     project_id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
+                    app_type_id TEXT NOT NULL DEFAULT 'soil_investigation',
                     entity_definition_id TEXT NOT NULL,
                     description TEXT,
                     file_path TEXT,
@@ -381,6 +397,9 @@ class SqliteProjectRepository(IProjectRepository):
                 )
                 """
             )
+
+            # Migration: Add app_type_id column if it doesn't exist (for existing databases)
+            self._migrate_add_app_type_id(cursor)
 
             # Create field_values table
             cursor.execute(
@@ -405,6 +424,37 @@ class SqliteProjectRepository(IProjectRepository):
                 """
                 CREATE INDEX IF NOT EXISTS idx_projects_modified
                 ON projects(modified_at DESC)
+                """
+            )
+
+            # Create index for app_type_id lookups
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_projects_app_type
+                ON projects(app_type_id)
+                """
+            )
+
+    def _migrate_add_app_type_id(self, cursor: sqlite3.Cursor) -> None:
+        """Migration: Add app_type_id column to existing databases.
+
+        This migration adds the app_type_id column with default value
+        'soil_investigation' to support the v2 platform architecture
+        while maintaining backward compatibility with existing projects.
+
+        Args:
+            cursor: Active database cursor
+        """
+        # Check if app_type_id column exists
+        cursor.execute("PRAGMA table_info(projects)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if "app_type_id" not in columns:
+            # Add app_type_id column with default value for existing projects
+            cursor.execute(
+                f"""
+                ALTER TABLE projects
+                ADD COLUMN app_type_id TEXT NOT NULL DEFAULT '{self.DEFAULT_APP_TYPE_ID}'
                 """
             )
 
@@ -475,9 +525,19 @@ class SqliteProjectRepository(IProjectRepository):
             field_values[field_id] = field_value
 
         # Build Project
+        # Use default app_type_id if not present (backward compatibility)
+        # Note: sqlite3.Row doesn't support .get(), so we check column existence
+        try:
+            app_type_id = project_row["app_type_id"]
+            if app_type_id is None:
+                app_type_id = self.DEFAULT_APP_TYPE_ID
+        except (KeyError, IndexError):
+            app_type_id = self.DEFAULT_APP_TYPE_ID
+
         project = Project(
             id=project_id,
             name=project_row["name"],
+            app_type_id=app_type_id,
             entity_definition_id=EntityDefinitionId(
                 project_row["entity_definition_id"]
             ),

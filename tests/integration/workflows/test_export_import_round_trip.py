@@ -38,6 +38,7 @@ class TestExportImportRoundTrip:
         project = Project(
             id=ProjectId(uuid4()),
             name="Test Round-Trip Project",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("test_entity"),
             field_values={},
         )
@@ -381,6 +382,7 @@ class TestExportImportRoundTrip:
         project_with_unicode = Project(
             id=ProjectId(uuid4()),
             name="مشروع اختبار",  # Arabic text
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("test_entity"),
             field_values={},
         )

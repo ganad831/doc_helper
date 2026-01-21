@@ -22,11 +22,15 @@ class CreateProjectCommand:
         command = CreateProjectCommand(project_repository=repo)
         result = command.execute(
             name="New Soil Investigation",
+            app_type_id="soil_investigation",
             entity_definition_id=EntityDefinitionId("project")
         )
         if isinstance(result, Success):
             print("Project created")
     """
+
+    # Default app_type_id for v1 compatibility
+    DEFAULT_APP_TYPE_ID = "soil_investigation"
 
     def __init__(self, project_repository: IProjectRepository) -> None:
         """Initialize command.
@@ -43,6 +47,7 @@ class CreateProjectCommand:
         name: str,
         entity_definition_id: EntityDefinitionId,
         description: Optional[str] = None,
+        app_type_id: Optional[str] = None,
     ) -> Result[ProjectId, str]:
         """Execute create project command.
 
@@ -50,6 +55,7 @@ class CreateProjectCommand:
             name: Project name
             entity_definition_id: Entity definition for the project
             description: Optional project description
+            app_type_id: AppType identifier (defaults to "soil_investigation" for v1)
 
         Returns:
             Success(project_id) if created, Failure(error) otherwise
@@ -61,11 +67,15 @@ class CreateProjectCommand:
         if not isinstance(entity_definition_id, EntityDefinitionId):
             return Failure("entity_definition_id must be an EntityDefinitionId")
 
+        # Use default app_type_id if not provided (v1 compatibility)
+        effective_app_type_id = app_type_id or self.DEFAULT_APP_TYPE_ID
+
         # Create new project
         project_id = ProjectId(uuid4())
         project = Project(
             id=project_id,
             name=name,
+            app_type_id=effective_app_type_id,
             entity_definition_id=entity_definition_id,
             field_values={},
             description=description,

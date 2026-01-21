@@ -88,6 +88,7 @@ class TestControlService:
         return Project(
             id=ProjectId(uuid4()),
             name="Test Project",
+            app_type_id="soil_investigation",
             entity_definition_id=entity_definition.id,
             field_values={
                 FieldDefinitionId("show_details"): FieldValue(
@@ -105,6 +106,7 @@ class TestControlService:
         return Project(
             id=ProjectId(uuid4()),
             name="Test Project",
+            app_type_id="soil_investigation",
             entity_definition_id=entity_definition.id,
             field_values={
                 FieldDefinitionId("show_details"): FieldValue(

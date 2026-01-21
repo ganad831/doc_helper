@@ -1,0 +1,20 @@
+{
+  "id": "soil_investigation",
+  "name": "Soil Investigation Report",
+  "version": "1.0.0",
+  "description": "Generate professional soil investigation reports",
+  "schema": {
+    "source": "config.db",
+    "type": "sqlite"
+  },
+  "templates": {
+    "word": [],
+    "excel": [],
+    "default": null
+  },
+  "capabilities": {
+    "supports_pdf_export": true,
+    "supports_excel_export": true,
+    "supports_word_export": true
+  }
+}
