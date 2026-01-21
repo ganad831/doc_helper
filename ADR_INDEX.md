@@ -3,7 +3,8 @@
 This document provides a centralized index of all ADRs for the Doc Helper project.
 
 **Last Updated**: 2026-01-21
-**Total ADRs**: 22 (18 Accepted, 2 Proposed, 1 gap)
+**Total ADRs**: 22 (21 Accepted, 1 Proposed)
+**Frozen ADRs**: 21 (16 Phase A + 5 Near-Term Expansion)
 
 ---
 
@@ -11,28 +12,28 @@ This document provides a centralized index of all ADRs for the Doc Helper projec
 
 | ADR | Title | Status | Category |
 |-----|-------|--------|----------|
-| [ADR-001](adrs/ADR-001-controlled-big-bang-rewrite.md) | Controlled Big Bang Rewrite Strategy | Accepted | Strategy |
-| [ADR-002](adrs/ADR-002-clean-architecture-ddd.md) | Clean Architecture with Domain-Driven Design | Accepted | Architecture |
-| [ADR-003](adrs/ADR-003-framework-independent-domain.md) | Framework-Independent Domain Layer | Accepted | Architecture |
-| [ADR-004](adrs/ADR-004-cqrs-pattern.md) | CQRS for Read/Write Separation | Accepted | Patterns |
-| [ADR-005](adrs/ADR-005-mvvm-pattern.md) | MVVM Pattern for Presentation Layer | Accepted | Patterns |
-| [ADR-006](adrs/ADR-006-event-bus.md) | In-Memory Event Bus Over PyQt Signals | Accepted | Patterns |
-| [ADR-007](adrs/ADR-007-repository-pattern.md) | Repository Pattern with Raw SQL Mappers | Accepted | Patterns |
-| [ADR-008](adrs/ADR-008-result-monad.md) | Result Monad for Error Handling | Accepted | Patterns |
-| [ADR-009](adrs/ADR-009-strongly-typed-ids.md) | Strongly Typed Identifiers | Accepted | Domain Design |
-| [ADR-010](adrs/ADR-010-immutable-value-objects.md) | Immutable Value Objects | Accepted | Domain Design |
-| [ADR-011](adrs/ADR-011-unit-of-work.md) | Unit of Work for Transaction Management | Accepted | Patterns |
-| [ADR-012](adrs/ADR-012-registry-based-factory.md) | Registry-Based Factory for Extensibility | Accepted | Patterns |
+| [ADR-001](adrs/ADR-001-controlled-big-bang-rewrite.md) | Controlled Big Bang Rewrite Strategy | Accepted \| Implemented \| Frozen | Strategy |
+| [ADR-002](adrs/ADR-002-clean-architecture-ddd.md) | Clean Architecture with Domain-Driven Design | Accepted \| Implemented \| Frozen | Architecture |
+| [ADR-003](adrs/ADR-003-framework-independent-domain.md) | Framework-Independent Domain Layer | Accepted \| Implemented \| Frozen | Architecture |
+| [ADR-004](adrs/ADR-004-cqrs-pattern.md) | CQRS for Read/Write Separation | Accepted \| Implemented \| Frozen | Patterns |
+| [ADR-005](adrs/ADR-005-mvvm-pattern.md) | MVVM Pattern for Presentation Layer | Accepted \| Implemented \| Frozen | Patterns |
+| [ADR-006](adrs/ADR-006-event-bus.md) | In-Memory Event Bus Over PyQt Signals | Accepted \| Implemented \| Frozen | Patterns |
+| [ADR-007](adrs/ADR-007-repository-pattern.md) | Repository Pattern with Raw SQL Mappers | Accepted \| Implemented \| Frozen | Patterns |
+| [ADR-008](adrs/ADR-008-result-monad.md) | Result Monad for Error Handling | Accepted \| Implemented \| Frozen | Patterns |
+| [ADR-009](adrs/ADR-009-strongly-typed-ids.md) | Strongly Typed Identifiers | Accepted \| Implemented \| Frozen | Domain Design |
+| [ADR-010](adrs/ADR-010-immutable-value-objects.md) | Immutable Value Objects | Accepted \| Implemented \| Frozen | Domain Design |
+| [ADR-011](adrs/ADR-011-unit-of-work.md) | Unit of Work for Transaction Management | Accepted \| Implemented \| Frozen | Patterns |
+| [ADR-012](adrs/ADR-012-registry-based-factory.md) | Registry-Based Factory for Extensibility | Accepted \| Implemented \| Frozen | Patterns |
 | [ADR-013](adrs/ADR-013-multi-app-type-platform-vision.md) | Multi-Document-Type Platform Vision | Proposed | Vision (v2+) |
-| [ADR-017](adrs/ADR-017-command-based-undo.md) | Command-Based Undo Model | Accepted | Undo System |
-| [ADR-020](adrs/ADR-020-dto-only-mvvm.md) | DTO-Only MVVM Enforcement | Proposed | Compliance |
-| [ADR-021](adrs/ADR-021-undo-state-dto-isolation.md) | UndoState DTO Isolation | Accepted | Undo System |
-| [ADR-024](adrs/ADR-024-architectural-compliance-scanning.md) | Architectural Compliance Scanning | Proposed | Compliance |
-| [ADR-025](adrs/ADR-025-validation-severity-levels.md) | Validation Severity Levels | Accepted | Domain Design |
-| [ADR-026](adrs/ADR-026-search-architecture.md) | Search Architecture | Accepted | Patterns |
-| [ADR-027](adrs/ADR-027-field-history-storage.md) | Field History Storage | Accepted | Patterns |
-| [ADR-031](adrs/ADR-031-undo-history-persistence.md) | Undo History Persistence | Accepted | Undo System |
-| [ADR-039](adrs/ADR-039-import-export-data-format.md) | Import/Export Data Format | Accepted | Patterns |
+| [ADR-017](adrs/ADR-017-command-based-undo.md) | Command-Based Undo Model | Accepted \| Implemented \| Frozen | Undo System |
+| [ADR-020](adrs/ADR-020-dto-only-mvvm.md) | DTO-Only MVVM Enforcement | Accepted \| Implemented \| Frozen | Compliance |
+| [ADR-021](adrs/ADR-021-undo-state-dto-isolation.md) | UndoState DTO Isolation | Accepted \| Implemented \| Frozen | Undo System |
+| [ADR-024](adrs/ADR-024-architectural-compliance-scanning.md) | Architectural Compliance Scanning | Accepted \| Implemented \| Frozen | Compliance |
+| [ADR-025](adrs/ADR-025-validation-severity-levels.md) | Validation Severity Levels | Accepted \| Implemented \| Frozen | Domain Design |
+| [ADR-026](adrs/ADR-026-search-architecture.md) | Search Architecture | Accepted \| Implemented \| Frozen | Patterns |
+| [ADR-027](adrs/ADR-027-field-history-storage.md) | Field History Storage | Accepted \| Implemented \| Frozen | Patterns |
+| [ADR-031](adrs/ADR-031-undo-history-persistence.md) | Undo History Persistence | Accepted \| Implemented \| Frozen | Undo System |
+| [ADR-039](adrs/ADR-039-import-export-data-format.md) | Import/Export Data Format | Accepted \| Implemented \| Frozen | Patterns |
 
 ---
 
@@ -109,7 +110,7 @@ This document provides a centralized index of all ADRs for the Doc Helper projec
 **Rationale**: Provides clear undo semantics (what state to restore), enables selective undo (future), supports command composition, and makes undo logic testable. Commands capture state explicitly rather than relying on implicit diffs.
 
 ### ADR-020: DTO-Only MVVM Enforcement
-**Status**: Proposed
+**Status**: Accepted
 **Decision**: Enforce that ViewModels work exclusively with DTOs, never directly with domain entities.
 **Rationale**: Prevents domain pollution with UI concerns, enables independent DTO evolution, simplifies serialization, provides explicit presentation models, and maintains clean architecture boundaries. Currently enforced by convention and scanning tool (ADR-024).
 
@@ -119,7 +120,7 @@ This document provides a centralized index of all ADRs for the Doc Helper projec
 **Rationale**: Undo state needs different data than UI display (e.g., formula dependencies, validation context), prevents UI coupling to undo internals, and allows independent evolution of undo and presentation models.
 
 ### ADR-024: Architectural Compliance Scanning
-**Status**: Proposed
+**Status**: Accepted
 **Decision**: Implement automated compliance scanning tool to detect architectural violations (layer violations, DTO usage, import rules).
 **Rationale**: Enforces architectural boundaries automatically, prevents drift over time, provides fast feedback (CI integration), and documents rules as code. Tool checks: domain purity (no PyQt6/SQLite imports), DTO-only MVVM, repository pattern compliance.
 
@@ -180,13 +181,13 @@ These gaps allow for inserting related ADRs without renumbering existing ones.
 - ✅ ADR-020: DTO-Only MVVM Enforcement (compliance scanning implemented)
 - ✅ ADR-024: Architectural Compliance Scanning (tool implemented)
 
-### Near-Term Expansion: In Progress
-- ✅ ADR-025: Validation Severity Levels (accepted, implementation pending)
-- ✅ ADR-026: Search Architecture (accepted, implementation pending)
-- ✅ ADR-027: Field History Storage (accepted, implementation pending)
-- ✅ ADR-031: Undo History Persistence (accepted, implementation pending)
-- ✅ ADR-039: Import/Export Data Format (accepted, implementation pending)
-- ADR-013: Multi-Document-Type Platform Vision (deferred to v2+)
+### Near-Term Expansion: FROZEN
+- ✅ ADR-025: Validation Severity Levels (accepted, implemented, **FROZEN**)
+- ✅ ADR-026: Search Architecture (accepted, implemented, **FROZEN**)
+- ✅ ADR-027: Field History Storage (accepted, implemented, **FROZEN**)
+- ✅ ADR-031: Undo History Persistence (accepted, implemented, **FROZEN**)
+- ✅ ADR-039: Import/Export Data Format (accepted, implemented, **FROZEN**)
+- ADR-013: Multi-Document-Type Platform Vision (deferred to v2+, not frozen)
 
 ### Long-Term Expansion: Vision
 - ADRs for plugin architecture, performance/scaling, advanced features (planned)

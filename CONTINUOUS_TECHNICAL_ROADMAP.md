@@ -210,6 +210,87 @@ This marker represents the completion of Phase A (U1-U12) and establishes a stab
 
 ---
 
+## 2.5 ARCHITECTURE FREEZE (ACTIVE)
+
+**Status**: ACTIVE
+**Date Declared**: 2026-01-21
+**Scope**: Phase A (U1-U12) + Near-Term Expansion (ADR-025, ADR-026, ADR-027, ADR-031, ADR-039)
+
+### Frozen Architectural Decisions
+
+The following architectural decisions are **FROZEN** and may not be modified without explicit authorization:
+
+**Phase A (U1-U12) - Foundational ADRs**:
+- ADR-001: Controlled Big Bang Rewrite Strategy
+- ADR-002: Clean Architecture with Domain-Driven Design
+- ADR-003: Framework-Independent Domain Layer
+- ADR-004: CQRS for Read/Write Separation
+- ADR-005: MVVM Pattern for Presentation Layer
+- ADR-006: In-Memory Event Bus Over PyQt Signals
+- ADR-007: Repository Pattern with Raw SQL Mappers
+- ADR-008: Result Monad for Error Handling
+- ADR-009: Strongly Typed Identifiers
+- ADR-010: Immutable Value Objects
+- ADR-011: Unit of Work for Transaction Management
+- ADR-012: Registry-Based Factory for Extensibility
+- ADR-017: Command-Based Undo Model
+- ADR-020: DTO-Only MVVM Enforcement
+- ADR-021: UndoState DTO Isolation
+- ADR-024: Architectural Compliance Scanning
+
+**Near-Term Expansion ADRs**:
+- ADR-025: Validation Severity Levels (Implemented ✅)
+- ADR-026: Search Architecture (Decision Frozen, Implementation Pending)
+- ADR-027: Field History Storage (Decision Frozen, Implementation Pending)
+- ADR-031: Undo History Persistence (Decision Frozen, Implementation Pending)
+- ADR-039: Import/Export Data Format (Implemented ✅)
+
+### Freeze Rules
+
+**FORBIDDEN** (without explicit authorization):
+- ❌ Modifying frozen ADR decisions
+- ❌ Changing architectural patterns defined in frozen ADRs
+- ❌ Removing or relaxing constraints defined in frozen ADRs
+- ❌ Introducing alternatives to frozen patterns (e.g., alternative DTO patterns)
+- ❌ Architectural experiments that conflict with frozen decisions
+
+**ALLOWED** (with proper review):
+- ✅ Bug fixes that maintain ADR compliance
+- ✅ Implementation details not specified in ADRs (e.g., query optimization)
+- ✅ Documentation clarifications
+- ✅ Test coverage improvements
+- ✅ Performance optimizations that don't violate architectural constraints
+
+**REQUIRES EXPLICIT AUTHORIZATION**:
+- Major refactors affecting frozen architecture
+- New ADRs that extend or modify frozen decisions
+- Implementation changes to completed Near-Term Expansion ADRs (ADR-025, ADR-039)
+
+### Rationale
+
+The Architecture Freeze establishes immutability for core architectural decisions after Phase A completion and Near-Term Expansion ADR acceptance. This ensures:
+- **Stability**: No architectural drift during long-term expansion
+- **Predictability**: Future work builds on known patterns
+- **Team Alignment**: Clear boundaries for what can and cannot change
+- **Risk Management**: Prevents regression of tested architecture
+
+### Unfreezing Process
+
+To unfreeze or modify a frozen ADR:
+1. Submit formal proposal with rationale
+2. Document impact analysis on existing codebase
+3. Obtain explicit project lead authorization
+4. Update this section with new freeze status
+
+### Freeze Status
+
+- **Current State**: ACTIVE
+- **Frozen Scope**: 21 ADRs (16 Phase A + 5 Near-Term Expansion)
+- **Implementation Status**: 18 implemented, 3 pending (ADR-026, ADR-027, ADR-031)
+- **Next Review**: As needed (trigger: request to modify frozen ADR)
+
+---
+
 ## 3. ACTIVE IMPROVEMENT BACKLOG
 
 This section lists enhancements, gaps, and refinements for existing U1-U12 capabilities.

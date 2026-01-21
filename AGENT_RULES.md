@@ -209,9 +209,69 @@ After implementation, the agent MUST:
 
 ---
 
-## 14. COMPLETED MILESTONES
+## 14. ARCHITECTURE FREEZE (ACTIVE)
 
-### U8: Legacy Behavior Parity (✅ COMPLETE - 2026-01-20)
+**Status**: ACTIVE
+**Date Declared**: 2026-01-21
+
+### Frozen Scope
+
+The following architectural decisions are **FROZEN** and may NOT be modified:
+
+**Phase A Foundational ADRs** (16 total):
+- ADR-001 through ADR-012 (excluding gaps)
+- ADR-017, ADR-020, ADR-021, ADR-024
+
+**Near-Term Expansion ADRs** (5 total):
+- ADR-025: Validation Severity Levels
+- ADR-026: Search Architecture
+- ADR-027: Field History Storage
+- ADR-031: Undo History Persistence
+- ADR-039: Import/Export Data Format
+
+### Freeze Rules
+
+**ABSOLUTELY FORBIDDEN**:
+- ❌ Modifying any frozen ADR decision
+- ❌ Removing architectural constraints defined in frozen ADRs
+- ❌ Introducing alternatives to frozen patterns
+- ❌ Weakening or bypassing frozen architectural rules
+- ❌ "Temporary" violations with intent to refactor later
+
+**ALLOWED WITHOUT AUTHORIZATION**:
+- ✅ Bug fixes maintaining ADR compliance
+- ✅ Performance optimizations within architectural constraints
+- ✅ Documentation clarifications
+- ✅ Test coverage improvements
+- ✅ Implementation details not specified in ADRs
+
+**REQUIRES EXPLICIT AUTHORIZATION**:
+- Major refactors affecting frozen architecture
+- Changes to code implementing frozen ADRs (ADR-025, ADR-039)
+- New ADRs extending or modifying frozen decisions
+
+### Enforcement
+
+Violations of frozen ADRs are **blocking errors**.
+
+The agent MUST:
+- Check frozen ADR list before any architectural change
+- Reject requests that violate frozen architecture
+- Request explicit authorization for changes to frozen scope
+
+### Unfreezing
+
+To modify a frozen ADR:
+1. Submit formal proposal with rationale
+2. Document impact analysis
+3. Obtain project lead authorization
+4. Update freeze status in this document
+
+---
+
+## 15. COMPLETED MILESTONES
+
+### 15.1 U8: Legacy Behavior Parity (✅ COMPLETE - 2026-01-20)
 
 **Goal**: Implement hidden behaviors from legacy app for document generation workflow.
 
@@ -241,7 +301,7 @@ After implementation, the agent MUST:
 
 ---
 
-### ADR-025: Validation Severity Levels (✅ COMPLETE - 2026-01-21)
+### 15.2 ADR-025: Validation Severity Levels (✅ COMPLETE - 2026-01-21)
 
 **Goal**: Implement three-level validation severity system (ERROR/WARNING/INFO) to distinguish blocking errors from non-blocking warnings and informational messages.
 
