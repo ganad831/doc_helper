@@ -103,6 +103,7 @@ def mock_get_project_query():
                 description=None,
                 file_path=None,
                 entity_definition_id="entity-1",
+                app_type_id="soil_investigation",  # v2 PHASE 4
                 field_count=3,
                 is_saved=True,
             )

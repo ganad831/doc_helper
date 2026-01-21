@@ -21,6 +21,8 @@ class ProjectMapper:
     def to_dto(project: Project) -> ProjectDTO:
         """Convert Project domain aggregate to ProjectDTO.
 
+        v2 PHASE 4: Includes app_type_id for UI display.
+
         Args:
             project: Project domain aggregate
 
@@ -33,6 +35,7 @@ class ProjectMapper:
             description=project.description,
             file_path=project.file_path,
             entity_definition_id=str(project.entity_definition_id.value),
+            app_type_id=project.app_type_id,  # v2 PHASE 4
             field_count=project.field_count,
             is_saved=project.is_saved,
         )

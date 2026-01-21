@@ -199,6 +199,7 @@ def test_update_field_uses_field_undo_service(
         description=None,
         file_path=None,
         entity_definition_id="entity-1",
+        app_type_id="soil_investigation",  # v2 PHASE 4
         field_count=0,
         is_saved=True,
     )
@@ -244,6 +245,7 @@ def test_load_project_clears_undo_stack(
         description=None,
         file_path=None,
         entity_definition_id="entity-1",
+        app_type_id="soil_investigation",  # v2 PHASE 4
         field_count=0,
         is_saved=True,
     )
@@ -286,6 +288,7 @@ def test_save_project_does_not_clear_undo_stack(
         description=None,
         file_path=None,
         entity_definition_id="entity-1",
+        app_type_id="soil_investigation",  # v2 PHASE 4
         field_count=0,
         is_saved=True,
     )
@@ -342,6 +345,7 @@ def test_undo_reloads_project_dto(
         description=None,
         file_path=None,
         entity_definition_id="entity-1",
+        app_type_id="soil_investigation",  # v2 PHASE 4
         field_count=1,
         is_saved=True,
     )
@@ -373,6 +377,7 @@ def test_undo_reloads_project_dto(
         description=None,
         file_path=None,
         entity_definition_id="entity-1",
+        app_type_id="soil_investigation",  # v2 PHASE 4
         field_count=1,
         is_saved=True,
     )
@@ -398,6 +403,7 @@ def test_redo_reloads_project_dto(
         description=None,
         file_path=None,
         entity_definition_id="entity-1",
+        app_type_id="soil_investigation",  # v2 PHASE 4
         field_count=1,
         is_saved=True,
     )
@@ -429,6 +435,7 @@ def test_redo_reloads_project_dto(
         description=None,
         file_path=None,
         entity_definition_id="entity-1",
+        app_type_id="soil_investigation",  # v2 PHASE 4
         field_count=1,
         is_saved=True,
     )

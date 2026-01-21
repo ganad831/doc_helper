@@ -19,6 +19,8 @@ class ProjectDTO:
     This DTO represents a project for UI consumption. It contains
     only display-relevant data with primitive types.
 
+    v2 PHASE 4: Includes app_type_id for UI display of project's AppType.
+
     FORBIDDEN in this DTO:
     - Domain entities (Project, FieldValue)
     - Domain value objects (ProjectId, EntityDefinitionId)
@@ -31,6 +33,7 @@ class ProjectDTO:
     description: Optional[str]  # Optional project description
     file_path: Optional[str]  # File path where project is saved
     entity_definition_id: str  # Schema definition ID as string
+    app_type_id: str  # AppType identifier (v2 PHASE 4)
     field_count: int  # Number of field values
     is_saved: bool  # Whether project has been saved
 

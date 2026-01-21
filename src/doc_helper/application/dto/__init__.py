@@ -60,6 +60,9 @@ from doc_helper.application.dto.import_export_dto import (
     ExportResultDTO,
     InterchangeFormatInfoDTO,
 )
+from doc_helper.application.dto.app_type_dto import (
+    AppTypeDTO,
+)
 
 __all__ = [
     # Project DTOs
@@ -99,4 +102,6 @@ __all__ = [
     "ImportResultDTO",
     "ExportResultDTO",
     "InterchangeFormatInfoDTO",
+    # AppType DTOs
+    "AppTypeDTO",
 ]

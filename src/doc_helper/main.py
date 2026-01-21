@@ -460,12 +460,13 @@ def configure_container() -> Container:
     # PRESENTATION: ViewModels (Scoped - Per Project Session)
     # ========================================================================
 
-    # WelcomeViewModel (singleton - no project context)
+    # WelcomeViewModel (singleton - no project context, v2 PHASE 4: AppType-aware)
     container.register_singleton(
         WelcomeViewModel,
         lambda: WelcomeViewModel(
             get_recent_query=container.resolve(GetRecentProjectsQuery),
             create_project_command=container.resolve(CreateProjectCommand),
+            app_type_registry=container.resolve(AppTypeRegistry),
         ),
     )
 

@@ -3,13 +3,17 @@
 RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md):
 - Presentation layer uses DTOs, NOT domain objects
 - Domain objects NEVER cross Application boundary
+
+v2 PHASE 4: AppType-aware project creation.
+Exposes available AppTypes to UI for selection during project creation.
 """
 
 from typing import Optional
 
 from doc_helper.application.commands.create_project_command import CreateProjectCommand
-from doc_helper.application.dto import ProjectSummaryDTO
+from doc_helper.application.dto import ProjectSummaryDTO, AppTypeDTO
 from doc_helper.application.queries.get_project_query import GetRecentProjectsQuery
+from doc_helper.platform.registry.interfaces import IAppTypeRegistry
 # Domain imports moved to local scope to comply with DTO-only MVVM rule
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
 
@@ -19,36 +23,40 @@ class WelcomeViewModel(BaseViewModel):
 
     Manages recent projects list and project creation.
 
-    v1 Scope:
-    - Display recent projects (no app type selection)
-    - Create new project (hardcoded to soil_investigation entity)
+    v2 PHASE 4 Scope:
+    - Display recent projects
+    - Expose available AppTypes for selection
+    - Create new project with AppType selection
     - Open existing project
 
-    v2+ Deferred:
-    - App type selection cards
-    - Project templates
-
     Example:
-        vm = WelcomeViewModel(get_recent_query, create_command)
+        vm = WelcomeViewModel(get_recent_query, create_command, app_type_registry)
         vm.load_recent_projects()
         for project in vm.recent_projects:
             print(project.name)
+
+        app_types = vm.get_available_app_types()
+        for app_type in app_types:
+            print(f"{app_type.name}: {app_type.description}")
     """
 
     def __init__(
         self,
         get_recent_query: GetRecentProjectsQuery,
         create_project_command: CreateProjectCommand,
+        app_type_registry: IAppTypeRegistry,
     ) -> None:
         """Initialize WelcomeViewModel.
 
         Args:
             get_recent_query: Query for getting recent projects
             create_project_command: Command for creating new projects
+            app_type_registry: Registry for available AppTypes
         """
         super().__init__()
         self._get_recent_query = get_recent_query
         self._create_project_command = create_project_command
+        self._app_type_registry = app_type_registry
 
         self._recent_projects: list[ProjectSummaryDTO] = []
         self._is_loading = False
@@ -122,17 +130,45 @@ class WelcomeViewModel(BaseViewModel):
             self.notify_change("is_loading")
             self.notify_change("error_message")
 
+    def get_available_app_types(self) -> list[AppTypeDTO]:
+        """Get list of available AppTypes.
+
+        v2 PHASE 4: Returns AppType metadata for UI display.
+
+        Returns:
+            List of AppTypeDTO objects containing metadata
+        """
+        try:
+            app_types = []
+            for app_type_id in self._app_type_registry.list_app_type_ids():
+                manifest = self._app_type_registry.get(app_type_id)
+                if manifest:
+                    app_types.append(
+                        AppTypeDTO(
+                            app_type_id=manifest.metadata.app_type_id,
+                            name=manifest.metadata.name,
+                            version=manifest.metadata.version,
+                            description=manifest.metadata.description,
+                        )
+                    )
+            return app_types
+        except Exception as e:
+            # Return empty list on error (UI will handle gracefully)
+            return []
+
     def create_new_project(
         self,
         name: str,
+        app_type_id: str,
         description: Optional[str] = None,
     ) -> tuple[bool, Optional[str]]:
         """Create a new project.
 
-        v1: Hardcoded to soil_investigation entity type.
+        v2 PHASE 4: Accepts app_type_id parameter for AppType selection.
 
         Args:
             name: Project name
+            app_type_id: AppType identifier (e.g., "soil_investigation")
             description: Optional project description
 
         Returns:
@@ -143,14 +179,21 @@ class WelcomeViewModel(BaseViewModel):
             self.notify_change("error_message")
             return (False, None)
 
+        if not app_type_id or not app_type_id.strip():
+            self._error_message = "AppType selection is required"
+            self.notify_change("error_message")
+            return (False, None)
+
         try:
-            # v1: Hardcoded entity definition for soil investigation
+            # v2 PHASE 4: Use app_type_id as entity_definition_id
+            # (AppType determines the root entity structure)
             from doc_helper.domain.schema.schema_ids import EntityDefinitionId
 
             result = self._create_project_command.execute(
                 name=name.strip(),
-                entity_definition_id=EntityDefinitionId("soil_investigation"),
+                entity_definition_id=EntityDefinitionId(app_type_id),
                 description=description,
+                app_type_id=app_type_id,
             )
 
             if result.is_success():

@@ -1,13 +1,16 @@
-"""Welcome view."""
+"""Welcome view.
+
+v2 PHASE 4: AppType-aware project creation with selection dialog.
+"""
 
 from typing import Optional
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
+    QDialog,
     QGroupBox,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QListWidget,
     QMessageBox,
@@ -16,6 +19,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from doc_helper.presentation.dialogs.new_project_dialog import NewProjectDialog
 from doc_helper.presentation.viewmodels.welcome_viewmodel import WelcomeViewModel
 from doc_helper.presentation.views.base_view import BaseView
 
@@ -25,14 +29,14 @@ class WelcomeView(BaseView):
 
     Displays recent projects and allows creating new projects.
 
-    v1 Implementation:
+    v2 PHASE 4 Implementation:
     - Recent projects list (max 10)
-    - Create New Project button
+    - Create New Project button with AppType selection dialog
     - Open Project button (for selected project)
     - Simple list display with project names
 
-    v2+ Deferred:
-    - App type selection cards
+    Future Enhancements:
+    - App type selection cards (instead of dialog)
     - Project templates
     - Search/filter projects
     """
@@ -169,19 +173,40 @@ class WelcomeView(BaseView):
         # This will be handled by the application controller
 
     def _on_create_project(self) -> None:
-        """Handle Create New Project button click."""
-        # Show input dialog for project name
-        name, ok = QInputDialog.getText(
-            self._root,
-            "Create New Project",
-            "Enter project name:",
-        )
+        """Handle Create New Project button click.
 
-        if not ok or not name.strip():
+        v2 PHASE 4: Show AppType selection dialog.
+        """
+        # Get available AppTypes from ViewModel
+        available_app_types = self._viewmodel.get_available_app_types()
+
+        if not available_app_types:
+            QMessageBox.warning(
+                self._root,
+                "No AppTypes Available",
+                "No AppTypes are currently available. Please ensure AppTypes are registered.",
+            )
+            return
+
+        # Show new project dialog with AppType selection
+        dialog = NewProjectDialog(self._root, available_app_types)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        # Get dialog values
+        name = dialog.get_project_name()
+        app_type_id = dialog.get_selected_app_type_id()
+        description = dialog.get_description()
+
+        if not name or not app_type_id:
             return
 
         # Call viewmodel to create project
-        success, project_id = self._viewmodel.create_new_project(name.strip())
+        success, project_id = self._viewmodel.create_new_project(
+            name=name,
+            app_type_id=app_type_id,
+            description=description,
+        )
 
         if success:
             QMessageBox.information(
