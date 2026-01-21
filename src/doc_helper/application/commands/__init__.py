@@ -18,6 +18,8 @@ from doc_helper.application.commands.close_project_command import CloseProjectCo
 from doc_helper.application.commands.update_field_command import UpdateFieldCommand
 from doc_helper.application.commands.delete_project_command import DeleteProjectCommand
 from doc_helper.application.commands.generate_document_command import GenerateDocumentCommand
+from doc_helper.application.commands.export_project_command import ExportProjectCommand
+from doc_helper.application.commands.import_project_command import ImportProjectCommand
 
 __all__ = [
     "CreateProjectCommand",
@@ -27,4 +29,6 @@ __all__ = [
     "UpdateFieldCommand",
     "DeleteProjectCommand",
     "GenerateDocumentCommand",
+    "ExportProjectCommand",
+    "ImportProjectCommand",
 ]

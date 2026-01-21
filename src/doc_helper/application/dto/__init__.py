@@ -54,6 +54,12 @@ from doc_helper.application.dto.field_history_dto import (
 from doc_helper.application.dto.search_result_dto import (
     SearchResultDTO,
 )
+from doc_helper.application.dto.import_export_dto import (
+    ImportValidationErrorDTO,
+    ImportResultDTO,
+    ExportResultDTO,
+    InterchangeFormatInfoDTO,
+)
 
 __all__ = [
     # Project DTOs
@@ -88,4 +94,9 @@ __all__ = [
     "FieldHistoryResultDTO",
     # Search DTOs
     "SearchResultDTO",
+    # Import/Export DTOs
+    "ImportValidationErrorDTO",
+    "ImportResultDTO",
+    "ExportResultDTO",
+    "InterchangeFormatInfoDTO",
 ]
