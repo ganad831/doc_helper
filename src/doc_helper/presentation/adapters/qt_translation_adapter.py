@@ -1,16 +1,16 @@
 """Qt adapter for translation service.
 
-Bridges the framework-independent ITranslationService from domain layer
-to Qt-specific UI updates including:
+Bridges the application translation service to Qt-specific UI updates including:
 - Text content updates via Qt signals
 - Layout direction (LTR/RTL) switching
 - Font and text alignment adjustments for RTL languages
 
-RULES (AGENT_RULES.md Section 3):
+RULES (AGENT_RULES.md Section 3-4):
 - Presentation layer adapter
-- Bridges domain ITranslationService → PyQt6 UI
+- Uses application service (DTO-based), NOT domain types
 - Emits Qt signals for UI updates
 - NO domain logic (pure adapter)
+- NO domain imports (DTO-only MVVM)
 """
 
 from typing import Optional
@@ -18,43 +18,43 @@ from typing import Optional
 from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QWidget
 
-from doc_helper.domain.common.i18n import Language, TextDirection, TranslationKey
-from doc_helper.domain.common.translation import ITranslationService
+from doc_helper.application.dto.i18n_dto import LanguageDTO, TextDirectionDTO
+from doc_helper.application.services.translation_service import TranslationApplicationService
 
 
 class QtTranslationAdapter(QObject):
-    """Qt adapter for ITranslationService.
+    """Qt adapter for TranslationApplicationService.
 
     Responsibilities:
-    - Wraps ITranslationService with Qt signal emissions
+    - Wraps TranslationApplicationService with Qt signal emissions
     - Applies layout direction changes to Qt application
     - Provides convenience methods for translating UI strings
     - Emits signals when language changes for UI updates
 
     Usage:
-        adapter = QtTranslationAdapter(translation_service)
+        adapter = QtTranslationAdapter(translation_app_service)
         adapter.language_changed.connect(main_window.on_language_changed)
 
         # Change language (emits signal)
-        adapter.change_language(Language.ARABIC)
+        adapter.change_language(LanguageDTO.ARABIC)
 
         # Translate strings
         text = adapter.translate("menu.file.open")  # Uses current language
     """
 
     # Signals
-    language_changed = pyqtSignal(Language)  # Emitted when language changes
+    language_changed = pyqtSignal(str)  # Emitted when language changes (language code)
     layout_direction_changed = pyqtSignal(Qt.LayoutDirection)  # LTR/RTL
 
     def __init__(
         self,
-        translation_service: ITranslationService,
+        translation_service: TranslationApplicationService,
         app: Optional[QApplication] = None,
     ) -> None:
         """Initialize Qt translation adapter.
 
         Args:
-            translation_service: Domain translation service
+            translation_service: Application translation service (DTO-based)
             app: QApplication instance (if None, uses QApplication.instance())
         """
         super().__init__()
@@ -70,15 +70,15 @@ class QtTranslationAdapter(QObject):
         # Set initial layout direction based on current language
         self._apply_layout_direction(self._translation_service.get_current_language())
 
-    def get_current_language(self) -> Language:
+    def get_current_language(self) -> LanguageDTO:
         """Get the currently selected language.
 
         Returns:
-            Current language from translation service
+            Current language DTO from translation service
         """
         return self._translation_service.get_current_language()
 
-    def change_language(self, language: Language) -> None:
+    def change_language(self, language: LanguageDTO) -> None:
         """Change the application language.
 
         This method:
@@ -87,14 +87,14 @@ class QtTranslationAdapter(QObject):
         3. Emits signals for UI updates
 
         Args:
-            language: New language to set
+            language: New language to set (DTO)
 
         Signals Emitted:
-            - language_changed(Language)
+            - language_changed(str) - emits language code
             - layout_direction_changed(Qt.LayoutDirection)
         """
-        if not isinstance(language, Language):
-            raise TypeError(f"language must be Language enum, got {type(language)}")
+        if not isinstance(language, LanguageDTO):
+            raise TypeError(f"language must be LanguageDTO enum, got {type(language)}")
 
         # Update translation service
         self._translation_service.set_language(language)
@@ -102,22 +102,22 @@ class QtTranslationAdapter(QObject):
         # Apply layout direction
         self._apply_layout_direction(language)
 
-        # Emit signals for UI updates
-        self.language_changed.emit(language)
+        # Emit signals for UI updates (emit code as string)
+        self.language_changed.emit(language.code)
 
-    def _apply_layout_direction(self, language: Language) -> None:
+    def _apply_layout_direction(self, language: LanguageDTO) -> None:
         """Apply layout direction based on language.
 
         Args:
-            language: Language to apply direction for
+            language: LanguageDTO to apply direction for
 
         Signals Emitted:
             - layout_direction_changed(Qt.LayoutDirection)
         """
-        text_direction = language.text_direction
+        text_direction = self._translation_service.get_text_direction(language)
 
-        # Convert domain TextDirection to Qt LayoutDirection
-        if text_direction == TextDirection.RTL:
+        # Convert DTO TextDirection to Qt LayoutDirection
+        if text_direction == TextDirectionDTO.RTL:
             qt_direction = Qt.LayoutDirection.RightToLeft
         else:
             qt_direction = Qt.LayoutDirection.LeftToRight
@@ -146,47 +146,40 @@ class QtTranslationAdapter(QObject):
             → "Minimum length is 5 characters" (English)
             → "الحد الأدنى للطول هو 5 أحرف" (Arabic)
         """
-        translation_key = TranslationKey(key)
-        current_language = self._translation_service.get_current_language()
-        return self._translation_service.get(
-            translation_key, current_language, params or None
-        )
+        return self._translation_service.translate(key, **params)
 
     def translate_with_language(
-        self, key: str, language: Language, **params
+        self, key: str, language: LanguageDTO, **params
     ) -> str:
         """Translate a string using specific language.
 
         Args:
             key: Translation key string
-            language: Language to translate to
+            language: LanguageDTO to translate to
             **params: Optional parameters for string interpolation
 
         Returns:
             Translated string
 
         Example:
-            adapter.translate_with_language("menu.file", Language.ARABIC)
+            adapter.translate_with_language("menu.file", LanguageDTO.ARABIC)
             → "ملف"
         """
-        translation_key = TranslationKey(key)
-        return self._translation_service.get(translation_key, language, params or None)
+        return self._translation_service.translate_with_language(key, language, **params)
 
-    def has_translation(self, key: str, language: Optional[Language] = None) -> bool:
+    def has_translation(self, key: str, language: Optional[LanguageDTO] = None) -> bool:
         """Check if translation exists for key.
 
         Args:
             key: Translation key string
-            language: Language to check (if None, uses current language)
+            language: LanguageDTO to check (if None, uses current language)
 
         Returns:
             True if translation exists
         """
-        translation_key = TranslationKey(key)
-        lang = language or self._translation_service.get_current_language()
-        return self._translation_service.has_key(translation_key, lang)
+        return self._translation_service.has_translation(key, language)
 
-    def apply_rtl_to_widget(self, widget: QWidget, language: Optional[Language] = None) -> None:
+    def apply_rtl_to_widget(self, widget: QWidget, language: Optional[LanguageDTO] = None) -> None:
         """Apply RTL-specific styling to a widget.
 
         Manually apply RTL styling to widgets that need special handling
@@ -194,37 +187,35 @@ class QtTranslationAdapter(QObject):
 
         Args:
             widget: Widget to apply RTL styling to
-            language: Language to use (if None, uses current language)
+            language: LanguageDTO to use (if None, uses current language)
 
         Example:
             # Force right alignment for Arabic
-            adapter.apply_rtl_to_widget(label, Language.ARABIC)
+            adapter.apply_rtl_to_widget(label, LanguageDTO.ARABIC)
         """
-        lang = language or self._translation_service.get_current_language()
-        text_direction = lang.text_direction
+        text_direction = self._translation_service.get_text_direction(language)
 
-        if text_direction == TextDirection.RTL:
+        if text_direction == TextDirectionDTO.RTL:
             widget.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         else:
             widget.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
 
-    def get_text_direction(self, language: Optional[Language] = None) -> TextDirection:
+    def get_text_direction(self, language: Optional[LanguageDTO] = None) -> TextDirectionDTO:
         """Get text direction for language.
 
         Args:
-            language: Language to get direction for (if None, uses current language)
+            language: LanguageDTO to get direction for (if None, uses current language)
 
         Returns:
-            TextDirection (LTR or RTL)
+            TextDirectionDTO (LTR or RTL)
         """
-        lang = language or self._translation_service.get_current_language()
-        return lang.text_direction
+        return self._translation_service.get_text_direction(language)
 
-    def is_rtl(self, language: Optional[Language] = None) -> bool:
+    def is_rtl(self, language: Optional[LanguageDTO] = None) -> bool:
         """Check if language is right-to-left.
 
         Args:
-            language: Language to check (if None, uses current language)
+            language: LanguageDTO to check (if None, uses current language)
 
         Returns:
             True if language is RTL
@@ -232,18 +223,18 @@ class QtTranslationAdapter(QObject):
         return self.get_text_direction(language).is_rtl()
 
     def get_qt_layout_direction(
-        self, language: Optional[Language] = None
+        self, language: Optional[LanguageDTO] = None
     ) -> Qt.LayoutDirection:
         """Get Qt layout direction for language.
 
         Args:
-            language: Language to get direction for (if None, uses current language)
+            language: LanguageDTO to get direction for (if None, uses current language)
 
         Returns:
             Qt.LayoutDirection (LeftToRight or RightToLeft)
         """
         text_direction = self.get_text_direction(language)
-        if text_direction == TextDirection.RTL:
+        if text_direction == TextDirectionDTO.RTL:
             return Qt.LayoutDirection.RightToLeft
         else:
             return Qt.LayoutDirection.LeftToRight

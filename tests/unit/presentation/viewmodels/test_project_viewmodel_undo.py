@@ -91,6 +91,18 @@ def mock_history_adapter():
 
 
 @pytest.fixture
+def mock_navigation_adapter():
+    """Create mock NavigationAdapter."""
+    adapter = Mock()
+    adapter.navigate_to_entity = Mock()
+    adapter.go_back = Mock()
+    adapter.go_forward = Mock()
+    adapter.can_go_back = False
+    adapter.can_go_forward = False
+    return adapter
+
+
+@pytest.fixture
 def viewmodel(
     mock_get_project_query,
     mock_save_project_command,
@@ -100,6 +112,7 @@ def viewmodel(
     mock_control_service,
     mock_field_undo_service,
     mock_history_adapter,
+    mock_navigation_adapter,
 ):
     """Create ProjectViewModel instance."""
     return ProjectViewModel(
@@ -111,6 +124,7 @@ def viewmodel(
         control_service=mock_control_service,
         field_undo_service=mock_field_undo_service,
         history_adapter=mock_history_adapter,
+        navigation_adapter=mock_navigation_adapter,
     )
 
 
@@ -213,7 +227,7 @@ def test_update_field_uses_field_undo_service(
     # Verify FieldUndoService was called (NOT UpdateFieldCommand)
     mock_field_undo_service.set_field_value.assert_called_once_with(
         project_id=str(TEST_PROJECT_UUID),
-        field_id="field-1",
+        field_id=field_id,  # Expect FieldDefinitionId object, not string
         new_value="new_value",
     )
     assert result is True

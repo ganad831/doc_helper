@@ -6,8 +6,8 @@ import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 
-from doc_helper.domain.common.i18n import Language, TextDirection, TranslationKey
-from doc_helper.domain.common.translation import ITranslationService
+from doc_helper.application.dto.i18n_dto import LanguageDTO, TextDirectionDTO
+from doc_helper.application.services.translation_service import TranslationApplicationService
 from doc_helper.presentation.adapters.qt_translation_adapter import QtTranslationAdapter
 
 
@@ -16,11 +16,23 @@ class TestQtTranslationAdapter:
 
     @pytest.fixture
     def mock_translation_service(self) -> Mock:
-        """Create mock translation service."""
-        service = Mock(spec=ITranslationService)
-        service.get_current_language.return_value = Language.ENGLISH
-        service.get.return_value = "Translated text"
-        service.has_key.return_value = True
+        """Create mock translation application service."""
+        service = Mock(spec=TranslationApplicationService)
+        service.get_current_language.return_value = LanguageDTO.ENGLISH
+        service.translate.return_value = "Translated text"
+        service.has_translation.return_value = True
+
+        # Make get_text_direction return correct value based on language
+        def get_text_direction_side_effect(language=None):
+            # If no language specified, use current language
+            if language is None:
+                language = service.get_current_language.return_value
+            # Return RTL for Arabic, LTR for others
+            if language == LanguageDTO.ARABIC:
+                return TextDirectionDTO.RTL
+            return TextDirectionDTO.LTR
+
+        service.get_text_direction.side_effect = get_text_direction_side_effect
         return service
 
     @pytest.fixture
@@ -39,7 +51,7 @@ class TestQtTranslationAdapter:
     ):
         """Test that initialization applies layout direction for current language."""
         # Setup: English is LTR
-        mock_translation_service.get_current_language.return_value = Language.ENGLISH
+        mock_translation_service.get_current_language.return_value = LanguageDTO.ENGLISH
 
         # Act
         adapter = QtTranslationAdapter(mock_translation_service, mock_app)
@@ -52,7 +64,7 @@ class TestQtTranslationAdapter:
     ):
         """Test that Arabic language triggers RTL layout."""
         # Setup: Arabic is RTL
-        mock_translation_service.get_current_language.return_value = Language.ARABIC
+        mock_translation_service.get_current_language.return_value = LanguageDTO.ARABIC
 
         # Act
         adapter = QtTranslationAdapter(mock_translation_service, mock_app)
@@ -95,24 +107,24 @@ class TestQtTranslationAdapter:
 
         # Assert
         mock_translation_service.get_current_language.assert_called_once()
-        assert result == Language.ENGLISH
+        assert result == LanguageDTO.ENGLISH
 
     def test_change_language_updates_service(
         self, adapter: QtTranslationAdapter, mock_translation_service: Mock
     ):
         """Test that change_language updates translation service."""
         # Act
-        adapter.change_language(Language.ARABIC)
+        adapter.change_language(LanguageDTO.ARABIC)
 
         # Assert
-        mock_translation_service.set_language.assert_called_once_with(Language.ARABIC)
+        mock_translation_service.set_language.assert_called_once_with(LanguageDTO.ARABIC)
 
     def test_change_language_applies_rtl_for_arabic(
         self, adapter: QtTranslationAdapter, mock_app: Mock
     ):
         """Test that changing to Arabic applies RTL layout."""
         # Act
-        adapter.change_language(Language.ARABIC)
+        adapter.change_language(LanguageDTO.ARABIC)
 
         # Assert: Should set RTL (called twice: init + change)
         assert mock_app.setLayoutDirection.call_count == 2
@@ -123,11 +135,11 @@ class TestQtTranslationAdapter:
     ):
         """Test that changing to English applies LTR layout."""
         # Setup: Start with Arabic
-        mock_translation_service.get_current_language.return_value = Language.ARABIC
+        mock_translation_service.get_current_language.return_value = LanguageDTO.ARABIC
         adapter = QtTranslationAdapter(mock_translation_service, mock_app)
 
         # Act
-        adapter.change_language(Language.ENGLISH)
+        adapter.change_language(LanguageDTO.ENGLISH)
 
         # Assert: Should set LTR
         mock_app.setLayoutDirection.assert_called_with(Qt.LayoutDirection.LeftToRight)
@@ -141,10 +153,10 @@ class TestQtTranslationAdapter:
         adapter.language_changed.connect(signal_spy)
 
         # Act
-        adapter.change_language(Language.ARABIC)
+        adapter.change_language(LanguageDTO.ARABIC)
 
         # Assert
-        signal_spy.assert_called_once_with(Language.ARABIC)
+        signal_spy.assert_called_once_with(LanguageDTO.ARABIC)
 
     def test_change_language_emits_layout_direction_changed_signal(
         self, adapter: QtTranslationAdapter
@@ -155,7 +167,7 @@ class TestQtTranslationAdapter:
         adapter.layout_direction_changed.connect(signal_spy)
 
         # Act
-        adapter.change_language(Language.ARABIC)
+        adapter.change_language(LanguageDTO.ARABIC)
 
         # Assert
         signal_spy.assert_called_once_with(Qt.LayoutDirection.RightToLeft)
@@ -163,9 +175,9 @@ class TestQtTranslationAdapter:
     def test_change_language_raises_on_invalid_type(
         self, adapter: QtTranslationAdapter
     ):
-        """Test that change_language raises TypeError for non-Language argument."""
+        """Test that change_language raises TypeError for non-LanguageDTO argument."""
         # Act & Assert
-        with pytest.raises(TypeError, match="language must be Language enum"):
+        with pytest.raises(TypeError, match="language must be LanguageDTO enum"):
             adapter.change_language("ar")  # type: ignore
 
     def test_translate_uses_current_language(
@@ -173,17 +185,13 @@ class TestQtTranslationAdapter:
     ):
         """Test that translate uses current language."""
         # Arrange
-        mock_translation_service.get_current_language.return_value = Language.ENGLISH
-        mock_translation_service.get.return_value = "Open"
+        mock_translation_service.translate.return_value = "Open"
 
         # Act
         result = adapter.translate("menu.file.open")
 
         # Assert
-        expected_key = TranslationKey("menu.file.open")
-        mock_translation_service.get.assert_called_once_with(
-            expected_key, Language.ENGLISH, None
-        )
+        mock_translation_service.translate.assert_called_once_with("menu.file.open")
         assert result == "Open"
 
     def test_translate_with_parameters(
@@ -191,16 +199,13 @@ class TestQtTranslationAdapter:
     ):
         """Test that translate interpolates parameters."""
         # Arrange
-        mock_translation_service.get.return_value = "Minimum length is 5 characters"
+        mock_translation_service.translate.return_value = "Minimum length is 5 characters"
 
         # Act
         result = adapter.translate("validation.min_length", min=5)
 
         # Assert
-        expected_key = TranslationKey("validation.min_length")
-        mock_translation_service.get.assert_called_once_with(
-            expected_key, Language.ENGLISH, {"min": 5}
-        )
+        mock_translation_service.translate.assert_called_once_with("validation.min_length", min=5)
         assert result == "Minimum length is 5 characters"
 
     def test_translate_with_language_uses_specified_language(
@@ -208,16 +213,13 @@ class TestQtTranslationAdapter:
     ):
         """Test that translate_with_language uses specified language."""
         # Arrange
-        mock_translation_service.get.return_value = "ملف"
+        mock_translation_service.translate_with_language.return_value = "ملف"
 
         # Act
-        result = adapter.translate_with_language("menu.file", Language.ARABIC)
+        result = adapter.translate_with_language("menu.file", LanguageDTO.ARABIC)
 
         # Assert
-        expected_key = TranslationKey("menu.file")
-        mock_translation_service.get.assert_called_once_with(
-            expected_key, Language.ARABIC, None
-        )
+        mock_translation_service.translate_with_language.assert_called_once_with("menu.file", LanguageDTO.ARABIC)
         assert result == "ملف"
 
     def test_has_translation_delegates_to_service(
@@ -225,16 +227,13 @@ class TestQtTranslationAdapter:
     ):
         """Test that has_translation delegates to service."""
         # Arrange
-        mock_translation_service.has_key.return_value = True
+        mock_translation_service.has_translation.return_value = True
 
         # Act
         result = adapter.has_translation("menu.file.open")
 
         # Assert
-        expected_key = TranslationKey("menu.file.open")
-        mock_translation_service.has_key.assert_called_once_with(
-            expected_key, Language.ENGLISH
-        )
+        mock_translation_service.has_translation.assert_called_once_with("menu.file.open", None)
         assert result is True
 
     def test_has_translation_with_specific_language(
@@ -242,15 +241,14 @@ class TestQtTranslationAdapter:
     ):
         """Test that has_translation can check specific language."""
         # Arrange
-        mock_translation_service.has_key.return_value = False
+        mock_translation_service.has_translation.return_value = False
 
         # Act
-        result = adapter.has_translation("menu.file.open", Language.ARABIC)
+        result = adapter.has_translation("menu.file.open", LanguageDTO.ARABIC)
 
         # Assert
-        expected_key = TranslationKey("menu.file.open")
-        mock_translation_service.has_key.assert_called_once_with(
-            expected_key, Language.ARABIC
+        mock_translation_service.has_translation.assert_called_once_with(
+            "menu.file.open", LanguageDTO.ARABIC
         )
         assert result is False
 
@@ -262,7 +260,7 @@ class TestQtTranslationAdapter:
         mock_widget = Mock()
 
         # Act
-        adapter.apply_rtl_to_widget(mock_widget, Language.ARABIC)
+        adapter.apply_rtl_to_widget(mock_widget, LanguageDTO.ARABIC)
 
         # Assert
         mock_widget.setLayoutDirection.assert_called_once_with(
@@ -277,7 +275,7 @@ class TestQtTranslationAdapter:
         mock_widget = Mock()
 
         # Act
-        adapter.apply_rtl_to_widget(mock_widget, Language.ENGLISH)
+        adapter.apply_rtl_to_widget(mock_widget, LanguageDTO.ENGLISH)
 
         # Assert
         mock_widget.setLayoutDirection.assert_called_once_with(
@@ -290,7 +288,7 @@ class TestQtTranslationAdapter:
         """Test that apply_rtl_to_widget uses current language if not specified."""
         # Arrange
         mock_widget = Mock()
-        mock_translation_service.get_current_language.return_value = Language.ARABIC
+        mock_translation_service.get_current_language.return_value = LanguageDTO.ARABIC
 
         # Act
         adapter.apply_rtl_to_widget(mock_widget)
@@ -305,40 +303,40 @@ class TestQtTranslationAdapter:
     ):
         """Test that get_text_direction returns LTR for English."""
         # Act
-        result = adapter.get_text_direction(Language.ENGLISH)
+        result = adapter.get_text_direction(LanguageDTO.ENGLISH)
 
         # Assert
-        assert result == TextDirection.LTR
+        assert result == TextDirectionDTO.LTR
 
     def test_get_text_direction_for_arabic(
         self, adapter: QtTranslationAdapter
     ):
         """Test that get_text_direction returns RTL for Arabic."""
         # Act
-        result = adapter.get_text_direction(Language.ARABIC)
+        result = adapter.get_text_direction(LanguageDTO.ARABIC)
 
         # Assert
-        assert result == TextDirection.RTL
+        assert result == TextDirectionDTO.RTL
 
     def test_get_text_direction_uses_current_language(
         self, adapter: QtTranslationAdapter, mock_translation_service: Mock
     ):
         """Test that get_text_direction uses current language if not specified."""
         # Arrange
-        mock_translation_service.get_current_language.return_value = Language.ARABIC
+        mock_translation_service.get_current_language.return_value = LanguageDTO.ARABIC
 
         # Act
         result = adapter.get_text_direction()
 
         # Assert
-        assert result == TextDirection.RTL
+        assert result == TextDirectionDTO.RTL
 
     def test_is_rtl_returns_true_for_arabic(
         self, adapter: QtTranslationAdapter
     ):
         """Test that is_rtl returns True for Arabic."""
         # Act
-        result = adapter.is_rtl(Language.ARABIC)
+        result = adapter.is_rtl(LanguageDTO.ARABIC)
 
         # Assert
         assert result is True
@@ -348,7 +346,7 @@ class TestQtTranslationAdapter:
     ):
         """Test that is_rtl returns False for English."""
         # Act
-        result = adapter.is_rtl(Language.ENGLISH)
+        result = adapter.is_rtl(LanguageDTO.ENGLISH)
 
         # Assert
         assert result is False
@@ -358,7 +356,7 @@ class TestQtTranslationAdapter:
     ):
         """Test that get_qt_layout_direction returns RightToLeft for Arabic."""
         # Act
-        result = adapter.get_qt_layout_direction(Language.ARABIC)
+        result = adapter.get_qt_layout_direction(LanguageDTO.ARABIC)
 
         # Assert
         assert result == Qt.LayoutDirection.RightToLeft
@@ -368,7 +366,7 @@ class TestQtTranslationAdapter:
     ):
         """Test that get_qt_layout_direction returns LeftToRight for English."""
         # Act
-        result = adapter.get_qt_layout_direction(Language.ENGLISH)
+        result = adapter.get_qt_layout_direction(LanguageDTO.ENGLISH)
 
         # Assert
         assert result == Qt.LayoutDirection.LeftToRight

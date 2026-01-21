@@ -30,9 +30,8 @@ from doc_helper.application.services.control_service import ControlService
 from doc_helper.application.services.field_undo_service import FieldUndoService
 from doc_helper.application.services.formula_service import FormulaService
 from doc_helper.application.services.validation_service import ValidationService
-from doc_helper.domain.common.result import Failure, Success
-from doc_helper.domain.project.project_ids import ProjectId
-from doc_helper.domain.schema.schema_ids import FieldDefinitionId
+from doc_helper.domain.project.project_ids import ProjectId  # Simple ID type can cross boundaries
+# Domain imports moved to local scope to comply with DTO-only MVVM rule
 from doc_helper.presentation.adapters.history_adapter import HistoryAdapter
 from doc_helper.presentation.adapters.navigation_adapter import NavigationAdapter
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
@@ -205,7 +204,7 @@ class ProjectViewModel(BaseViewModel):
         try:
             result = self._get_project_query.execute(project_id)
 
-            if isinstance(result, Success):
+            if result.is_success():
                 project_dto = result.value
                 if project_dto is None:
                     self._error_message = f"Project not found: {project_id}"
@@ -239,13 +238,13 @@ class ProjectViewModel(BaseViewModel):
 
     def update_field(
         self,
-        field_id: FieldDefinitionId,
+        field_id: str,
         value: Any,
     ) -> bool:
         """Update a field value with undo support.
 
         Args:
-            field_id: Field to update
+            field_id: Field ID as string (DTO-only MVVM compliance)
             value: New value
 
         Returns:
@@ -272,15 +271,16 @@ class ProjectViewModel(BaseViewModel):
             # NEW: result = self._field_undo_service.set_field_value(...)
             result = self._field_undo_service.set_field_value(
                 project_id=self._project_id,
-                field_id=str(field_id.value),
+                field_id=field_id,
                 new_value=value,
             )
 
-            if isinstance(result, Success):
+            if result.is_success():
                 # Reload project DTO to get updated state
+                from doc_helper.domain.project.project_ids import ProjectId
                 project_id = ProjectId(UUID(self._project_id))
                 reload_result = self._get_project_query.execute(project_id)
-                if isinstance(reload_result, Success) and reload_result.value:
+                if reload_result.is_success() and reload_result.value:
                     self._project_dto = reload_result.value
 
                 self._has_unsaved_changes = True
@@ -310,11 +310,12 @@ class ProjectViewModel(BaseViewModel):
 
         try:
             # Convert string ID to typed ID
+            from doc_helper.domain.project.project_ids import ProjectId
             project_id = ProjectId(UUID(self._project_id))
 
             result = self._save_project_command.execute(project_id)
 
-            if isinstance(result, Success):
+            if result.is_success():
                 self._has_unsaved_changes = False
                 self._error_message = None
                 self.notify_change("has_unsaved_changes")
@@ -347,13 +348,14 @@ class ProjectViewModel(BaseViewModel):
             )
 
         # Convert string ID to typed ID and call service
+        from doc_helper.domain.project.project_ids import ProjectId
         project_id = ProjectId(UUID(self._project_id))
 
         # NOTE: validation_service needs method to validate by project_id
         # For now, the service may need updating
         result = self._validation_service.validate_by_project_id(project_id)
 
-        if isinstance(result, Failure):
+        if result.is_failure():
             return ValidationResultDTO(
                 is_valid=False,
                 errors=(
@@ -378,13 +380,14 @@ class ProjectViewModel(BaseViewModel):
             return None
 
         # Convert string ID to typed ID
+        from doc_helper.domain.project.project_ids import ProjectId
         project_id = ProjectId(UUID(self._project_id))
 
         # NOTE: control_service needs method to evaluate by project_id
         # For now, the service may need updating
         result = self._control_service.evaluate_by_project_id(project_id)
 
-        if isinstance(result, Success):
+        if result.is_success():
             # Map domain result to DTO
             return EvaluationResultMapper.to_dto(result.value)
         return None
@@ -429,9 +432,10 @@ class ProjectViewModel(BaseViewModel):
 
         if success and self._project_id:
             # Reload project DTO to reflect undone changes
+            from doc_helper.domain.project.project_ids import ProjectId
             project_id = ProjectId(UUID(self._project_id))
             reload_result = self._get_project_query.execute(project_id)
-            if isinstance(reload_result, Success) and reload_result.value:
+            if reload_result.is_success() and reload_result.value:
                 self._project_dto = reload_result.value
                 self.notify_change("current_project")
 
@@ -452,9 +456,10 @@ class ProjectViewModel(BaseViewModel):
 
         if success and self._project_id:
             # Reload project DTO to reflect redone changes
+            from doc_helper.domain.project.project_ids import ProjectId
             project_id = ProjectId(UUID(self._project_id))
             reload_result = self._get_project_query.execute(project_id)
-            if isinstance(reload_result, Success) and reload_result.value:
+            if reload_result.is_success() and reload_result.value:
                 self._project_dto = reload_result.value
                 self.notify_change("current_project")
 

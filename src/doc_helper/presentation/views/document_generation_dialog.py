@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from doc_helper.domain.document.document_format import DocumentFormat
+from doc_helper.application.dto.document_dto import DocumentFormatDTO
 from doc_helper.presentation.viewmodels.document_generation_viewmodel import (
     DocumentGenerationViewModel,
 )
@@ -233,11 +233,29 @@ class DocumentGenerationDialog(BaseView):
 
         # Determine format from radio buttons
         if self._word_radio and self._word_radio.isChecked():
-            document_format = DocumentFormat.WORD
+            document_format = DocumentFormatDTO(
+                id="DOCX",
+                name="Word Document",
+                description="Microsoft Word (.docx)",
+                extension=".docx",
+                is_available=True,
+            )
         elif self._excel_radio and self._excel_radio.isChecked():
-            document_format = DocumentFormat.EXCEL
+            document_format = DocumentFormatDTO(
+                id="XLSX",
+                name="Excel Workbook",
+                description="Microsoft Excel (.xlsx)",
+                extension=".xlsx",
+                is_available=True,
+            )
         else:
-            document_format = DocumentFormat.PDF
+            document_format = DocumentFormatDTO(
+                id="PDF",
+                name="PDF Document",
+                description="Portable Document Format (.pdf)",
+                extension=".pdf",
+                is_available=True,
+            )
 
         # Generate document
         success = self._viewmodel.generate_document(

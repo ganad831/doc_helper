@@ -42,6 +42,11 @@ from doc_helper.application.dto.control_dto import (
     ControlEffectDTO,
     EvaluationResultDTO,
 )
+from doc_helper.application.dto.i18n_dto import (
+    LanguageDTO,
+    TextDirectionDTO,
+    LanguageInfoDTO,
+)
 
 __all__ = [
     # Project DTOs
@@ -67,4 +72,8 @@ __all__ = [
     # Control DTOs
     "ControlEffectDTO",
     "EvaluationResultDTO",
+    # i18n DTOs
+    "LanguageDTO",
+    "TextDirectionDTO",
+    "LanguageInfoDTO",
 ]

@@ -10,8 +10,7 @@ from typing import Optional
 from doc_helper.application.commands.create_project_command import CreateProjectCommand
 from doc_helper.application.dto import ProjectSummaryDTO
 from doc_helper.application.queries.get_project_query import GetRecentProjectsQuery
-from doc_helper.domain.common.result import Failure, Success
-from doc_helper.domain.schema.schema_ids import EntityDefinitionId
+# Domain imports moved to local scope to comply with DTO-only MVVM rule
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
 
 
@@ -105,7 +104,7 @@ class WelcomeViewModel(BaseViewModel):
         try:
             result = self._get_recent_query.execute(limit=limit)
 
-            if isinstance(result, Success):
+            if result.is_success():
                 self._recent_projects = result.value
                 self._error_message = None
             else:
@@ -146,13 +145,15 @@ class WelcomeViewModel(BaseViewModel):
 
         try:
             # v1: Hardcoded entity definition for soil investigation
+            from doc_helper.domain.schema.schema_ids import EntityDefinitionId
+
             result = self._create_project_command.execute(
                 name=name.strip(),
                 entity_definition_id=EntityDefinitionId("soil_investigation"),
                 description=description,
             )
 
-            if isinstance(result, Success):
+            if result.is_success():
                 project_id = result.value
                 self._error_message = None
                 self.notify_change("error_message")

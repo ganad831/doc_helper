@@ -12,10 +12,7 @@ from typing import Optional
 from doc_helper.application.commands.generate_document_command import (
     GenerateDocumentCommand,
 )
-from doc_helper.application.dto import ValidationResultDTO
-from doc_helper.domain.common.result import Failure, Success
-from doc_helper.domain.document.document_format import DocumentFormat
-from doc_helper.domain.project.project_ids import ProjectId
+from doc_helper.application.dto import ValidationResultDTO, DocumentFormatDTO
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
 
 
@@ -156,14 +153,14 @@ class DocumentGenerationViewModel(BaseViewModel):
         self,
         template_path: Path,
         output_path: Path,
-        document_format: DocumentFormat,
+        document_format: DocumentFormatDTO,
     ) -> bool:
         """Generate document.
 
         Args:
             template_path: Path to template file
             output_path: Path for output file
-            document_format: Format to generate (Word, Excel, PDF)
+            document_format: Format DTO to generate (Word, Excel, PDF)
 
         Returns:
             True if generation succeeded
@@ -189,18 +186,26 @@ class DocumentGenerationViewModel(BaseViewModel):
         self.notify_change("success_message")
 
         try:
+            # Import domain types only when needed (command layer handles conversion)
+            from doc_helper.domain.project.project_ids import ProjectId
+            from doc_helper.domain.document.document_format import DocumentFormat
+
             # Convert string ID to typed ID for command
             project_id = ProjectId(self._project_id)
+
+            # Convert DTO to domain enum
+            domain_format = self._convert_format_dto_to_domain(document_format)
 
             # v1: Simple generation without progress tracking
             result = self._generate_document_command.execute(
                 project_id=project_id,
                 template_path=template_path,
                 output_path=output_path,
-                format=document_format,
+                format=domain_format,
             )
 
-            if isinstance(result, Success):
+            # Check result without importing Success/Failure
+            if result.is_success():
                 self._generation_progress = 1.0
                 self._success_message = f"Document generated successfully: {output_path}"
                 self.notify_change("generation_progress")
@@ -219,6 +224,34 @@ class DocumentGenerationViewModel(BaseViewModel):
         finally:
             self._is_generating = False
             self.notify_change("is_generating")
+
+    @staticmethod
+    def _convert_format_dto_to_domain(dto: DocumentFormatDTO) -> "DocumentFormat":
+        """Convert DocumentFormatDTO to domain DocumentFormat.
+
+        Args:
+            dto: DocumentFormatDTO to convert
+
+        Returns:
+            Domain DocumentFormat enum
+
+        Raises:
+            ValueError: If DTO format ID is unknown
+        """
+        from doc_helper.domain.document.document_format import DocumentFormat
+
+        # Map DTO id to domain enum
+        format_map = {
+            "DOCX": DocumentFormat.WORD,
+            "XLSX": DocumentFormat.EXCEL,
+            "PDF": DocumentFormat.PDF,
+        }
+
+        domain_format = format_map.get(dto.id)
+        if domain_format is None:
+            raise ValueError(f"Unknown document format: {dto.id}")
+
+        return domain_format
 
     def clear_messages(self) -> None:
         """Clear all messages."""

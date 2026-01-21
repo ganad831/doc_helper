@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from doc_helper.domain.common.i18n import Language
+from doc_helper.application.dto.i18n_dto import LanguageDTO
 from doc_helper.presentation.adapters.qt_translation_adapter import QtTranslationAdapter
 
 
@@ -73,15 +73,15 @@ class SettingsDialog(QDialog):
         self._language_combo = QComboBox()
 
         # Populate language options
-        for language in Language:
+        for language in LanguageDTO:
             self._language_combo.addItem(
                 language.display_name,  # Display name (English, العربية)
-                language,  # User data (Language enum)
+                language,  # User data (LanguageDTO enum)
             )
 
         # Set current language
         current_language = self._translation_adapter.get_current_language()
-        current_index = list(Language).index(current_language)
+        current_index = list(LanguageDTO).index(current_language)
         self._language_combo.setCurrentIndex(current_index)
 
         form_layout.addRow(language_label, self._language_combo)

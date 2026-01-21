@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from doc_helper.application.dto import EntityDefinitionDTO, FieldDefinitionDTO
-from doc_helper.domain.schema.schema_ids import FieldDefinitionId
+# Domain imports removed - presentation layer uses strings, not typed IDs (DTO-only MVVM)
 from doc_helper.presentation.adapters.qt_translation_adapter import QtTranslationAdapter
 from doc_helper.presentation.dialogs import SettingsDialog
 from doc_helper.presentation.factories import FieldWidgetFactory
@@ -356,9 +356,8 @@ class ProjectView(BaseView):
             field_id: Field ID that changed
             value: New field value
         """
-        # Convert string ID to typed ID and update via viewmodel
-        field_definition_id = FieldDefinitionId(field_id)
-        self._viewmodel.update_field(field_definition_id, value)
+        # Pass string ID directly (DTO-only MVVM compliance)
+        self._viewmodel.update_field(field_id, value)
 
         # Re-validate after field change
         self._update_validation()
