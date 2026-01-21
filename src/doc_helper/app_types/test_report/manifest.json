@@ -1,0 +1,20 @@
+{
+  "id": "test_report",
+  "name": "Test Report",
+  "version": "1.0.0",
+  "description": "Minimal test report for platform validation",
+  "schema": {
+    "source": "config.db",
+    "type": "sqlite"
+  },
+  "templates": {
+    "word": ["templates/test_report.docx"],
+    "excel": [],
+    "default": "templates/test_report.docx"
+  },
+  "capabilities": {
+    "supports_pdf_export": false,
+    "supports_excel_export": false,
+    "supports_word_export": true
+  }
+}
