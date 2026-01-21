@@ -112,11 +112,12 @@ def configure_container() -> Container:
         lambda: SqliteSchemaRepository(db_path=schema_db_path),
     )
 
-    # Project repository - singleton for v1 (all projects in one database)
-    # Note: v1 uses a single database file for all projects.
-    # v2+ might use per-project databases with a separate registry.
+    # Project repository - scoped (per-project session)
+    # Note: v1 uses a single database file for all projects,
+    # but the repository instance is scoped to ensure proper lifecycle management.
+    # New instance created on begin_scope(), cleared on end_scope().
     projects_db_path = Path("data/projects.db")
-    container.register_singleton(
+    container.register_scoped(
         IProjectRepository,
         lambda: SqliteProjectRepository(db_path=projects_db_path),
     )
