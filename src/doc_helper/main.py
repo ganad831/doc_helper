@@ -24,6 +24,10 @@ from doc_helper.application.commands.create_project_command import (
 )
 from doc_helper.application.commands.save_project_command import SaveProjectCommand
 from doc_helper.application.commands.update_field_command import UpdateFieldCommand
+from doc_helper.application.queries.get_field_history_query import (
+    GetFieldHistoryQuery,
+)
+from doc_helper.application.queries.search_fields_query import SearchFieldsQuery
 from doc_helper.application.document.document_generation_service import (
     DocumentGenerationService,
 )
@@ -37,8 +41,16 @@ from doc_helper.application.services.translation_service import TranslationAppli
 from doc_helper.application.services.validation_service import ValidationService
 from doc_helper.domain.document.document_format import DocumentFormat
 from doc_helper.domain.override.repositories import IOverrideRepository
+from doc_helper.domain.project.field_history_repository import IFieldHistoryRepository
+from doc_helper.application.search import ISearchRepository
 from doc_helper.infrastructure.persistence.sqlite_override_repository import (
     SqliteOverrideRepository,
+)
+from doc_helper.infrastructure.persistence.sqlite_field_history_repository import (
+    SqliteFieldHistoryRepository,
+)
+from doc_helper.infrastructure.persistence.sqlite_search_repository import (
+    SqliteSearchRepository,
 )
 from doc_helper.domain.document.transformer_registry import TransformerRegistry
 from doc_helper.domain.document.transformers import (
@@ -127,6 +139,20 @@ def configure_container() -> Container:
     container.register_singleton(
         IOverrideRepository,
         lambda: SqliteOverrideRepository(db_path=projects_db_path),
+    )
+
+    # Field History repository - SQLite persistent storage (ADR-027)
+    # Note: Field history stored in same database as projects
+    container.register_singleton(
+        IFieldHistoryRepository,
+        lambda: SqliteFieldHistoryRepository(db_path=projects_db_path),
+    )
+
+    # Search repository - SQLite implementation (ADR-026)
+    # Note: Search operates on project database
+    container.register_singleton(
+        ISearchRepository,
+        lambda: SqliteSearchRepository(db_path=projects_db_path),
     )
 
     # ========================================================================
@@ -270,6 +296,22 @@ def configure_container() -> Container:
         GetProjectQuery,
         lambda: GetProjectQuery(
             project_repository=container.resolve(IProjectRepository),
+        ),
+    )
+
+    # Search query (ADR-026)
+    container.register_singleton(
+        SearchFieldsQuery,
+        lambda: SearchFieldsQuery(
+            search_repository=container.resolve(ISearchRepository),
+        ),
+    )
+
+    # Field History query (ADR-027)
+    container.register_singleton(
+        GetFieldHistoryQuery,
+        lambda: GetFieldHistoryQuery(
+            field_history_repository=container.resolve(IFieldHistoryRepository),
         ),
     )
 

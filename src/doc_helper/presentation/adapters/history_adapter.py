@@ -4,6 +4,16 @@ RULES (unified_upgrade_plan_FINAL.md U6 Phase 2):
 - Adapts UndoManager to PyQt6 signal/slot mechanism
 - Emits signals when undo/redo state changes
 - Provides methods for triggering undo/redo/clear operations
+
+ADR-031: Undo History Persistence (UX Notes):
+- Undo persistence is transparent to this adapter
+- UndoManager handles serialization/deserialization on save/open
+- Undo survives application restart (restored on project open)
+- Undo survives save operations (NOT cleared on save)
+- Undo cleared only on explicit project close
+- Adapter signals (can_undo_changed, undo_text_changed) automatically reflect
+  restored state after project open
+- No special UX needed in presentation layer for persistence
 """
 
 from PyQt6.QtCore import QObject, pyqtSignal

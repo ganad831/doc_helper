@@ -20,12 +20,18 @@ from doc_helper.application.commands.update_field_command import UpdateFieldComm
 from doc_helper.application.dto import (
     EntityDefinitionDTO,
     EvaluationResultDTO,
+    FieldHistoryResultDTO,
     ProjectDTO,
+    SearchResultDTO,
     ValidationErrorDTO,
     ValidationResultDTO,
 )
 from doc_helper.application.mappers import EvaluationResultMapper, ValidationMapper
+from doc_helper.application.queries.get_field_history_query import (
+    GetFieldHistoryQuery,
+)
 from doc_helper.application.queries.get_project_query import GetProjectQuery
+from doc_helper.application.queries.search_fields_query import SearchFieldsQuery
 from doc_helper.application.services.control_service import ControlService
 from doc_helper.application.services.field_undo_service import FieldUndoService
 from doc_helper.application.services.formula_service import FormulaService
@@ -73,6 +79,8 @@ class ProjectViewModel(BaseViewModel):
         field_undo_service: FieldUndoService,
         history_adapter: HistoryAdapter,
         navigation_adapter: NavigationAdapter,
+        search_fields_query: Optional[SearchFieldsQuery] = None,
+        get_field_history_query: Optional[GetFieldHistoryQuery] = None,
     ) -> None:
         """Initialize ProjectViewModel.
 
@@ -86,6 +94,8 @@ class ProjectViewModel(BaseViewModel):
             field_undo_service: Undo-enabled field update service (NEW - U6 Phase 4)
             history_adapter: Qt signal bridge for undo/redo state (NEW - U6 Phase 4)
             navigation_adapter: Qt signal bridge for navigation state (NEW - U7)
+            search_fields_query: Query for searching fields (ADR-026)
+            get_field_history_query: Query for field history (ADR-027)
         """
         super().__init__()
         self._get_project_query = get_project_query
@@ -97,6 +107,8 @@ class ProjectViewModel(BaseViewModel):
         self._field_undo_service = field_undo_service
         self._history_adapter = history_adapter
         self._navigation_adapter = navigation_adapter
+        self._search_fields_query = search_fields_query
+        self._get_field_history_query = get_field_history_query
 
         # Store IDs and DTOs, NOT domain objects
         self._project_id: Optional[str] = None
@@ -577,6 +589,112 @@ class ProjectViewModel(BaseViewModel):
             can_redo: Whether redo is now available
         """
         self.notify_change("can_redo")
+
+    # ====================================================
+    # SEARCH & HISTORY (ADR-026, ADR-027)
+    # ====================================================
+
+    def search_fields(self, search_term: str) -> list[SearchResultDTO]:
+        """Search for fields within the current project.
+
+        ADR-026: Search Architecture
+        Searches field labels, field IDs, and field values.
+
+        Args:
+            search_term: The search string
+
+        Returns:
+            List of SearchResultDTO instances matching the search term
+            Empty list if search not available or no matches found
+        """
+        if not self._search_fields_query or not self._project_id:
+            return []
+
+        if not search_term or len(search_term.strip()) < 2:
+            return []  # Minimum 2 characters required
+
+        result = self._search_fields_query.execute(
+            project_id=self._project_id,
+            search_term=search_term.strip(),
+            limit=100,
+        )
+
+        if result.is_success():
+            return result.value
+        else:
+            # Log error but return empty list (don't crash on search failure)
+            return []
+
+    def get_field_history(
+        self, field_id: str, limit: Optional[int] = 20, offset: int = 0
+    ) -> Optional[FieldHistoryResultDTO]:
+        """Get history entries for a specific field.
+
+        ADR-027: Field History Storage
+        Returns paginated history showing field value changes over time.
+
+        Args:
+            field_id: The field ID to get history for
+            limit: Maximum number of entries to return (default: 20)
+            offset: Number of entries to skip (for pagination, default: 0)
+
+        Returns:
+            FieldHistoryResultDTO with entries, or None if not available
+        """
+        if not self._get_field_history_query or not self._project_id:
+            return None
+
+        result = self._get_field_history_query.execute_for_field(
+            project_id=self._project_id,
+            field_id=field_id,
+            limit=limit,
+            offset=offset,
+        )
+
+        if result.is_success():
+            return result.value
+        else:
+            return None
+
+    # ====================================================
+    # IMPORT/EXPORT (ADR-039) - STUBS
+    # ====================================================
+
+    def export_project(self, output_file_path: str) -> tuple[bool, str]:
+        """Export current project to interchange format.
+
+        ADR-039: Import/Export Data Format
+        NOTE: Full implementation deferred (infrastructure layer missing).
+
+        Args:
+            output_file_path: Path where to save the export file
+
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        # Stub implementation - infrastructure layer not complete
+        return (
+            False,
+            "Export feature coming soon. Infrastructure implementation in progress.",
+        )
+
+    def import_project(self, input_file_path: str) -> tuple[bool, str]:
+        """Import project from interchange format.
+
+        ADR-039: Import/Export Data Format
+        NOTE: Full implementation deferred (infrastructure layer missing).
+
+        Args:
+            input_file_path: Path to the import file
+
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        # Stub implementation - infrastructure layer not complete
+        return (
+            False,
+            "Import feature coming soon. Infrastructure implementation in progress.",
+        )
 
     # ====================================================
 

@@ -7,6 +7,9 @@ from doc_helper.presentation.dialogs.conflict_resolution_dialog import ConflictR
 from doc_helper.presentation.dialogs.pre_generation_checklist_dialog import (
     PreGenerationChecklistDialog,
 )
+from doc_helper.presentation.dialogs.search_dialog import SearchDialog
+from doc_helper.presentation.dialogs.field_history_dialog import FieldHistoryDialog
+from doc_helper.presentation.dialogs.import_export_dialog import ImportExportDialog
 
 __all__ = [
     "SettingsDialog",
@@ -14,4 +17,7 @@ __all__ = [
     "OverrideManagementDialog",
     "ConflictResolutionDialog",
     "PreGenerationChecklistDialog",
+    "SearchDialog",
+    "FieldHistoryDialog",
+    "ImportExportDialog",
 ]

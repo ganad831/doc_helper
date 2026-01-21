@@ -20,7 +20,12 @@ from PyQt6.QtWidgets import (
 from doc_helper.application.dto import EntityDefinitionDTO, FieldDefinitionDTO
 # Domain imports removed - presentation layer uses strings, not typed IDs (DTO-only MVVM)
 from doc_helper.presentation.adapters.qt_translation_adapter import QtTranslationAdapter
-from doc_helper.presentation.dialogs import SettingsDialog
+from doc_helper.presentation.dialogs import (
+    FieldHistoryDialog,
+    ImportExportDialog,
+    SearchDialog,
+    SettingsDialog,
+)
 from doc_helper.presentation.factories import FieldWidgetFactory
 from doc_helper.presentation.viewmodels.project_viewmodel import ProjectViewModel
 from doc_helper.presentation.views.base_view import BaseView
@@ -170,6 +175,12 @@ class ProjectView(BaseView):
 
         file_menu.addSeparator()
 
+        import_export_action = QAction("Import/Export...", self._root)
+        import_export_action.triggered.connect(self._on_import_export)
+        file_menu.addAction(import_export_action)
+
+        file_menu.addSeparator()
+
         close_action = QAction("Close", self._root)
         close_action.triggered.connect(self._on_close)
         file_menu.addAction(close_action)
@@ -189,6 +200,13 @@ class ProjectView(BaseView):
         edit_menu.addAction(redo_action)
         self._redo_action = redo_action  # Store reference for state updates
 
+        edit_menu.addSeparator()
+
+        find_action = QAction("Find Fields...", self._root)
+        find_action.setShortcut(QKeySequence("Ctrl+F"))
+        find_action.triggered.connect(self._on_find_fields)
+        edit_menu.addAction(find_action)
+
         # View menu (U7 - Navigation)
         view_menu = menubar.addMenu("View")
 
@@ -203,6 +221,12 @@ class ProjectView(BaseView):
         forward_action.triggered.connect(self._on_nav_forward)
         view_menu.addAction(forward_action)
         self._forward_action = forward_action  # Store reference for state updates
+
+        view_menu.addSeparator()
+
+        field_history_action = QAction("Field History...", self._root)
+        field_history_action.triggered.connect(self._on_field_history)
+        view_menu.addAction(field_history_action)
 
         # Tools menu
         tools_menu = menubar.addMenu("Tools")
@@ -556,6 +580,105 @@ class ProjectView(BaseView):
             "Document generation dialog will be implemented in Milestone U11.",
         )
         self._status_bar.showMessage("Ready for document generation (U11)")
+
+    def _on_find_fields(self) -> None:
+        """Handle Find Fields action (Ctrl+F).
+
+        ADR-026: Search Architecture
+        Opens search dialog for finding fields within the project.
+        """
+
+        def search_callback(search_term: str) -> list:
+            """Execute search query."""
+            return self._viewmodel.search_fields(search_term)
+
+        def navigate_callback(field_path: str) -> None:
+            """Navigate to field by path."""
+            # TODO: Implement field navigation by path
+            # This requires field path parsing and focus management
+            self._status_bar.showMessage(f"Navigate to: {field_path}")
+
+        # Show non-modal search dialog
+        SearchDialog.show_search(
+            parent=self._root,
+            search_callback=search_callback,
+            navigate_callback=navigate_callback,
+        )
+        self._status_bar.showMessage("Search dialog opened")
+
+    def _on_field_history(self) -> None:
+        """Handle Field History action.
+
+        ADR-027: Field History Storage
+        Opens field history dialog for the currently selected field.
+        """
+        # TODO: Get currently selected/focused field ID
+        # For now, show a message asking user to select a field first
+        QMessageBox.information(
+            self._root,
+            "Field History",
+            "Field history feature available.\n\n"
+            "To view history:\n"
+            "1. Select a field in the form\n"
+            "2. Right-click for context menu\n"
+            "3. Choose 'View History'\n\n"
+            "Full field context menu integration coming soon.",
+        )
+        self._status_bar.showMessage("Field history info displayed")
+
+    def _on_import_export(self) -> None:
+        """Handle Import/Export action.
+
+        ADR-039: Import/Export Data Format
+        Opens import/export dialog for project data interchange.
+        """
+
+        def export_callback(output_path: str):
+            """Execute export command."""
+            from doc_helper.application.dto import ExportResultDTO
+
+            success, message = self._viewmodel.export_project(output_path)
+
+            # Create stub DTO for now
+            return ExportResultDTO(
+                success=success,
+                file_path=output_path if success else None,
+                project_id=self._viewmodel.project_id or "",
+                project_name=self._viewmodel.project_name,
+                error_message=None if success else message,
+                format_version="1.0",
+                exported_at="",
+                entity_count=0,
+                record_count=0,
+                field_value_count=0,
+            )
+
+        def import_callback(input_path: str):
+            """Execute import command."""
+            from doc_helper.application.dto import ImportResultDTO
+
+            success, message = self._viewmodel.import_project(input_path)
+
+            # Create stub DTO for now
+            return ImportResultDTO(
+                success=success,
+                project_id=None,
+                project_name=None,
+                error_message=message if not success else None,
+                validation_errors=tuple(),
+                format_version="1.0",
+                source_app_version=None,
+                warnings=tuple(),
+            )
+
+        # Show import/export dialog
+        ImportExportDialog.show_import_export(
+            parent=self._root,
+            export_callback=export_callback,
+            import_callback=import_callback,
+            current_project_name=self._viewmodel.project_name,
+        )
+        self._status_bar.showMessage("Import/Export dialog opened")
 
     def _on_close(self) -> None:
         """Handle window close."""
