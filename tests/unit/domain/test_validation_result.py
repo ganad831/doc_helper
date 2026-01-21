@@ -230,3 +230,215 @@ class TestValidationResult:
         merged = result1.merge(result2)
         assert not merged.is_valid()
         assert merged.error_count == 1
+
+
+class TestValidationErrorWithSeverity:
+    """Tests for ValidationError with severity support (ADR-025)."""
+
+    def test_validation_error_defaults_to_error_severity(self) -> None:
+        """ValidationError should default to ERROR severity for backward compatibility."""
+        from doc_helper.domain.validation.severity import Severity
+
+        error = ValidationError(
+            field_path="field",
+            message_key=TranslationKey("validation.required"),
+            constraint_type="RequiredConstraint",
+            current_value=None,
+        )
+        assert error.severity == Severity.ERROR
+
+    def test_validation_error_with_custom_severity(self) -> None:
+        """ValidationError should accept custom severity."""
+        from doc_helper.domain.validation.severity import Severity
+
+        error = ValidationError(
+            field_path="field",
+            message_key=TranslationKey("validation.required"),
+            constraint_type="RequiredConstraint",
+            current_value=None,
+            severity=Severity.WARNING,
+        )
+        assert error.severity == Severity.WARNING
+
+    def test_validation_error_rejects_invalid_severity(self) -> None:
+        """ValidationError should reject non-Severity types."""
+        with pytest.raises(ValueError, match="severity must be a Severity enum"):
+            ValidationError(
+                field_path="field",
+                message_key=TranslationKey("validation.required"),
+                constraint_type="RequiredConstraint",
+                current_value=None,
+                severity="INVALID",  # type: ignore
+            )
+
+
+class TestValidationResultWithSeverity:
+    """Tests for ValidationResult with severity support (ADR-025)."""
+
+    def test_has_blocking_errors_with_error_severity(self) -> None:
+        """ValidationResult should detect ERROR-level errors."""
+        from doc_helper.domain.validation.severity import Severity
+
+        errors = (
+            ValidationError(
+                field_path="field1",
+                message_key=TranslationKey("validation.required"),
+                constraint_type="RequiredConstraint",
+                current_value=None,
+                severity=Severity.ERROR,
+            ),
+        )
+        result = ValidationResult.failure(errors)
+        assert result.has_blocking_errors() is True
+
+    def test_has_blocking_errors_with_warning_only(self) -> None:
+        """ValidationResult should not have blocking errors with WARNING only."""
+        from doc_helper.domain.validation.severity import Severity
+
+        errors = (
+            ValidationError(
+                field_path="field1",
+                message_key=TranslationKey("validation.required"),
+                constraint_type="RequiredConstraint",
+                current_value=None,
+                severity=Severity.WARNING,
+            ),
+        )
+        result = ValidationResult.failure(errors)
+        assert result.has_blocking_errors() is False
+
+    def test_has_warnings(self) -> None:
+        """ValidationResult should detect WARNING-level errors."""
+        from doc_helper.domain.validation.severity import Severity
+
+        errors = (
+            ValidationError(
+                field_path="field1",
+                message_key=TranslationKey("validation.min_length"),
+                constraint_type="MinLengthConstraint",
+                current_value="Hi",
+                severity=Severity.WARNING,
+            ),
+        )
+        result = ValidationResult.failure(errors)
+        assert result.has_warnings() is True
+
+    def test_has_info(self) -> None:
+        """ValidationResult should detect INFO-level errors."""
+        from doc_helper.domain.validation.severity import Severity
+
+        errors = (
+            ValidationError(
+                field_path="field1",
+                message_key=TranslationKey("validation.info"),
+                constraint_type="InfoConstraint",
+                current_value="data",
+                severity=Severity.INFO,
+            ),
+        )
+        result = ValidationResult.failure(errors)
+        assert result.has_info() is True
+
+    def test_get_errors_by_severity(self) -> None:
+        """ValidationResult should filter errors by severity."""
+        from doc_helper.domain.validation.severity import Severity
+
+        errors = (
+            ValidationError(
+                field_path="field1",
+                message_key=TranslationKey("validation.required"),
+                constraint_type="RequiredConstraint",
+                current_value=None,
+                severity=Severity.ERROR,
+            ),
+            ValidationError(
+                field_path="field2",
+                message_key=TranslationKey("validation.warning"),
+                constraint_type="WarningConstraint",
+                current_value="data",
+                severity=Severity.WARNING,
+            ),
+            ValidationError(
+                field_path="field3",
+                message_key=TranslationKey("validation.info"),
+                constraint_type="InfoConstraint",
+                current_value="data",
+                severity=Severity.INFO,
+            ),
+        )
+        result = ValidationResult.failure(errors)
+
+        error_errors = result.get_errors_by_severity(Severity.ERROR)
+        assert len(error_errors) == 1
+        assert error_errors[0].severity == Severity.ERROR
+
+        warning_errors = result.get_errors_by_severity(Severity.WARNING)
+        assert len(warning_errors) == 1
+        assert warning_errors[0].severity == Severity.WARNING
+
+        info_errors = result.get_errors_by_severity(Severity.INFO)
+        assert len(info_errors) == 1
+        assert info_errors[0].severity == Severity.INFO
+
+    def test_blocks_workflow_with_errors(self) -> None:
+        """ValidationResult should block workflow with ERROR-level errors."""
+        from doc_helper.domain.validation.severity import Severity
+
+        errors = (
+            ValidationError(
+                field_path="field1",
+                message_key=TranslationKey("validation.required"),
+                constraint_type="RequiredConstraint",
+                current_value=None,
+                severity=Severity.ERROR,
+            ),
+        )
+        result = ValidationResult.failure(errors)
+        assert result.blocks_workflow() is True
+
+    def test_blocks_workflow_with_warnings_only(self) -> None:
+        """ValidationResult should not block workflow with WARNING-level only."""
+        from doc_helper.domain.validation.severity import Severity
+
+        errors = (
+            ValidationError(
+                field_path="field1",
+                message_key=TranslationKey("validation.warning"),
+                constraint_type="WarningConstraint",
+                current_value="data",
+                severity=Severity.WARNING,
+            ),
+        )
+        result = ValidationResult.failure(errors)
+        assert result.blocks_workflow() is False
+
+    def test_blocks_workflow_with_mixed_severities(self) -> None:
+        """ValidationResult should block workflow if ANY ERROR exists."""
+        from doc_helper.domain.validation.severity import Severity
+
+        errors = (
+            ValidationError(
+                field_path="field1",
+                message_key=TranslationKey("validation.required"),
+                constraint_type="RequiredConstraint",
+                current_value=None,
+                severity=Severity.ERROR,
+            ),
+            ValidationError(
+                field_path="field2",
+                message_key=TranslationKey("validation.warning"),
+                constraint_type="WarningConstraint",
+                current_value="data",
+                severity=Severity.WARNING,
+            ),
+        )
+        result = ValidationResult.failure(errors)
+        assert result.blocks_workflow() is True
+
+    def test_success_result_does_not_block_workflow(self) -> None:
+        """ValidationResult.success() should not block workflow."""
+        result = ValidationResult.success()
+        assert result.blocks_workflow() is False
+        assert result.has_blocking_errors() is False
+        assert result.has_warnings() is False
+        assert result.has_info() is False

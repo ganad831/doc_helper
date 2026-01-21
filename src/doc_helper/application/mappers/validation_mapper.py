@@ -3,6 +3,7 @@
 RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md H3):
 - ONE-WAY mapping: Domain → DTO only
 - NO to_domain() or from_dto() methods
+- ADR-025: Map severity enum to string for DTOs
 """
 
 from doc_helper.application.dto import ValidationResultDTO, ValidationErrorDTO
@@ -18,6 +19,7 @@ class ValidationMapper:
 
     This mapper is ONE-WAY: Domain → DTO only.
     Requires ITranslationService to translate error message keys.
+    ADR-025: Converts severity enum to string for DTOs.
     """
 
     def __init__(self, translation_service: ITranslationService) -> None:
@@ -50,6 +52,7 @@ class ValidationMapper:
             field_id=error.field_path,
             message=message,
             constraint_type=error.constraint_type,
+            severity=error.severity.value,  # Convert enum to string (ADR-025)
         )
 
     def to_dto(

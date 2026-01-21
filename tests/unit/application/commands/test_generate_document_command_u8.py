@@ -20,6 +20,7 @@ from doc_helper.application.document.document_generation_service import (
     DocumentGenerationService,
 )
 from doc_helper.application.services.override_service import OverrideService
+from doc_helper.application.services.validation_service import ValidationService
 from doc_helper.domain.common.result import Failure, Success
 from doc_helper.domain.document.document_format import DocumentFormat
 from doc_helper.domain.project.project import Project
@@ -115,8 +116,18 @@ class TestGenerateDocumentCommandU8:
         return mock
 
     @pytest.fixture
+    def validation_service(self):
+        """Create mock validation service."""
+        from doc_helper.domain.validation.validation_result import ValidationResult
+
+        mock = create_autospec(ValidationService, instance=True)
+        # Default: validation passes (no errors)
+        mock.validate_by_project_id.return_value = Success(ValidationResult.success())
+        return mock
+
+    @pytest.fixture
     def command(
-        self, project_repository, save_command, document_service, override_service
+        self, project_repository, save_command, document_service, override_service, validation_service
     ):
         """Create generate document command with all dependencies."""
         return GenerateDocumentCommand(
@@ -124,6 +135,7 @@ class TestGenerateDocumentCommandU8:
             save_command=save_command,
             document_service=document_service,
             override_service=override_service,
+            validation_service=validation_service,
         )
 
     def test_auto_save_called_before_generation(

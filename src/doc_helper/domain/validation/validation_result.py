@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from doc_helper.domain.common.i18n import TranslationKey
 from doc_helper.domain.common.value_object import ValueObject
+from doc_helper.domain.validation.severity import Severity
 
 
 @dataclass(frozen=True)
@@ -21,13 +22,15 @@ class ValidationError(ValueObject):
     - Errors are value objects (immutable)
     - Use TranslationKey for i18n support
     - NO hardcoded error messages
+    - ADR-025: Each error has explicit severity (ERROR/WARNING/INFO)
 
     Example:
         error = ValidationError(
             field_path="project.site_location",
             message_key=TranslationKey("validation.required"),
             constraint_type="RequiredConstraint",
-            current_value=None
+            current_value=None,
+            severity=Severity.ERROR
         )
     """
 
@@ -36,6 +39,7 @@ class ValidationError(ValueObject):
     constraint_type: str  # Name of constraint that failed (e.g., "RequiredConstraint")
     current_value: Any  # The value that failed validation
     constraint_params: Optional[dict] = None  # Parameters for message interpolation
+    severity: Severity = Severity.ERROR  # Severity level (ADR-025, default: ERROR for backward compatibility)
 
     def __post_init__(self) -> None:
         """Validate error parameters."""
@@ -43,6 +47,8 @@ class ValidationError(ValueObject):
             raise ValueError("field_path cannot be empty")
         if not self.constraint_type:
             raise ValueError("constraint_type cannot be empty")
+        if not isinstance(self.severity, Severity):
+            raise ValueError(f"severity must be a Severity enum, got {type(self.severity)}")
 
 
 @dataclass(frozen=True)
@@ -54,7 +60,8 @@ class ValidationResult(ValueObject):
     RULES (IMPLEMENTATION_RULES.md Section 3.3):
     - Result is a value object (immutable)
     - Errors stored as tuple (immutable collection)
-    - v1: Simple pass/fail (NO severity levels like ERROR/WARNING)
+    - ADR-025: Supports severity levels (ERROR/WARNING/INFO)
+    - Severity determines workflow control behavior
 
     Usage:
         # Success case
@@ -63,12 +70,14 @@ class ValidationResult(ValueObject):
 
         # Failure case
         errors = (
-            ValidationError(...),
-            ValidationError(...),
+            ValidationError(..., severity=Severity.ERROR),
+            ValidationError(..., severity=Severity.WARNING),
         )
         result = ValidationResult.failure(errors)
         assert not result.is_valid()
         assert result.error_count == 2
+        assert result.has_blocking_errors()  # Has ERROR
+        assert result.has_warnings()  # Has WARNING
     """
 
     errors: tuple  # Tuple of ValidationError (immutable)
@@ -160,3 +169,55 @@ class ValidationResult(ValueObject):
             New ValidationResult with errors from both
         """
         return ValidationResult(errors=self.errors + other.errors)
+
+    def has_blocking_errors(self) -> bool:
+        """Check if result contains any ERROR-level errors that block workflows.
+
+        ADR-025: ERROR severity blocks workflow unconditionally.
+
+        Returns:
+            True if has any ERROR severity errors
+        """
+        return any(error.severity == Severity.ERROR for error in self.errors)
+
+    def has_warnings(self) -> bool:
+        """Check if result contains any WARNING-level errors.
+
+        ADR-025: WARNING severity requires user confirmation to proceed.
+
+        Returns:
+            True if has any WARNING severity errors
+        """
+        return any(error.severity == Severity.WARNING for error in self.errors)
+
+    def has_info(self) -> bool:
+        """Check if result contains any INFO-level errors.
+
+        ADR-025: INFO severity is informational only, never blocks.
+
+        Returns:
+            True if has any INFO severity errors
+        """
+        return any(error.severity == Severity.INFO for error in self.errors)
+
+    def get_errors_by_severity(self, severity: Severity) -> tuple:
+        """Get all errors with a specific severity level.
+
+        Args:
+            severity: The severity level to filter by
+
+        Returns:
+            Tuple of ValidationError with matching severity
+        """
+        return tuple(error for error in self.errors if error.severity == severity)
+
+    def blocks_workflow(self) -> bool:
+        """Check if this result should block workflow continuation.
+
+        ADR-025: Workflows are blocked if there are any ERROR-level errors.
+        WARNING and INFO do not block unconditionally.
+
+        Returns:
+            True if workflow should be blocked (has ERROR-level errors)
+        """
+        return self.has_blocking_errors()

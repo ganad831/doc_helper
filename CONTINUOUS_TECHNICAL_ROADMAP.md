@@ -678,35 +678,40 @@ This section lists architectural decisions that need formalization.
 
 ### 6.3 Required ADRs - Near-Term Expansion
 
-**ADR-025: Validation Severity Levels**:
+**ADR-025: Validation Severity Levels** ✅:
+- **Status**: Accepted (2026-01-21)
 - **Decision Scope**: ERROR/WARNING/INFO distinction
 - **Priority**: High
 - **Depends On**: -
-- **Timing**: Before implementing validation severity feature
+- **Next Step**: Implementation pending
 
-**ADR-026: Search Architecture**:
-- **Decision Scope**: Global search across fields
+**ADR-026: Search Architecture** ✅:
+- **Status**: Accepted (2026-01-21)
+- **Decision Scope**: Global search across fields (read-only CQRS query)
 - **Priority**: High
 - **Depends On**: -
-- **Timing**: Before implementing quick search
+- **Next Step**: Implementation pending
 
-**ADR-027: Field History Storage**:
+**ADR-027: Field History Storage** ✅:
+- **Status**: Accepted (2026-01-21)
 - **Decision Scope**: Per-field change tracking
 - **Priority**: Medium
 - **Depends On**: ADR-011
-- **Timing**: Before implementing field history UI
+- **Next Step**: Implementation pending
 
-**ADR-039: Import/Export Data Format**:
-- **Decision Scope**: JSON/Excel/CSV schema
+**ADR-039: Import/Export Data Format** ✅:
+- **Status**: Accepted (2026-01-21)
+- **Decision Scope**: Standardized data interchange format
 - **Priority**: High
-- **Depends On**: -
-- **Timing**: Before implementing import/export
+- **Depends On**: ADR-007, ADR-011, ADR-004
+- **Next Step**: Implementation pending
 
-**ADR-031: Undo History Persistence**:
+**ADR-031: Undo History Persistence** ✅:
+- **Status**: Accepted (2026-01-21)
 - **Decision Scope**: Save/restore undo stack with project
 - **Priority**: Medium
 - **Depends On**: ADR-017, ADR-011
-- **Timing**: Before implementing undo persistence
+- **Next Step**: Implementation pending
 
 **ADR-032: Selective Undo Algorithm**:
 - **Decision Scope**: Undo specific change without undoing later

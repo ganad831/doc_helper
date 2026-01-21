@@ -146,7 +146,27 @@ No milestone is complete without passing tests.
 
 ---
 
-## 10. FORBIDDEN IN V1
+## 10. NEAR-TERM EXPANSION EXCEPTIONS
+
+The following features are FORBIDDEN in v1 foundation but are
+EXPLICITLY AUTHORIZED during Near-Term Expansion when governed
+by accepted ADRs and the approved Near-Term Implementation Plan.
+
+Authorized exceptions:
+- Validation severity levels (ADR-025)
+- Search functionality (ADR-026)
+- Field history storage and UI (ADR-027)
+- Undo history persistence (ADR-031)
+- Import/export data interchange (ADR-039)
+
+Rules:
+- These features MUST be implemented strictly according to their ADRs
+- No expansion beyond ADR scope is allowed
+- v2+ features remain forbidden
+- Any feature not listed here is still forbidden
+
+
+## 11. FORBIDDEN IN V1 (OUTSIDE NEAR-TERM SCOPE)
 
 The following are explicitly forbidden:
 
@@ -161,7 +181,7 @@ The following are explicitly forbidden:
 
 ---
 
-## 11. DECISION PRECEDENCE
+## 12. DECISION PRECEDENCE
 
 If a conflict exists:
 
@@ -174,7 +194,7 @@ If unclear, STOP and ask for clarification.
 
 ---
 
-## 12. EXECUTION DISCIPLINE
+## 13. EXECUTION DISCIPLINE
 
 Before implementing any change, the agent MUST:
 
@@ -189,7 +209,7 @@ After implementation, the agent MUST:
 
 ---
 
-## 13. COMPLETED MILESTONES
+## 14. COMPLETED MILESTONES
 
 ### U8: Legacy Behavior Parity (✅ COMPLETE - 2026-01-20)
 
@@ -218,6 +238,72 @@ After implementation, the agent MUST:
 - ✅ Clean Architecture layers respected
 - ✅ DTO-only MVVM maintained
 - ✅ All new code tested
+
+---
+
+### ADR-025: Validation Severity Levels (🔄 DOMAIN + APPLICATION COMPLETE - 2026-01-21)
+
+**Goal**: Implement three-level validation severity system (ERROR/WARNING/INFO) to distinguish blocking errors from non-blocking warnings and informational messages.
+
+**Status**: Domain + Application layers complete, Presentation layer pending
+
+**Implemented**:
+1. **Severity value object** ([severity.py](src/doc_helper/domain/validation/severity.py))
+   - Three levels: ERROR (blocks), WARNING (user confirmation), INFO (informational)
+   - Helper methods: `blocks_workflow()`, `requires_confirmation()`, `is_informational()`
+   - Default: ERROR for backward compatibility
+
+2. **ValidationError extended** ([validation_result.py](src/doc_helper/domain/validation/validation_result.py))
+   - Added `severity: Severity` field with default ERROR
+   - Validation rejects invalid severity types
+
+3. **ValidationResult extended** ([validation_result.py](src/doc_helper/domain/validation/validation_result.py))
+   - Added methods: `has_blocking_errors()`, `has_warnings()`, `has_info()`, `get_errors_by_severity()`, `blocks_workflow()`
+   - ERROR-level errors block workflows unconditionally
+
+4. **Constraint classes updated** ([constraints.py](src/doc_helper/domain/validation/constraints.py))
+   - All 8 constraint classes declare `severity: Severity = Severity.ERROR` as last field
+   - Constraints: Required, MinLength, MaxLength, MinValue, MaxValue, Pattern, AllowedValues, FileExtension, MaxFileSize
+
+5. **Validators updated** ([validators.py](src/doc_helper/domain/validation/validators.py))
+   - All validators propagate severity from constraints to ValidationErrors
+   - Severity preserved through validation chain
+
+6. **ValidationResultDTO extended** ([validation_dto.py](src/doc_helper/application/dto/validation_dto.py))
+   - Added `severity: str` field (primitive string for DTOs)
+   - Added methods: `has_blocking_errors()`, `has_warnings()`, `has_info()`, `blocks_workflow()`
+
+7. **ValidationMapper updated** ([validation_mapper.py](src/doc_helper/application/mappers/validation_mapper.py))
+   - Converts `error.severity.value` enum to string for DTOs
+
+8. **GenerateDocumentCommand updated** ([generate_document_command.py](src/doc_helper/application/commands/generate_document_command.py))
+   - Added `validation_service` dependency
+   - Validates project before generation
+   - Blocks generation if ERROR-level validation failures exist
+   - WARNING/INFO failures do not block (user confirmation handled in presentation)
+
+**Tests**:
+- ✅ 19 Severity value object tests ([test_severity.py](tests/unit/domain/test_severity.py))
+- ✅ 12 ValidationError/ValidationResult severity tests ([test_validation_result.py](tests/unit/domain/test_validation_result.py))
+- ✅ 5 integration tests for severity-based workflow control ([test_severity_workflow.py](tests/integration/workflows/test_severity_workflow.py))
+- ✅ Updated GenerateDocumentCommand U8 tests to include validation_service
+- ✅ 974/974 total tests passing (672 domain + 297 application + 5 integration)
+- ✅ No regressions
+
+**Compliance**:
+- ✅ No v2 features introduced
+- ✅ Clean Architecture layers respected (domain/application only)
+- ✅ DTO-only MVVM maintained (severity enum → string in DTOs)
+- ✅ All new code tested
+- ✅ ADR-024 compliance scan: 1 pre-existing violation (unrelated), no new violations
+
+**Pending (Presentation Layer)**:
+- ⏳ Update presentation ViewModels to consume severity DTOs
+- ⏳ Add visual differentiation for severity levels in UI (color-coded indicators: red/yellow/blue)
+- ⏳ Pre-generation checklist dialog showing errors/warnings separately
+- ⏳ User confirmation prompt for WARNING-level failures
+
+**Authorization**: Explicitly authorized in AGENT_RULES.md Section 10 (Near-Term Expansion Exceptions)
 
 ---
 

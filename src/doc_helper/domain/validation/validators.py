@@ -21,6 +21,7 @@ from doc_helper.domain.validation.constraints import (
     PatternConstraint,
     RequiredConstraint,
 )
+from doc_helper.domain.validation.severity import Severity
 from doc_helper.domain.validation.validation_result import (
     ValidationError,
     ValidationResult,
@@ -36,6 +37,7 @@ class IValidator(ABC):
     - Validators are stateless (no instance state beyond constraints)
     - Validators are pure functions (no side effects)
     - Return ValidationResult (never raise exceptions for business logic)
+    - ADR-025: Propagate severity from constraints to ValidationErrors
 
     Usage:
         validator = TextValidator(constraints=(
@@ -86,6 +88,7 @@ class IValidator(ABC):
                         message_key=TranslationKey("validation.required"),
                         constraint_type="RequiredConstraint",
                         current_value=value,
+                        severity=constraint.severity,
                     )
         return None
 
@@ -134,6 +137,7 @@ class TextValidator(IValidator):
                     message_key=TranslationKey("validation.invalid_format"),
                     constraint_type="TypeCheck",
                     current_value=value,
+                    severity=Severity.ERROR,
                 )
             )
             return ValidationResult.failure(tuple(errors))
@@ -149,6 +153,7 @@ class TextValidator(IValidator):
                             constraint_type="MinLengthConstraint",
                             current_value=value,
                             constraint_params={"min": constraint.min_length},
+                            severity=constraint.severity,
                         )
                     )
 
@@ -163,6 +168,7 @@ class TextValidator(IValidator):
                             constraint_type="MaxLengthConstraint",
                             current_value=value,
                             constraint_params={"max": constraint.max_length},
+                            severity=constraint.severity,
                         )
                     )
 
@@ -176,6 +182,7 @@ class TextValidator(IValidator):
                             message_key=TranslationKey("validation.pattern"),
                             constraint_type="PatternConstraint",
                             current_value=value,
+                            severity=constraint.severity,
                         )
                     )
 
@@ -227,6 +234,7 @@ class NumberValidator(IValidator):
                     message_key=TranslationKey("validation.invalid_number"),
                     constraint_type="TypeCheck",
                     current_value=value,
+                    severity=Severity.ERROR,
                 )
             )
             return ValidationResult.failure(tuple(errors))
@@ -242,6 +250,7 @@ class NumberValidator(IValidator):
                             constraint_type="MinValueConstraint",
                             current_value=value,
                             constraint_params={"min": constraint.min_value},
+                            severity=constraint.severity,
                         )
                     )
 
@@ -256,6 +265,7 @@ class NumberValidator(IValidator):
                             constraint_type="MaxValueConstraint",
                             current_value=value,
                             constraint_params={"max": constraint.max_value},
+                            severity=constraint.severity,
                         )
                     )
 
@@ -307,6 +317,7 @@ class DateValidator(IValidator):
                     message_key=TranslationKey("validation.invalid_date"),
                     constraint_type="TypeCheck",
                     current_value=value,
+                    severity=Severity.ERROR,
                 )
             )
             return ValidationResult.failure(tuple(errors))
@@ -326,6 +337,7 @@ class DateValidator(IValidator):
                             constraint_type="MinValueConstraint",
                             current_value=value,
                             constraint_params={"min": date.fromordinal(int(constraint.min_value)).isoformat()},
+                            severity=constraint.severity,
                         )
                     )
 
@@ -340,6 +352,7 @@ class DateValidator(IValidator):
                             constraint_type="MaxValueConstraint",
                             current_value=value,
                             constraint_params={"max": date.fromordinal(int(constraint.max_value)).isoformat()},
+                            severity=constraint.severity,
                         )
                     )
 
@@ -392,6 +405,7 @@ class DropdownValidator(IValidator):
                             message_key=TranslationKey("validation.invalid_option"),
                             constraint_type="AllowedValuesConstraint",
                             current_value=value,
+                            severity=constraint.severity,
                         )
                     )
 
@@ -431,6 +445,7 @@ class CheckboxValidator(IValidator):
                     message_key=TranslationKey("validation.invalid_format"),
                     constraint_type="TypeCheck",
                     current_value=value,
+                    severity=Severity.ERROR,
                 )
             )
             return ValidationResult.failure(tuple(errors))
@@ -445,6 +460,7 @@ class CheckboxValidator(IValidator):
                             message_key=TranslationKey("validation.required"),
                             constraint_type="RequiredConstraint",
                             current_value=value,
+                            severity=constraint.severity,
                         )
                     )
 
@@ -585,6 +601,7 @@ class FileValidator(IValidator):
                             message_key=TranslationKey("validation.invalid_file_extension"),
                             constraint_type="FileExtensionConstraint",
                             current_value=value,
+                            severity=constraint.severity,
                         )
                     )
 
@@ -599,6 +616,7 @@ class FileValidator(IValidator):
                             constraint_type="MaxFileSizeConstraint",
                             current_value=value,
                             constraint_params={"max": constraint.max_size_bytes},
+                            severity=constraint.severity,
                         )
                     )
 
@@ -666,6 +684,7 @@ class TableValidator(IValidator):
                     message_key=TranslationKey("validation.invalid_format"),
                     constraint_type="TypeCheck",
                     current_value=value,
+                    severity=Severity.ERROR,
                 )
             )
             return ValidationResult.failure(tuple(errors))
@@ -680,6 +699,7 @@ class TableValidator(IValidator):
                             message_key=TranslationKey("validation.required"),
                             constraint_type="RequiredConstraint",
                             current_value=value,
+                            severity=constraint.severity,
                         )
                     )
 

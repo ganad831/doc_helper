@@ -3,7 +3,7 @@
 This document provides a centralized index of all ADRs for the Doc Helper project.
 
 **Last Updated**: 2026-01-21
-**Total ADRs**: 17 (13 Accepted, 3 Proposed, 1 gap)
+**Total ADRs**: 22 (18 Accepted, 2 Proposed, 1 gap)
 
 ---
 
@@ -28,6 +28,11 @@ This document provides a centralized index of all ADRs for the Doc Helper projec
 | [ADR-020](adrs/ADR-020-dto-only-mvvm.md) | DTO-Only MVVM Enforcement | Proposed | Compliance |
 | [ADR-021](adrs/ADR-021-undo-state-dto-isolation.md) | UndoState DTO Isolation | Accepted | Undo System |
 | [ADR-024](adrs/ADR-024-architectural-compliance-scanning.md) | Architectural Compliance Scanning | Proposed | Compliance |
+| [ADR-025](adrs/ADR-025-validation-severity-levels.md) | Validation Severity Levels | Accepted | Domain Design |
+| [ADR-026](adrs/ADR-026-search-architecture.md) | Search Architecture | Accepted | Patterns |
+| [ADR-027](adrs/ADR-027-field-history-storage.md) | Field History Storage | Accepted | Patterns |
+| [ADR-031](adrs/ADR-031-undo-history-persistence.md) | Undo History Persistence | Accepted | Undo System |
+| [ADR-039](adrs/ADR-039-import-export-data-format.md) | Import/Export Data Format | Accepted | Patterns |
 
 ---
 
@@ -118,6 +123,31 @@ This document provides a centralized index of all ADRs for the Doc Helper projec
 **Decision**: Implement automated compliance scanning tool to detect architectural violations (layer violations, DTO usage, import rules).
 **Rationale**: Enforces architectural boundaries automatically, prevents drift over time, provides fast feedback (CI integration), and documents rules as code. Tool checks: domain purity (no PyQt6/SQLite imports), DTO-only MVVM, repository pattern compliance.
 
+### ADR-025: Validation Severity Levels
+**Status**: Accepted
+**Decision**: Introduce validation severity as a first-class architectural concept with three distinct levels: ERROR (blocks workflows), WARNING (allows continuation with confirmation), INFO (informational only).
+**Rationale**: Current binary pass/fail validation is too rigid for user needs. Three-level severity system enables informed decision-making, flexible workflow control, and clear semantic modeling. Severity is explicit (not inferred), declared by domain constraints, and exposed via DTOs to maintain architectural boundaries. Backward compatible with ERROR as default.
+
+### ADR-026: Search Architecture
+**Status**: Accepted
+**Decision**: Introduce search as a first-class architectural capability, implemented as a read-only query operation within the CQRS pattern. Search operates within current project scope, covering field definitions and values while respecting domain visibility rules.
+**Rationale**: Complex forms with hundreds of fields distributed across tabs create discovery problems and context-switching costs. Users cannot locate fields without prior schema knowledge. Search addresses information retrieval as a distinct concern orthogonal to navigation. Application layer orchestrates search, domain provides data contracts, infrastructure implements strategy, and presentation consumes results via DTOs. Maintains Clean Architecture boundaries and DTO-Only MVVM compliance.
+
+### ADR-027: Field History Storage
+**Status**: Accepted
+**Decision**: Introduce field history as a persistent, append-only record of field value changes, architecturally distinct from the undo system.
+**Rationale**: The application tracks field values at a point in time but provides no mechanism to view historical values. Once undo history is cleared (session end, save, or undo stack limit), all knowledge of previous values is lost. This creates audit gaps, conflates undo and history concerns (ephemeral vs. persistent), loses context for investigation, and lacks a conceptual home for "things that happened in the past." Field history addresses these problems through project-scoped persistence, domain event integration, and clear separation from undo. History is append-only, asynchronous, optional, and respects Clean Architecture boundaries via DTO-only exposure to presentation.
+
+### ADR-031: Undo History Persistence
+**Status**: Accepted
+**Decision**: Introduce undo history persistence as project-scoped storage of undo stack state, enabling undo capability to survive application lifecycle events while maintaining clear session boundaries.
+**Rationale**: The current undo system is session-scoped and ephemeral. When a user closes a project, saves a project, or the application terminates, all undo history is lost. This creates user expectation mismatches (users expect undo to survive saves and application restarts), recovery gaps (crashes destroy undo capability), and ambiguous save semantics (is save destructive or non-destructive?). Undo persistence addresses these issues by storing undo state within the project, surviving application restarts and saves, while clearing on explicit project close. Undo remains architecturally distinct from field history (ADR-027): undo enables reversal (operational, temporary), history enables audit (investigative, permanent). Persistence is minimal (command state only, no execution context), synchronous on save/close, best-effort on restoration.
+
+### ADR-039: Import/Export Data Format
+**Status**: Accepted
+**Decision**: Introduce a standardized data interchange format for importing and exporting project data, enabling data portability, human readability, bulk operations, and external system integration while maintaining architectural boundaries and data integrity guarantees.
+**Rationale**: The application stores project data in an internal database format that provides no mechanism for data interchange. This creates portability gaps (no way to share data with external tools), human readability absence (cannot inspect project files in text editors), bulk operations limitation (must create projects individually through UI), migration path absence (no stable export before schema changes), and integration barriers (external systems cannot access data programmatically). Import/export addresses these through a standardized, human-readable, machine-parsable format that includes schema information and supports versioning. Exports include complete project state (field values, entities, metadata, overrides) excluding history and undo (which are internal audit/session data). Imports create new projects atomically after full validation through domain layer, maintaining Clean Architecture boundaries. Backward compatibility guaranteed (newer versions import older exports), forward compatibility not guaranteed. Infrastructure layer handles parsing/serialization, application layer orchestrates via CQRS, domain remains unaware of interchange format.
+
 ---
 
 ## ADR Gaps
@@ -150,9 +180,13 @@ These gaps allow for inserting related ADRs without renumbering existing ones.
 - ✅ ADR-020: DTO-Only MVVM Enforcement (compliance scanning implemented)
 - ✅ ADR-024: Architectural Compliance Scanning (tool implemented)
 
-### Near-Term Expansion: Planned
+### Near-Term Expansion: In Progress
+- ✅ ADR-025: Validation Severity Levels (accepted, implementation pending)
+- ✅ ADR-026: Search Architecture (accepted, implementation pending)
+- ✅ ADR-027: Field History Storage (accepted, implementation pending)
+- ✅ ADR-031: Undo History Persistence (accepted, implementation pending)
+- ✅ ADR-039: Import/Export Data Format (accepted, implementation pending)
 - ADR-013: Multi-Document-Type Platform Vision (deferred to v2+)
-- Additional ADRs for validation severity, search architecture, field history, etc. (planned)
 
 ### Long-Term Expansion: Vision
 - ADRs for plugin architecture, performance/scaling, advanced features (planned)
