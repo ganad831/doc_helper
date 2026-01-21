@@ -37,8 +37,8 @@ from doc_helper.application.services.translation_service import TranslationAppli
 from doc_helper.application.services.validation_service import ValidationService
 from doc_helper.domain.document.document_format import DocumentFormat
 from doc_helper.domain.override.repositories import IOverrideRepository
-from doc_helper.infrastructure.persistence.fake_override_repository import (
-    FakeOverrideRepository,
+from doc_helper.infrastructure.persistence.sqlite_override_repository import (
+    SqliteOverrideRepository,
 )
 from doc_helper.domain.document.transformer_registry import TransformerRegistry
 from doc_helper.domain.document.transformers import (
@@ -121,11 +121,11 @@ def configure_container() -> Container:
         lambda: SqliteProjectRepository(db_path=projects_db_path),
     )
 
-    # Override repository - fake in-memory implementation (v1 temporary)
-    # Note: Will be replaced with SqliteOverrideRepository when override UI is fully implemented
+    # Override repository - SQLite persistent storage
+    # Note: Overrides stored in same database as projects for simplicity
     container.register_singleton(
         IOverrideRepository,
-        lambda: FakeOverrideRepository(),
+        lambda: SqliteOverrideRepository(db_path=projects_db_path),
     )
 
     # ========================================================================
