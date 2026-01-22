@@ -1,9 +1,11 @@
 # Phase 3: Schema Versioning and Compatibility
-## Guardrails & Plan Document (DRAFT)
+## Guardrails & Plan Document (APPROVED)
 
-**Status**: DRAFT - Awaiting Decision Approval
+**Status**: APPROVED - Implementation in Progress
 **Date**: 2026-01-23
 **Prerequisite**: Phase 2 COMPLETE and CLOSED
+
+**CLARIFICATION**: Phase 3 is analysis-only. Compatibility classification is informational and MUST NOT block export or schema changes.
 
 ---
 
@@ -276,118 +278,85 @@ Phase 2 Step 4 export format is extended minimally:
 
 ---
 
-## 12. Decision Points
+## 12. Approved Decisions
+
+**All decisions approved on 2026-01-23.**
+
+---
 
 **Decision 1: Version Identifier Format**
 
-Options:
-- A) Semantic versioning (MAJOR.MINOR.PATCH)
-- B) Sequential integer
-- C) Timestamp-based (ISO 8601)
-- D) Content hash
-
-Considerations:
-- Semantic versioning provides meaning but requires classification logic
-- Sequential is simple but has no semantic meaning
-- Timestamp is automatic but not human-friendly
-- Hash guarantees uniqueness but is opaque
+**APPROVED: A) Semantic versioning (MAJOR.MINOR.PATCH)**
 
 ---
 
 **Decision 2: Rename Detection**
 
-Options:
-- A) No rename detection (rename = delete + add)
-- B) Heuristic rename detection (same type, similar name)
-- C) Explicit rename tracking (requires user annotation)
-
-Considerations:
-- No detection is simplest but loses rename intent
-- Heuristic detection may produce false positives
-- Explicit tracking requires UI/workflow changes
+**APPROVED: A) No rename detection (rename = delete + add)**
 
 ---
 
 **Decision 3: Breaking Change Policy**
 
-Options:
-- A) Conservative (any structural change is breaking)
-- B) Moderate (only data-losing changes are breaking)
-- C) Permissive (only type changes and deletions are breaking)
+**APPROVED: B) Moderate (only data-losing changes are breaking)**
 
-Specific sub-decisions needed:
-- Is "field added as required" breaking?
-- Is "entity renamed" breaking or tracked?
-- Is "constraint parameter changed" evaluated directionally?
+Breaking changes:
+- Entity deleted
+- Field deleted
+- Field type changed
+- Option removed from choice field
+
+Non-breaking changes:
+- Entity added
+- Field added (required or optional)
+- Field made required/optional
+- Constraint added/removed/changed
+- Option added to choice field
+- Metadata changes (translation keys, help text, descriptions)
+- Default value changes
 
 ---
 
 **Decision 4: Compatibility Metadata in Export**
 
-Options:
-- A) No compatibility metadata (version only)
-- B) Include minimum compatible version
-- C) Include full compatibility matrix
-
-Considerations:
-- Simpler export is easier to maintain
-- Compatibility metadata enables tooling
-- Matrix approach may be over-engineering
+**APPROVED: A) No compatibility metadata (version only)**
 
 ---
 
 **Decision 5: Version Field in Export**
 
-Options:
-- A) Required field (export fails without version)
-- B) Optional field (version included if assigned)
-- C) Auto-generated (version computed at export time)
-
-Considerations:
-- Required ensures all exports are versioned
-- Optional maintains Phase 2 Step 4 compatibility
-- Auto-generated removes manual step
+**APPROVED: B) Optional field (version included if assigned)**
 
 ---
 
 **Decision 6: Compatibility Granularity**
 
-Options:
-- A) Binary (COMPATIBLE / INCOMPATIBLE)
-- B) Three-level (IDENTICAL / COMPATIBLE / INCOMPATIBLE)
-- C) Five-level (IDENTICAL / METADATA_ONLY / ADDITIVE / RELAXING / BREAKING)
-
-Considerations:
-- Binary is simplest but loses nuance
-- Three-level balances simplicity and usefulness
-- Five-level provides detailed classification but adds complexity
+**APPROVED: B) Three-level (IDENTICAL / COMPATIBLE / INCOMPATIBLE)**
 
 ---
 
 **Decision 7: Comparison Scope**
 
-Options:
-- A) Full schema comparison (all entities, all fields, all metadata)
-- B) Structural comparison only (entities, fields, types, constraints)
-- C) Configurable comparison (user selects what to compare)
+**APPROVED: B) Structural comparison only (entities, fields, types, constraints)**
 
-Considerations:
-- Full comparison catches all changes
-- Structural ignores metadata noise
-- Configurable adds complexity
+Excludes from comparison:
+- Translation keys
+- Help text keys
+- Description keys
+- Default values
 
 ---
 
 ## Document Status
 
-- [ ] Decision 1 pending
-- [ ] Decision 2 pending
-- [ ] Decision 3 pending
-- [ ] Decision 4 pending
-- [ ] Decision 5 pending
-- [ ] Decision 6 pending
-- [ ] Decision 7 pending
-- [ ] Guardrails reviewed and accepted
-- [ ] Test plan reviewed and accepted
+- [x] Decision 1 approved
+- [x] Decision 2 approved
+- [x] Decision 3 approved
+- [x] Decision 4 approved
+- [x] Decision 5 approved
+- [x] Decision 6 approved
+- [x] Decision 7 approved
+- [x] Guardrails reviewed and accepted
+- [x] Test plan reviewed and accepted
 
-**End of Phase 3 Guardrails Document (DRAFT)**
+**End of Phase 3 Guardrails Document**

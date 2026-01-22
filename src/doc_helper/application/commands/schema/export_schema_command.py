@@ -1,9 +1,9 @@
-"""Export Schema Command (Phase 2 Step 4).
+"""Export Schema Command (Phase 2 Step 4, updated Phase 3).
 
 Command for exporting schema definitions to file.
 Follows approved guardrails and decisions.
 
-APPROVED DECISIONS:
+PHASE 2 APPROVED DECISIONS:
 - Decision 1: Fail if file exists
 - Decision 2: Fail if schema is empty
 - Decision 3: Validate translation key format only (non-empty string)
@@ -14,11 +14,13 @@ APPROVED DECISIONS:
 - Decision 8: Allow zero root entities
 - Decision 9: No circular reference checking
 
+PHASE 3 UPDATE:
+- Decision 5: Version field is optional in export
+
 FORBIDDEN:
 - No import functionality
 - No relationships export (RelationshipDefinition)
 - No formulas, controls, output mappings
-- No versioning or compatibility checks
 - No runtime semantics
 """
 
@@ -87,12 +89,14 @@ class ExportSchemaCommand:
         self,
         schema_id: str,
         file_path: Path,
+        version: Optional[str] = None,
     ) -> Result[ExportResult, str]:
         """Execute schema export.
 
         Args:
             schema_id: Identifier for the schema (included in export per Decision 7)
             file_path: Path to write export file
+            version: Optional semantic version string (Phase 3 Decision 5)
 
         Returns:
             Result containing ExportResult (with warnings) or error message
@@ -170,10 +174,11 @@ class ExportSchemaCommand:
         excluded_warnings = self._check_excluded_data(entities)
         warnings.extend(excluded_warnings)
 
-        # Create export data
+        # Create export data (with optional version - Phase 3 Decision 5)
         export_data = SchemaExportDTO(
             schema_id=schema_id,
             entities=tuple(entity_exports),
+            version=version,
         )
 
         # Write to file
@@ -414,7 +419,7 @@ class ExportSchemaCommand:
         Returns:
             Dict representation for JSON
         """
-        return {
+        result = {
             "schema_id": export_data.schema_id,
             "entities": [
                 {
@@ -451,3 +456,9 @@ class ExportSchemaCommand:
                 for entity in export_data.entities
             ],
         }
+
+        # Include version only if provided (Phase 3 Decision 5: Optional)
+        if export_data.version is not None:
+            result["version"] = export_data.version
+
+        return result

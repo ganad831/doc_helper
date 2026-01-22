@@ -1,4 +1,4 @@
-"""Schema Export DTOs (Phase 2 Step 4).
+"""Schema Export DTOs (Phase 2 Step 4, updated Phase 3).
 
 DTOs for schema export data structure.
 These are the data structures that will be serialized to the export file.
@@ -8,6 +8,9 @@ RULES:
 - DTOs contain NO behavior
 - Use primitive types only (strings, bools, numbers)
 - Translation keys exported as strings (not resolved)
+
+Phase 3 Updates:
+- Added optional version field to SchemaExportDTO (Decision 5)
 """
 
 from dataclasses import dataclass, field
@@ -74,10 +77,13 @@ class SchemaExportDTO:
     """Export DTO for the complete schema.
 
     Top-level export structure containing all entities and metadata.
+
+    Phase 3: Added optional version field (Decision 5).
     """
 
-    schema_id: str  # Schema/project identifier (Decision 7)
+    schema_id: str  # Schema/project identifier (Phase 2 Decision 7)
     entities: tuple  # Tuple of EntityExportDTO
+    version: Optional[str] = None  # Optional semantic version (Phase 3 Decision 5)
 
 
 @dataclass(frozen=True)
