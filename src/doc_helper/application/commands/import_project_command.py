@@ -9,10 +9,11 @@ RULES (AGENT_RULES.md Section 5):
 Import Workflow:
 1. Load and parse JSON file from input path
 2. Validate interchange format structure
-3. Validate data against schema (same validation as manual entry)
-4. Create new project with imported data
-5. Save project to repository
-6. Return ImportResultDTO with project_id or validation errors
+3. Validate AppType exists in registry (v2 PHASE 4)
+4. Validate data against schema (same validation as manual entry)
+5. Create new project with imported data
+6. Save project to repository
+7. Return ImportResultDTO with project_id or validation errors
 """
 
 from pathlib import Path
@@ -23,6 +24,7 @@ from doc_helper.domain.project.project_repository import IProjectRepository
 from doc_helper.domain.schema.schema_repository import ISchemaRepository
 from doc_helper.application.dto import ImportResultDTO, ImportValidationErrorDTO
 from doc_helper.application.services.validation_service import ValidationService
+from doc_helper.platform.registry.interfaces import IAppTypeRegistry
 
 
 class ImportProjectCommand:
@@ -37,12 +39,18 @@ class ImportProjectCommand:
     - Commands return Result[DTO, str]
     - Commands take primitive types, not domain objects
 
+    v2 PHASE 4 (AGENT_RULES.md Section 16):
+    - Validates that imported project's app_type_id exists in registry
+    - Returns clear error if AppType not found
+    - Enforces same AppType validation as CreateProjectCommand and OpenProjectCommand
+
     Example:
         command = ImportProjectCommand(
             project_repository=repo,
             schema_repository=schema_repo,
             project_importer=importer,
-            validation_service=validation_svc
+            validation_service=validation_svc,
+            app_type_registry=registry
         )
         result = command.execute(
             input_file_path="/path/to/import.json"
@@ -63,6 +71,7 @@ class ImportProjectCommand:
         schema_repository: ISchemaRepository,
         project_importer: "IProjectImporter",  # Forward reference - to be defined
         validation_service: ValidationService,
+        app_type_registry: IAppTypeRegistry,
     ) -> None:
         """Initialize command.
 
@@ -71,6 +80,7 @@ class ImportProjectCommand:
             schema_repository: Repository for loading schema
             project_importer: Infrastructure service for JSON deserialization
             validation_service: Service for validating imported data
+            app_type_registry: Registry for validating AppType existence (v2 PHASE 4)
         """
         if not isinstance(project_repository, IProjectRepository):
             raise TypeError("project_repository must implement IProjectRepository")
@@ -78,11 +88,14 @@ class ImportProjectCommand:
             raise TypeError("schema_repository must implement ISchemaRepository")
         if not isinstance(validation_service, ValidationService):
             raise TypeError("validation_service must be a ValidationService instance")
+        if not isinstance(app_type_registry, IAppTypeRegistry):
+            raise TypeError("app_type_registry must implement IAppTypeRegistry")
         # Note: project_importer interface to be defined in infrastructure layer
         self._project_repository = project_repository
         self._schema_repository = schema_repository
         self._project_importer = project_importer
         self._validation_service = validation_service
+        self._app_type_registry = app_type_registry
 
     def execute(
         self,
@@ -206,6 +219,28 @@ class ImportProjectCommand:
                     project_id=None,
                     project_name=project_name,
                     error_message="Failed to create project from import data",
+                    validation_errors=(),
+                    format_version=format_version,
+                    source_app_version=source_app_version,
+                    warnings=warnings,
+                )
+            )
+
+        # v2 PHASE 4: Validate project's AppType exists in registry
+        # (Same enforcement as CreateProjectCommand and OpenProjectCommand)
+        if not self._app_type_registry.exists(project.app_type_id):
+            available = self._app_type_registry.list_app_type_ids()
+            available_str = ", ".join(sorted(available)) if available else "none"
+            return Success(
+                ImportResultDTO(
+                    success=False,
+                    project_id=None,
+                    project_name=project_name,
+                    error_message=(
+                        f"Cannot import project: AppType '{project.app_type_id}' not found. "
+                        f"Available AppTypes: {available_str}. "
+                        f"The imported project requires AppType '{project.app_type_id}' which is not installed or registered."
+                    ),
                     validation_errors=(),
                     format_version=format_version,
                     source_app_version=source_app_version,

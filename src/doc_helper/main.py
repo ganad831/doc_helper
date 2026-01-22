@@ -382,6 +382,7 @@ def configure_container() -> Container:
             schema_repository=container.resolve(ISchemaRepository),
             project_importer=container.resolve(JsonProjectImporter),
             validation_service=container.resolve(ValidationService),
+            app_type_registry=container.resolve(IAppTypeRegistry),
         ),
     )
 

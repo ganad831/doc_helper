@@ -6,6 +6,7 @@ Tests for project import from JSON interchange format.
 
 from pathlib import Path
 from typing import Any, Optional
+from unittest.mock import Mock
 from uuid import uuid4
 
 import pytest
@@ -21,6 +22,8 @@ from doc_helper.domain.schema.schema_ids import EntityDefinitionId
 from doc_helper.application.commands.import_project_command import ImportProjectCommand
 from doc_helper.application.dto import ImportResultDTO
 from doc_helper.application.services.validation_service import ValidationService
+from doc_helper.platform.registry.interfaces import IAppTypeRegistry
+from doc_helper.platform.discovery.manifest_parser import ParsedManifest
 
 
 class InMemoryProjectRepository(IProjectRepository):
@@ -191,12 +194,21 @@ class TestImportProjectCommand:
         return FakeValidationService()
 
     @pytest.fixture
+    def app_type_registry(self):
+        """Create fake app type registry that accepts all app_type_ids."""
+        registry = Mock(spec=IAppTypeRegistry)
+        registry.exists.return_value = True  # Accept all for existing tests
+        registry.list_app_type_ids.return_value = ("soil_investigation",)
+        return registry
+
+    @pytest.fixture
     def command(
         self,
         project_repository: InMemoryProjectRepository,
         schema_repository: InMemorySchemaRepository,
         project_importer: FakeProjectImporter,
         validation_service: FakeValidationService,
+        app_type_registry,
     ) -> ImportProjectCommand:
         """Create import project command."""
         return ImportProjectCommand(
@@ -204,6 +216,7 @@ class TestImportProjectCommand:
             schema_repository=schema_repository,
             project_importer=project_importer,
             validation_service=validation_service,
+            app_type_registry=app_type_registry,
         )
 
     @pytest.fixture
@@ -278,6 +291,7 @@ class TestImportProjectCommand:
         project_repository: InMemoryProjectRepository,
         project_importer: FakeProjectImporter,
         validation_service: FakeValidationService,
+        app_type_registry,
         input_file: Path,
     ) -> None:
         """execute should return ImportResultDTO with failure if schema not found."""
@@ -288,6 +302,7 @@ class TestImportProjectCommand:
             schema_repository=schema_repository,
             project_importer=project_importer,
             validation_service=validation_service,
+            app_type_registry=app_type_registry,
         )
 
         # Act: Execute import
@@ -304,6 +319,7 @@ class TestImportProjectCommand:
         project_repository: InMemoryProjectRepository,
         schema_repository: InMemorySchemaRepository,
         validation_service: FakeValidationService,
+        app_type_registry,
         input_file: Path,
     ) -> None:
         """execute should return ImportResultDTO with failure if importer fails."""
@@ -314,6 +330,7 @@ class TestImportProjectCommand:
             schema_repository=schema_repository,
             project_importer=failing_importer,
             validation_service=validation_service,
+            app_type_registry=app_type_registry,
         )
 
         # Act: Execute import
@@ -330,6 +347,7 @@ class TestImportProjectCommand:
         project_repository: InMemoryProjectRepository,
         schema_repository: InMemorySchemaRepository,
         project: Project,
+        app_type_registry,
         input_file: Path,
     ) -> None:
         """execute should return ImportResultDTO with failure if validation fails (ADR-039: atomic import)."""
@@ -341,6 +359,7 @@ class TestImportProjectCommand:
             schema_repository=schema_repository,
             project_importer=project_importer,
             validation_service=failing_validation,
+            app_type_registry=app_type_registry,
         )
 
         # Act: Execute import
@@ -399,6 +418,7 @@ class TestImportProjectCommand:
         schema_repository: InMemorySchemaRepository,
         validation_service: FakeValidationService,
         project: Project,
+        app_type_registry,
         input_file: Path,
     ) -> None:
         """execute should preserve warnings from importer in ImportResultDTO."""
@@ -419,6 +439,7 @@ class TestImportProjectCommand:
             schema_repository=schema_repository,
             project_importer=importer,
             validation_service=validation_service,
+            app_type_registry=app_type_registry,
         )
 
         # Act: Execute import
@@ -437,6 +458,7 @@ class TestImportProjectCommand:
         schema_repository: InMemorySchemaRepository,
         project_importer: FakeProjectImporter,
         validation_service: FakeValidationService,
+        app_type_registry,
     ) -> None:
         """__init__ should raise TypeError if project_repository is not IProjectRepository."""
         with pytest.raises(TypeError, match="project_repository must implement IProjectRepository"):
@@ -445,6 +467,7 @@ class TestImportProjectCommand:
                 schema_repository=schema_repository,
                 project_importer=project_importer,
                 validation_service=validation_service,
+                app_type_registry=app_type_registry,
             )
 
     def test_constructor_validates_schema_repository_type(
@@ -452,6 +475,7 @@ class TestImportProjectCommand:
         project_repository: InMemoryProjectRepository,
         project_importer: FakeProjectImporter,
         validation_service: FakeValidationService,
+        app_type_registry,
     ) -> None:
         """__init__ should raise TypeError if schema_repository is not ISchemaRepository."""
         with pytest.raises(TypeError, match="schema_repository must implement ISchemaRepository"):
@@ -460,6 +484,7 @@ class TestImportProjectCommand:
                 schema_repository="not-a-repository",  # type: ignore
                 project_importer=project_importer,
                 validation_service=validation_service,
+                app_type_registry=app_type_registry,
             )
 
     def test_constructor_validates_validation_service_type(
@@ -467,6 +492,7 @@ class TestImportProjectCommand:
         project_repository: InMemoryProjectRepository,
         schema_repository: InMemorySchemaRepository,
         project_importer: FakeProjectImporter,
+        app_type_registry,
     ) -> None:
         """__init__ should raise TypeError if validation_service is not ValidationService."""
         with pytest.raises(TypeError, match="validation_service must be a ValidationService instance"):
@@ -475,4 +501,5 @@ class TestImportProjectCommand:
                 schema_repository=schema_repository,
                 project_importer=project_importer,
                 validation_service="not-a-service",  # type: ignore
+                app_type_registry=app_type_registry,
             )
