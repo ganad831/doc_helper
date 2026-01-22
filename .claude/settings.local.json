@@ -3,6 +3,7 @@
     "allow": [
       "Bash(cd:*)",
       "Bash(.venv/Scripts/python:*)",
+      "Bash(.venv/Scripts/python -m pytest:*)",
       "Bash(pytest:*)",
       "Bash(git status:*)",
       "Bash(git diff:*)",
