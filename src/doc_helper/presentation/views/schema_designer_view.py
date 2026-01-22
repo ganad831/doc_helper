@@ -1,20 +1,27 @@
-"""Schema Designer View (Phase 2, Step 1: READ-ONLY).
+"""Schema Designer View (Phase 2, Step 2: CREATE operations).
 
-UI component for viewing schema definitions.
+UI component for viewing and creating schema definitions.
 Displays entities, fields, and validation rules in a three-panel layout.
 
-Phase 2 Step 1 Scope:
+Phase 2 Step 1 Scope (COMPLETE):
 - READ-ONLY display
 - Entity list panel
 - Field list panel for selected entity
 - Validation rules panel for selected field
 - Selection navigation between panels
 
-NOT in Step 1:
-- No create/edit/delete buttons
+Phase 2 Step 2 Scope (CURRENT):
+- "Add Entity" button and dialog
+- "Add Field" button and dialog (when entity selected)
+- Create new entities
+- Add fields to existing entities
+
+NOT in Step 2:
+- No edit/delete buttons
 - No export functionality
 - No relationships display
 - No formulas/controls/output mappings display
+- No validation rule creation
 """
 
 from typing import Optional
@@ -87,14 +94,14 @@ class SchemaDesignerView(BaseView):
         """Build the UI components."""
         # Create dialog
         dialog = QDialog(self._parent)
-        dialog.setWindowTitle("Schema Designer (Read-Only)")
+        dialog.setWindowTitle("Schema Designer - Create Entities & Fields")
         dialog.resize(1200, 600)
 
         # Main layout
         main_layout = QVBoxLayout(dialog)
 
         # Title label
-        title_label = QLabel("Schema Designer - View Schema Definitions")
+        title_label = QLabel("Schema Designer - Create Entities & Fields")
         title_label.setStyleSheet("font-size: 14pt; font-weight: bold; padding: 10px;")
         main_layout.addWidget(title_label)
 
@@ -157,10 +164,20 @@ class SchemaDesignerView(BaseView):
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(5, 5, 5, 5)
 
-        # Panel title
+        # Panel title with Add button
+        header_layout = QHBoxLayout()
         title = QLabel("Entities")
         title.setStyleSheet("font-weight: bold; font-size: 11pt; padding: 5px;")
-        layout.addWidget(title)
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+
+        # Add Entity button (Phase 2 Step 2)
+        add_entity_button = QPushButton("+ Add Entity")
+        add_entity_button.setStyleSheet("font-size: 9pt; padding: 3px 8px;")
+        add_entity_button.clicked.connect(self._on_add_entity_clicked)
+        header_layout.addWidget(add_entity_button)
+
+        layout.addLayout(header_layout)
 
         # Entity list
         self._entity_list = QListWidget()
@@ -179,10 +196,22 @@ class SchemaDesignerView(BaseView):
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(5, 5, 5, 5)
 
-        # Panel title
+        # Panel title with Add button
+        header_layout = QHBoxLayout()
         title = QLabel("Fields")
         title.setStyleSheet("font-weight: bold; font-size: 11pt; padding: 5px;")
-        layout.addWidget(title)
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+
+        # Add Field button (Phase 2 Step 2)
+        # Enabled only when entity is selected
+        self._add_field_button = QPushButton("+ Add Field")
+        self._add_field_button.setStyleSheet("font-size: 9pt; padding: 3px 8px;")
+        self._add_field_button.clicked.connect(self._on_add_field_clicked)
+        self._add_field_button.setEnabled(False)  # Disabled until entity selected
+        header_layout.addWidget(self._add_field_button)
+
+        layout.addLayout(header_layout)
 
         # Info label (shows when no entity selected)
         info = QLabel("Select an entity to view its fields")
@@ -293,9 +322,15 @@ class SchemaDesignerView(BaseView):
         fields = self._viewmodel.fields
         if not fields:
             self._field_list.setVisible(False)
+            # Disable Add Field button when no entity selected
+            if hasattr(self, '_add_field_button'):
+                self._add_field_button.setEnabled(False)
             return
 
         self._field_list.setVisible(True)
+        # Enable Add Field button when entity is selected
+        if hasattr(self, '_add_field_button'):
+            self._add_field_button.setEnabled(True)
 
         for field_dto in fields:
             # Create list item
@@ -366,6 +401,91 @@ class SchemaDesignerView(BaseView):
                 "Error",
                 "Failed to load schema entities. Check error message.",
             )
+
+    # -------------------------------------------------------------------------
+    # Phase 2 Step 2: Creation Operations
+    # -------------------------------------------------------------------------
+
+    def _on_add_entity_clicked(self) -> None:
+        """Handle Add Entity button click."""
+        from doc_helper.presentation.dialogs.add_entity_dialog import AddEntityDialog
+
+        dialog = AddEntityDialog(parent=self._root)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            entity_data = dialog.get_entity_data()
+            if not entity_data:
+                return
+
+            # Create entity via ViewModel
+            result = self._viewmodel.create_entity(
+                entity_id=entity_data["entity_id"],
+                name_key=entity_data["name_key"],
+                description_key=entity_data["description_key"],
+                is_root_entity=entity_data["is_root_entity"],
+            )
+
+            if result.is_success():
+                QMessageBox.information(
+                    self._root,
+                    "Success",
+                    f"Entity '{entity_data['entity_id']}' created successfully!",
+                )
+            else:
+                QMessageBox.critical(
+                    self._root,
+                    "Error Creating Entity",
+                    f"Failed to create entity: {result.error}",
+                )
+
+    def _on_add_field_clicked(self) -> None:
+        """Handle Add Field button click."""
+        # Get currently selected entity
+        if not self._viewmodel.selected_entity_id:
+            QMessageBox.warning(
+                self._root,
+                "No Entity Selected",
+                "Please select an entity first before adding a field.",
+            )
+            return
+
+        # Get entity name for dialog title
+        entity_name = "Unknown"
+        for entity_dto in self._viewmodel.entities:
+            if entity_dto.id == self._viewmodel.selected_entity_id:
+                entity_name = entity_dto.name
+                break
+
+        from doc_helper.presentation.dialogs.add_field_dialog import AddFieldDialog
+
+        dialog = AddFieldDialog(entity_name=entity_name, parent=self._root)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            field_data = dialog.get_field_data()
+            if not field_data:
+                return
+
+            # Add field via ViewModel
+            result = self._viewmodel.add_field(
+                entity_id=self._viewmodel.selected_entity_id,
+                field_id=field_data["field_id"],
+                field_type=field_data["field_type"],
+                label_key=field_data["label_key"],
+                help_text_key=field_data["help_text_key"],
+                required=field_data["required"],
+                default_value=field_data["default_value"],
+            )
+
+            if result.is_success():
+                QMessageBox.information(
+                    self._root,
+                    "Success",
+                    f"Field '{field_data['field_id']}' added to '{entity_name}' successfully!",
+                )
+            else:
+                QMessageBox.critical(
+                    self._root,
+                    "Error Adding Field",
+                    f"Failed to add field: {result.error}",
+                )
 
     def dispose(self) -> None:
         """Clean up resources."""

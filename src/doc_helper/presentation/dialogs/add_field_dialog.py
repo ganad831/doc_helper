@@ -1,0 +1,215 @@
+"""Add Field Dialog (Phase 2 Step 2).
+
+Dialog for adding field definitions to existing entities.
+"""
+
+from typing import Optional
+
+from PyQt6.QtWidgets import (
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QFormLayout,
+    QLineEdit,
+    QComboBox,
+    QCheckBox,
+    QPushButton,
+    QMessageBox,
+    QLabel,
+    QWidget,
+)
+from PyQt6.QtCore import Qt
+
+
+class AddFieldDialog(QDialog):
+    """Dialog for adding a new field to an entity.
+
+    Phase 2 Step 2 Scope:
+    - Simple form with: field ID, label key, field type, required flag
+    - Field type dropdown with all 12 types
+    - Basic validation (non-empty fields)
+    - Returns field data as dict
+
+    NOT in Step 2:
+    - Validation rule creation
+    - Formula creation
+    - Control rule creation
+    - Options for DROPDOWN/RADIO fields
+    - Display order customization
+
+    Layout:
+        Field ID: [text input]
+        Label Key: [text input]
+        Help Text Key: [text input]
+        Field Type: [dropdown]
+        Required: [checkbox]
+        Default Value: [text input]
+
+        [Cancel] [Add Field]
+    """
+
+    def __init__(
+        self,
+        entity_name: str,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        """Initialize dialog.
+
+        Args:
+            entity_name: Name of entity to add field to
+            parent: Parent widget
+        """
+        super().__init__(parent)
+        self._entity_name = entity_name
+        self.setWindowTitle(f"Add Field to {entity_name}")
+        self.setModal(True)
+        self.resize(500, 400)
+
+        # Result data (populated on accept)
+        self.field_data: Optional[dict] = None
+
+        # Build UI
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        """Build the dialog UI."""
+        layout = QVBoxLayout(self)
+
+        # Info label
+        info = QLabel(
+            f"Add a new field to the '{self._entity_name}' entity. "
+            "Field ID should be lowercase with underscores (e.g., 'sample_depth')."
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet("color: gray; padding: 10px;")
+        layout.addWidget(info)
+
+        # Form layout
+        form = QFormLayout()
+
+        # Field ID
+        self._field_id_input = QLineEdit()
+        self._field_id_input.setPlaceholderText("e.g., sample_depth")
+        form.addRow("Field ID*:", self._field_id_input)
+
+        # Label Key
+        self._label_key_input = QLineEdit()
+        self._label_key_input.setPlaceholderText("e.g., field.sample_depth")
+        form.addRow("Label Key*:", self._label_key_input)
+
+        # Help Text Key
+        self._help_text_key_input = QLineEdit()
+        self._help_text_key_input.setPlaceholderText("e.g., field.sample_depth.help")
+        form.addRow("Help Text Key:", self._help_text_key_input)
+
+        # Field Type (dropdown with all 12 types)
+        self._field_type_combo = QComboBox()
+        self._field_type_combo.addItems([
+            "TEXT",
+            "TEXTAREA",
+            "NUMBER",
+            "DATE",
+            "DROPDOWN",
+            "CHECKBOX",
+            "RADIO",
+            "CALCULATED",
+            "LOOKUP",
+            "FILE",
+            "IMAGE",
+            "TABLE",
+        ])
+        form.addRow("Field Type*:", self._field_type_combo)
+
+        # Required checkbox
+        self._required_checkbox = QCheckBox("Field is required")
+        form.addRow("Required:", self._required_checkbox)
+
+        # Default Value
+        self._default_value_input = QLineEdit()
+        self._default_value_input.setPlaceholderText("Optional default value")
+        form.addRow("Default Value:", self._default_value_input)
+
+        layout.addLayout(form)
+
+        # Note about limitations
+        note = QLabel(
+            "Note: Validation rules, formulas, and options can be added in Phase 2 Step 3."
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet("color: gray; font-style: italic; padding: 10px;")
+        layout.addWidget(note)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+
+        cancel_button = QPushButton("Cancel")
+        cancel_button.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_button)
+
+        add_button = QPushButton("Add Field")
+        add_button.setDefault(True)
+        add_button.clicked.connect(self._on_add_clicked)
+        button_layout.addWidget(add_button)
+
+        layout.addLayout(button_layout)
+
+    def _on_add_clicked(self) -> None:
+        """Handle add button click."""
+        # Validate inputs
+        field_id = self._field_id_input.text().strip()
+        label_key = self._label_key_input.text().strip()
+        help_text_key = self._help_text_key_input.text().strip()
+        field_type = self._field_type_combo.currentText()
+        required = self._required_checkbox.isChecked()
+        default_value = self._default_value_input.text().strip()
+
+        # Validation
+        if not field_id:
+            QMessageBox.warning(self, "Validation Error", "Field ID is required")
+            self._field_id_input.setFocus()
+            return
+
+        if not label_key:
+            QMessageBox.warning(self, "Validation Error", "Label Key is required")
+            self._label_key_input.setFocus()
+            return
+
+        # Validate field_id format (lowercase, underscores, alphanumeric)
+        if not field_id.replace("_", "").isalnum():
+            QMessageBox.warning(
+                self,
+                "Validation Error",
+                "Field ID must contain only letters, numbers, and underscores",
+            )
+            self._field_id_input.setFocus()
+            return
+
+        if field_id[0].isdigit():
+            QMessageBox.warning(
+                self,
+                "Validation Error",
+                "Field ID cannot start with a number",
+            )
+            self._field_id_input.setFocus()
+            return
+
+        # Store result
+        self.field_data = {
+            "field_id": field_id,
+            "label_key": label_key,
+            "help_text_key": help_text_key if help_text_key else None,
+            "field_type": field_type,
+            "required": required,
+            "default_value": default_value if default_value else None,
+        }
+
+        self.accept()
+
+    def get_field_data(self) -> Optional[dict]:
+        """Get field data if dialog was accepted.
+
+        Returns:
+            Dict with field data or None if cancelled
+        """
+        return self.field_data

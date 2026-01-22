@@ -127,3 +127,28 @@ class ISchemaRepository(ABC):
                 children = result.value  # e.g., (borehole, lab_test)
         """
         pass
+
+    @abstractmethod
+    def save(self, entity: EntityDefinition) -> Result[None, str]:
+        """Save entity definition (create or update).
+
+        Phase 2 Step 2: Used for creating new entities
+        Phase 2 Step 3: Used for updating existing entities (NOT Step 2)
+
+        Args:
+            entity: Entity definition to save
+
+        Returns:
+            Result with None on success or error message
+
+        Validation (enforced by implementation):
+            - Entity name must be unique within schema
+            - Field names must be unique within entity
+            - All field types must be valid
+
+        Example:
+            result = repo.save(entity_definition)
+            if isinstance(result, Success):
+                # Entity saved successfully
+        """
+        pass

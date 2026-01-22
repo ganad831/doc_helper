@@ -1,20 +1,25 @@
-"""Schema Designer ViewModel (Phase 2, Step 1: READ-ONLY).
+"""Schema Designer ViewModel (Phase 2, Step 2: CREATE operations).
 
 Manages presentation state for Schema Designer UI.
 Loads entities, fields, and validation rules from schema repository.
 
-Phase 2 Step 1 Scope:
-- READ-ONLY view of schema (no editing)
+Phase 2 Step 1 Scope (COMPLETE):
+- READ-ONLY view of schema
 - Entity list display
 - Field list display for selected entity
 - Validation rules display for selected field
 - Selection navigation between panels
 
-NOT in Step 1:
-- No create/edit/delete operations
+Phase 2 Step 2 Scope (CURRENT):
+- CREATE new entities
+- ADD fields to existing entities
+
+NOT in Step 2:
+- No edit/delete operations
 - No export functionality
 - No relationships UI
 - No formulas/controls/output mappings display
+- No validation rule creation
 """
 
 from typing import Optional
@@ -356,3 +361,94 @@ class SchemaDesignerViewModel(BaseViewModel):
 
         else:
             return f"Unknown constraint: {type(constraint).__name__}"
+
+    # -------------------------------------------------------------------------
+    # Phase 2 Step 2: Creation Commands
+    # -------------------------------------------------------------------------
+
+    def create_entity(
+        self,
+        entity_id: str,
+        name_key: str,
+        description_key: Optional[str] = None,
+        is_root_entity: bool = False,
+    ) -> Result[str, str]:
+        """Create a new entity (Phase 2 Step 2).
+
+        Args:
+            entity_id: Unique entity identifier
+            name_key: Translation key for entity name
+            description_key: Translation key for description (optional)
+            is_root_entity: Whether this is a root entity
+
+        Returns:
+            Result with created entity ID or error message
+        """
+        from doc_helper.application.commands.schema.create_entity_command import (
+            CreateEntityCommand,
+        )
+
+        command = CreateEntityCommand(self._schema_repository)
+        result = command.execute(
+            entity_id=entity_id,
+            name_key=name_key,
+            description_key=description_key,
+            is_root_entity=is_root_entity,
+            parent_entity_id=None,  # Simplified for Phase 2 Step 2
+        )
+
+        if result.is_success():
+            # Reload entities to show new entity
+            self.load_entities()
+            return Success(result.value.value)  # Return entity ID string
+        else:
+            return Failure(result.error)
+
+    def add_field(
+        self,
+        entity_id: str,
+        field_id: str,
+        field_type: str,
+        label_key: str,
+        help_text_key: Optional[str] = None,
+        required: bool = False,
+        default_value: Optional[str] = None,
+    ) -> Result[str, str]:
+        """Add a field to an existing entity (Phase 2 Step 2).
+
+        Args:
+            entity_id: Entity to add field to
+            field_id: Unique field identifier
+            field_type: Field type (TEXT, NUMBER, etc.)
+            label_key: Translation key for field label
+            help_text_key: Translation key for help text (optional)
+            required: Whether field is required
+            default_value: Default value (optional)
+
+        Returns:
+            Result with created field ID or error message
+        """
+        from doc_helper.application.commands.schema.add_field_command import (
+            AddFieldCommand,
+        )
+
+        command = AddFieldCommand(self._schema_repository)
+        result = command.execute(
+            entity_id=entity_id,
+            field_id=field_id,
+            field_type=field_type,
+            label_key=label_key,
+            help_text_key=help_text_key,
+            required=required,
+            default_value=default_value,
+        )
+
+        if result.is_success():
+            # Reload entities to show new field
+            self.load_entities()
+            # Re-select the entity to update field list
+            if self._selected_entity_id == entity_id:
+                self.select_entity(entity_id)
+            return Success(result.value.value)  # Return field ID string
+        else:
+            return Failure(result.error)

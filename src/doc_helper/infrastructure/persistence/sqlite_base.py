@@ -41,6 +41,7 @@ class SqliteConnection:
 
         self._connection = sqlite3.connect(str(self.db_path))
         self._connection.row_factory = sqlite3.Row  # Enable dict-like access
+        self._connection.execute("PRAGMA foreign_keys = ON")  # Enable foreign key constraints
         return self._connection
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
