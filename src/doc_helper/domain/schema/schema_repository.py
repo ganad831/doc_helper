@@ -130,10 +130,11 @@ class ISchemaRepository(ABC):
 
     @abstractmethod
     def save(self, entity: EntityDefinition) -> Result[None, str]:
-        """Save entity definition (create or update).
+        """Save entity definition (create or add fields).
 
-        Phase 2 Step 2: Used for creating new entities
-        Phase 2 Step 3: Used for updating existing entities (NOT Step 2)
+        Phase 2 Step 2 Behavior:
+        - If entity does NOT exist: CREATE new entity with all fields
+        - If entity EXISTS: ADD only new fields (does not modify existing fields)
 
         Args:
             entity: Entity definition to save
@@ -150,5 +151,130 @@ class ISchemaRepository(ABC):
             result = repo.save(entity_definition)
             if isinstance(result, Success):
                 # Entity saved successfully
+        """
+        pass
+
+    @abstractmethod
+    def update(self, entity: EntityDefinition) -> Result[None, str]:
+        """Update entity definition metadata (Phase 2 Step 3).
+
+        Updates entity metadata: name_key, description_key, is_root_entity, parent_entity_id.
+        Does NOT add/remove fields (use save() for adding fields).
+
+        Args:
+            entity: Entity definition with updated metadata
+
+        Returns:
+            Result with None on success or error message
+
+        Validation (enforced by application layer):
+            - Entity must already exist
+            - Parent entity must exist (if provided)
+            - Cannot violate root entity constraints
+
+        Example:
+            entity = repo.get_by_id(entity_id).value
+            entity.name_key = TranslationKey("entity.updated_name")
+            result = repo.update(entity)
+        """
+        pass
+
+    @abstractmethod
+    def get_entity_dependencies(self, entity_id: EntityDefinitionId) -> Result[dict, str]:
+        """Get all dependencies on an entity (Phase 2 Step 3 - Decision 4).
+
+        Identifies what would break if this entity were deleted:
+        - Entities with TABLE fields referencing this entity (child_entity_id)
+        - Fields with LOOKUP referencing this entity (lookup_entity_id)
+        - Entities with parent_entity_id pointing to this entity
+
+        Args:
+            entity_id: Entity definition ID to check dependencies for
+
+        Returns:
+            Result containing dict with dependency info:
+            {
+                "referenced_by_table_fields": [(entity_id, field_id), ...],
+                "referenced_by_lookup_fields": [(entity_id, field_id), ...],
+                "child_entities": [entity_id, ...],  # Entities with parent_entity_id = this entity
+            }
+            or error message
+
+        Example:
+            result = repo.get_entity_dependencies(EntityDefinitionId("borehole"))
+            if isinstance(result, Success):
+                deps = result.value
+                if deps["referenced_by_table_fields"]:
+                    # Cannot delete - entity is referenced by TABLE fields
+        """
+        pass
+
+    @abstractmethod
+    def get_field_dependencies(
+        self, entity_id: EntityDefinitionId, field_id: "FieldDefinitionId"
+    ) -> Result[dict, str]:
+        """Get all dependencies on a field (Phase 2 Step 3 - Decision 4).
+
+        Identifies what would break if this field were deleted:
+        - Formulas that reference this field ({{field_id}})
+        - Control rules where this field is source or target
+        - LOOKUP fields using this field as lookup_display_field
+
+        Args:
+            entity_id: Parent entity definition ID
+            field_id: Field definition ID to check dependencies for
+
+        Returns:
+            Result containing dict with dependency info:
+            {
+                "referenced_by_formulas": [(entity_id, field_id), ...],
+                "referenced_by_controls_source": [(entity_id, field_id), ...],
+                "referenced_by_controls_target": [(entity_id, field_id), ...],
+                "referenced_by_lookup_display": [(entity_id, field_id), ...],
+            }
+            or error message
+
+        Example:
+            result = repo.get_field_dependencies(
+                EntityDefinitionId("project"),
+                FieldDefinitionId("site_location")
+            )
+            if isinstance(result, Success):
+                deps = result.value
+                if deps["referenced_by_formulas"]:
+                    # Cannot delete - field is used in formulas
+        """
+        pass
+
+    @abstractmethod
+    def delete(self, entity_id: EntityDefinitionId) -> Result[None, str]:
+        """Delete entity definition from schema (Phase 2 Step 3).
+
+        IMPORTANT: Caller MUST check dependencies using get_entity_dependencies()
+        before calling delete(). This method does NOT check dependencies.
+
+        Args:
+            entity_id: Entity definition ID to delete
+
+        Returns:
+            Result with None on success or error message
+
+        Cascade Behavior:
+            - Deletes entity definition
+            - Deletes all field definitions belonging to this entity
+            - Deletes all control relations where entity is source or target
+            - Deletes all validation rules for this entity's fields
+
+        Validation (enforced by implementation):
+            - Entity must exist
+            - Cannot delete if dependencies exist (caller responsibility to check)
+
+        Example:
+            # Check dependencies first
+            deps_result = repo.get_entity_dependencies(entity_id)
+            if deps_result.is_success() and not has_dependencies(deps_result.value):
+                result = repo.delete(entity_id)
+                if isinstance(result, Success):
+                    # Entity deleted successfully
         """
         pass
