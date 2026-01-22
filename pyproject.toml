@@ -21,19 +21,23 @@ classifiers = [
 ]
 
 dependencies = [
-    # Core dependencies (M1-M7: Domain layer)
-    # Domain layer has NO external dependencies
+    # Presentation layer (PyQt6 UI)
+    "PyQt6>=6.5.0",
 
-    # Infrastructure dependencies (M8-M9)
-    # Will be added in later milestones:
-    # - python-docx (Word document generation)
-    # - xlwings (Excel document generation)
-    # - PyMuPDF (PDF export)
-    # - Pillow (Image processing)
+    # Document generation
+    "python-docx>=1.1.0",
+    "xlwings>=0.30.0",
+    "pymupdf>=1.24.0",
 
-    # Presentation dependencies (M11)
-    # Will be added in later milestones:
-    # - PyQt6 (UI framework)
+    # Image processing
+    "Pillow>=10.0.0",
+
+    # Data & parsing
+    "lxml>=5.0.0",
+    "pydantic>=2.5.0",
+
+    # Configuration
+    "python-dotenv>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -41,6 +45,7 @@ dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-qt>=4.2.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.5.0",

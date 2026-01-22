@@ -472,3 +472,360 @@ class SqliteSchemaRepository(ISchemaRepository):
                 return tuple(options)
 
         return None
+
+    # -------------------------------------------------------------------------
+    # Write Operations (Schema Designer - Phase 2 Step 3)
+    # -------------------------------------------------------------------------
+
+    def save(self, entity: EntityDefinition) -> Result[None, str]:
+        """Save entity definition (create new or update existing).
+
+        Args:
+            entity: Entity definition to save
+
+        Returns:
+            Result with None on success or error message
+        """
+        try:
+            entity_exists = self.exists(entity.id)
+
+            with self._connection as conn:
+                cursor = conn.cursor()
+
+                if not entity_exists:
+                    # CREATE: Insert new entity
+                    cursor.execute(
+                        """
+                        INSERT INTO entities (id, name, entity_type, sort_order)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (
+                            entity.id.value,
+                            entity.name_key.key.replace("entity.", "").replace(".name", ""),
+                            "collection",  # Default type
+                            0,  # Default sort order
+                        ),
+                    )
+
+                    # Insert all fields
+                    for field_def in entity.get_all_fields():
+                        self._insert_field(cursor, entity.id, field_def)
+
+                else:
+                    # UPDATE: Update entity metadata and fields
+                    cursor.execute(
+                        """
+                        UPDATE entities
+                        SET name = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            entity.name_key.key.replace("entity.", "").replace(".name", ""),
+                            entity.id.value,
+                        ),
+                    )
+
+                    # Get existing field IDs
+                    cursor.execute(
+                        "SELECT id FROM fields WHERE entity_id = ?",
+                        (entity.id.value,),
+                    )
+                    existing_field_ids = {row["id"] for row in cursor.fetchall()}
+
+                    # Insert new fields, update existing
+                    for field_def in entity.get_all_fields():
+                        if field_def.id.value in existing_field_ids:
+                            self._update_field(cursor, entity.id, field_def)
+                        else:
+                            self._insert_field(cursor, entity.id, field_def)
+
+                conn.commit()
+                return Success(None)
+
+        except sqlite3.Error as e:
+            return Failure(f"Failed to save entity: {e}")
+        except Exception as e:
+            return Failure(f"Error saving entity: {str(e)}")
+
+    def update(self, entity: EntityDefinition) -> Result[None, str]:
+        """Update entity definition metadata.
+
+        Args:
+            entity: Entity definition with updated metadata
+
+        Returns:
+            Result with None on success or error message
+        """
+        if not self.exists(entity.id):
+            return Failure(f"Entity '{entity.id.value}' does not exist")
+
+        try:
+            with self._connection as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    UPDATE entities
+                    SET name = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        entity.name_key.key.replace("entity.", "").replace(".name", ""),
+                        entity.id.value,
+                    ),
+                )
+                conn.commit()
+                return Success(None)
+
+        except sqlite3.Error as e:
+            return Failure(f"Failed to update entity: {e}")
+        except Exception as e:
+            return Failure(f"Error updating entity: {str(e)}")
+
+    def delete(self, entity_id: EntityDefinitionId) -> Result[None, str]:
+        """Delete entity definition from schema.
+
+        Args:
+            entity_id: Entity definition ID to delete
+
+        Returns:
+            Result with None on success or error message
+        """
+        if not self.exists(entity_id):
+            return Failure(f"Entity '{entity_id.value}' does not exist")
+
+        try:
+            with self._connection as conn:
+                cursor = conn.cursor()
+
+                # Delete validation rules for this entity's fields
+                try:
+                    cursor.execute(
+                        """
+                        DELETE FROM validation_rules
+                        WHERE field_id IN (SELECT id FROM fields WHERE entity_id = ?)
+                        """,
+                        (entity_id.value,),
+                    )
+                except sqlite3.OperationalError:
+                    pass  # Table might not exist
+
+                # Delete field options
+                try:
+                    cursor.execute(
+                        """
+                        DELETE FROM field_options
+                        WHERE field_id IN (SELECT id FROM fields WHERE entity_id = ?)
+                        """,
+                        (entity_id.value,),
+                    )
+                except sqlite3.OperationalError:
+                    pass
+
+                # Delete formulas
+                try:
+                    cursor.execute(
+                        """
+                        DELETE FROM formulas
+                        WHERE field_id IN (SELECT id FROM fields WHERE entity_id = ?)
+                        """,
+                        (entity_id.value,),
+                    )
+                except sqlite3.OperationalError:
+                    pass
+
+                # Delete fields
+                cursor.execute(
+                    "DELETE FROM fields WHERE entity_id = ?",
+                    (entity_id.value,),
+                )
+
+                # Delete entity
+                cursor.execute(
+                    "DELETE FROM entities WHERE id = ?",
+                    (entity_id.value,),
+                )
+
+                conn.commit()
+                return Success(None)
+
+        except sqlite3.Error as e:
+            return Failure(f"Failed to delete entity: {e}")
+        except Exception as e:
+            return Failure(f"Error deleting entity: {str(e)}")
+
+    def get_entity_dependencies(
+        self, entity_id: EntityDefinitionId
+    ) -> Result[dict, str]:
+        """Get all dependencies on an entity.
+
+        Args:
+            entity_id: Entity definition ID to check
+
+        Returns:
+            Result containing dependency info dict or error message
+        """
+        if not self.exists(entity_id):
+            return Failure(f"Entity '{entity_id.value}' does not exist")
+
+        try:
+            with self._connection as conn:
+                cursor = conn.cursor()
+
+                dependencies = {
+                    "referenced_by_table_fields": [],
+                    "referenced_by_lookup_fields": [],
+                    "child_entities": [],
+                }
+
+                # Find TABLE fields referencing this entity
+                try:
+                    cursor.execute(
+                        """
+                        SELECT f.entity_id, f.id
+                        FROM fields f
+                        JOIN field_options fo ON f.id = fo.field_id
+                        WHERE f.field_type = 'TABLE'
+                        AND json_extract(fo.inline_options, '$.table_entity_id') = ?
+                        """,
+                        (entity_id.value,),
+                    )
+                    for row in cursor.fetchall():
+                        dependencies["referenced_by_table_fields"].append(
+                            (row["entity_id"], row["id"])
+                        )
+                except sqlite3.OperationalError:
+                    pass
+
+                # Find LOOKUP fields referencing this entity
+                try:
+                    cursor.execute(
+                        """
+                        SELECT f.entity_id, f.id
+                        FROM fields f
+                        JOIN field_options fo ON f.id = fo.field_id
+                        WHERE f.field_type = 'LOOKUP'
+                        AND json_extract(fo.inline_options, '$.lookup_entity_id') = ?
+                        """,
+                        (entity_id.value,),
+                    )
+                    for row in cursor.fetchall():
+                        dependencies["referenced_by_lookup_fields"].append(
+                            (row["entity_id"], row["id"])
+                        )
+                except sqlite3.OperationalError:
+                    pass
+
+                return Success(dependencies)
+
+        except sqlite3.Error as e:
+            return Failure(f"Failed to get entity dependencies: {e}")
+        except Exception as e:
+            return Failure(f"Error getting entity dependencies: {str(e)}")
+
+    def get_field_dependencies(
+        self, entity_id: EntityDefinitionId, field_id: FieldDefinitionId
+    ) -> Result[dict, str]:
+        """Get all dependencies on a field.
+
+        Args:
+            entity_id: Parent entity definition ID
+            field_id: Field definition ID to check
+
+        Returns:
+            Result containing dependency info dict or error message
+        """
+        if not self.exists(entity_id):
+            return Failure(f"Entity '{entity_id.value}' does not exist")
+
+        try:
+            with self._connection as conn:
+                cursor = conn.cursor()
+
+                # Check field exists
+                cursor.execute(
+                    "SELECT 1 FROM fields WHERE id = ? AND entity_id = ?",
+                    (field_id.value, entity_id.value),
+                )
+                if not cursor.fetchone():
+                    return Failure(
+                        f"Field '{field_id.value}' not found in entity '{entity_id.value}'"
+                    )
+
+                dependencies = {
+                    "referenced_by_formulas": [],
+                    "referenced_by_controls_source": [],
+                    "referenced_by_controls_target": [],
+                    "referenced_by_lookup_display": [],
+                }
+
+                # Find formulas referencing this field
+                pattern = f"%{{{{{field_id.value}}}}}%"
+                try:
+                    cursor.execute(
+                        """
+                        SELECT f.entity_id, f.id
+                        FROM fields f
+                        JOIN formulas fo ON f.id = fo.field_id
+                        WHERE fo.expression LIKE ?
+                        """,
+                        (pattern,),
+                    )
+                    for row in cursor.fetchall():
+                        dependencies["referenced_by_formulas"].append(
+                            (row["entity_id"], row["id"])
+                        )
+                except sqlite3.OperationalError:
+                    pass
+
+                return Success(dependencies)
+
+        except sqlite3.Error as e:
+            return Failure(f"Failed to get field dependencies: {e}")
+        except Exception as e:
+            return Failure(f"Error getting field dependencies: {str(e)}")
+
+    # -------------------------------------------------------------------------
+    # Private Write Helpers
+    # -------------------------------------------------------------------------
+
+    def _insert_field(
+        self,
+        cursor: sqlite3.Cursor,
+        entity_id: EntityDefinitionId,
+        field_def: FieldDefinition,
+    ) -> None:
+        """Insert a field into the database."""
+        cursor.execute(
+            """
+            INSERT INTO fields (id, entity_id, name, field_type, sort_order)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                field_def.id.value,
+                entity_id.value,
+                field_def.label_key.key.replace("field.", ""),
+                field_def.field_type.value,
+                0,
+            ),
+        )
+
+    def _update_field(
+        self,
+        cursor: sqlite3.Cursor,
+        entity_id: EntityDefinitionId,
+        field_def: FieldDefinition,
+    ) -> None:
+        """Update an existing field in the database."""
+        cursor.execute(
+            """
+            UPDATE fields
+            SET name = ?, field_type = ?
+            WHERE id = ? AND entity_id = ?
+            """,
+            (
+                field_def.label_key.key.replace("field.", ""),
+                field_def.field_type.value,
+                field_def.id.value,
+                entity_id.value,
+            ),
+        )
