@@ -64,6 +64,7 @@ Domain objects must **never** cross the Application boundary.
 - DTOs are owned by the Application layer
 - DTOs are immutable
 - DTOs contain **no behavior**
+  - Exception: Read-only query/helper methods (e.g., `has_blocking_errors()`) are permitted when explicitly authorized by an ADR (see ADR-025)
 - DTOs are UI-facing data only
 - DTOs are NOT persistence models
 

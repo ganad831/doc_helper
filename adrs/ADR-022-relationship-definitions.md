@@ -1,7 +1,8 @@
 # ADR-022: Relationship Definitions in Schema-Driven Platform
 
-**Status**: PROPOSED
+**Status**: ACCEPTED
 **Date**: 2026-01-23
+**Accepted**: 2026-01-23
 **Deciders**: Architecture Team
 **Context**: Schema Designer Infrastructure
 
