@@ -1,10 +1,15 @@
-"""Schema Import Validation Service (Phase 4).
+"""Schema Import Validation Service (Phase 4, updated Phase 6A).
 
 Service for validating and converting import JSON to domain objects.
 
 APPROVED DECISIONS:
 - Decision 6: Empty entity handling → Warn but allow
 - Decision 7: Unknown constraint type → Fail import (strict validation)
+
+PHASE 6A UPDATE (ADR-022):
+- Added relationship validation and conversion
+- Validates relationship entity references
+- Converts relationships to RelationshipDefinition domain objects
 
 VALIDATION LAYERS:
 1. JSON Structure Validation
@@ -21,6 +26,7 @@ from doc_helper.application.dto.export_dto import (
     EntityExportDTO,
     FieldExportDTO,
     FieldOptionExportDTO,
+    RelationshipExportDTO,
     SchemaExportDTO,
 )
 from doc_helper.application.dto.import_dto import (
@@ -32,7 +38,13 @@ from doc_helper.domain.common.result import Failure, Result, Success
 from doc_helper.domain.schema.entity_definition import EntityDefinition
 from doc_helper.domain.schema.field_definition import FieldDefinition
 from doc_helper.domain.schema.field_type import FieldType
-from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
+from doc_helper.domain.schema.relationship_definition import RelationshipDefinition
+from doc_helper.domain.schema.relationship_type import RelationshipType
+from doc_helper.domain.schema.schema_ids import (
+    EntityDefinitionId,
+    FieldDefinitionId,
+    RelationshipDefinitionId,
+)
 from doc_helper.domain.validation.constraints import (
     AllowedValuesConstraint,
     FieldConstraint,
@@ -59,6 +71,9 @@ KNOWN_CONSTRAINT_TYPES = {
     "FileExtensionConstraint",
     "MaxFileSizeConstraint",
 }
+
+# Known relationship types (Phase 6A - ADR-022)
+KNOWN_RELATIONSHIP_TYPES = {"CONTAINS", "REFERENCES", "ASSOCIATES"}
 
 
 class SchemaImportValidationService:
@@ -221,6 +236,15 @@ class SchemaImportValidationService:
                     location="version",
                 ))
 
+        # Check optional relationships field type (Phase 6A - ADR-022)
+        if "relationships" in data and data["relationships"] is not None:
+            if not isinstance(data["relationships"], list):
+                errors.append(ImportValidationError(
+                    category="invalid_type",
+                    message=f"relationships must be an array, got {type(data['relationships']).__name__}",
+                    location="relationships",
+                ))
+
         if errors:
             return Failure(tuple(errors))
 
@@ -233,10 +257,12 @@ class SchemaImportValidationService:
         - All entity structures are valid
         - All field structures are valid
         - All constraint types are known
+        - All relationship structures are valid (Phase 6A)
         """
         errors: list[ImportValidationError] = []
 
         entities = data.get("entities", [])
+        entity_ids = set()  # Collect entity IDs for relationship validation
 
         for i, entity in enumerate(entities):
             entity_location = f"entities[{i}]"
@@ -246,11 +272,21 @@ class SchemaImportValidationService:
             errors.extend(entity_errors)
 
             if not entity_errors:  # Only validate fields if entity is valid
+                entity_ids.add(entity.get("id", ""))
                 fields = entity.get("fields", [])
                 for j, field in enumerate(fields):
                     field_location = f"{entity_location}.fields[{j}]"
                     field_errors = self._validate_field_structure(field, field_location)
                     errors.extend(field_errors)
+
+        # Validate relationships (Phase 6A - ADR-022)
+        relationships = data.get("relationships", [])
+        for i, relationship in enumerate(relationships):
+            rel_location = f"relationships[{i}]"
+            rel_errors = self._validate_relationship_structure(
+                relationship, rel_location, entity_ids
+            )
+            errors.extend(rel_errors)
 
         if errors:
             return Failure(tuple(errors))
@@ -572,10 +608,144 @@ class SchemaImportValidationService:
 
         return errors
 
+    def _validate_relationship_structure(
+        self,
+        relationship: dict,
+        location: str,
+        entity_ids: set,
+    ) -> list[ImportValidationError]:
+        """Validate a single relationship's structure (Phase 6A - ADR-022)."""
+        errors: list[ImportValidationError] = []
+
+        if not isinstance(relationship, dict):
+            errors.append(ImportValidationError(
+                category="invalid_type",
+                message=f"Relationship must be an object, got {type(relationship).__name__}",
+                location=location,
+            ))
+            return errors
+
+        # Required fields
+        if "id" not in relationship:
+            errors.append(ImportValidationError(
+                category="missing_required",
+                message="Missing required field: id",
+                location=location,
+            ))
+        elif not isinstance(relationship["id"], str) or not relationship["id"].strip():
+            errors.append(ImportValidationError(
+                category="invalid_value",
+                message="Relationship id must be a non-empty string",
+                location=f"{location}.id",
+            ))
+
+        if "source_entity_id" not in relationship:
+            errors.append(ImportValidationError(
+                category="missing_required",
+                message="Missing required field: source_entity_id",
+                location=location,
+            ))
+        elif not isinstance(relationship["source_entity_id"], str) or not relationship["source_entity_id"].strip():
+            errors.append(ImportValidationError(
+                category="invalid_value",
+                message="source_entity_id must be a non-empty string",
+                location=f"{location}.source_entity_id",
+            ))
+        elif relationship["source_entity_id"] not in entity_ids:
+            errors.append(ImportValidationError(
+                category="invalid_reference",
+                message=f"source_entity_id '{relationship['source_entity_id']}' does not reference a valid entity in this import",
+                location=f"{location}.source_entity_id",
+            ))
+
+        if "target_entity_id" not in relationship:
+            errors.append(ImportValidationError(
+                category="missing_required",
+                message="Missing required field: target_entity_id",
+                location=location,
+            ))
+        elif not isinstance(relationship["target_entity_id"], str) or not relationship["target_entity_id"].strip():
+            errors.append(ImportValidationError(
+                category="invalid_value",
+                message="target_entity_id must be a non-empty string",
+                location=f"{location}.target_entity_id",
+            ))
+        elif relationship["target_entity_id"] not in entity_ids:
+            errors.append(ImportValidationError(
+                category="invalid_reference",
+                message=f"target_entity_id '{relationship['target_entity_id']}' does not reference a valid entity in this import",
+                location=f"{location}.target_entity_id",
+            ))
+
+        # Validate source != target
+        if (
+            "source_entity_id" in relationship
+            and "target_entity_id" in relationship
+            and relationship["source_entity_id"] == relationship["target_entity_id"]
+        ):
+            errors.append(ImportValidationError(
+                category="invalid_value",
+                message="source_entity_id and target_entity_id must be different",
+                location=location,
+            ))
+
+        if "relationship_type" not in relationship:
+            errors.append(ImportValidationError(
+                category="missing_required",
+                message="Missing required field: relationship_type",
+                location=location,
+            ))
+        elif not isinstance(relationship["relationship_type"], str):
+            errors.append(ImportValidationError(
+                category="invalid_type",
+                message=f"relationship_type must be a string, got {type(relationship['relationship_type']).__name__}",
+                location=f"{location}.relationship_type",
+            ))
+        elif relationship["relationship_type"] not in KNOWN_RELATIONSHIP_TYPES:
+            errors.append(ImportValidationError(
+                category="invalid_value",
+                message=f"Unknown relationship_type: {relationship['relationship_type']}. "
+                        f"Valid types: {sorted(KNOWN_RELATIONSHIP_TYPES)}",
+                location=f"{location}.relationship_type",
+            ))
+
+        if "name_key" not in relationship:
+            errors.append(ImportValidationError(
+                category="missing_required",
+                message="Missing required field: name_key",
+                location=location,
+            ))
+        elif not isinstance(relationship["name_key"], str) or not relationship["name_key"].strip():
+            errors.append(ImportValidationError(
+                category="invalid_value",
+                message="Relationship name_key must be a non-empty string",
+                location=f"{location}.name_key",
+            ))
+
+        # Optional fields type validation
+        if "description_key" in relationship and relationship["description_key"] is not None:
+            if not isinstance(relationship["description_key"], str):
+                errors.append(ImportValidationError(
+                    category="invalid_type",
+                    message=f"description_key must be a string, got {type(relationship['description_key']).__name__}",
+                    location=f"{location}.description_key",
+                ))
+
+        if "inverse_name_key" in relationship and relationship["inverse_name_key"] is not None:
+            if not isinstance(relationship["inverse_name_key"], str):
+                errors.append(ImportValidationError(
+                    category="invalid_type",
+                    message=f"inverse_name_key must be a string, got {type(relationship['inverse_name_key']).__name__}",
+                    location=f"{location}.inverse_name_key",
+                ))
+
+        return errors
+
     def _convert_to_domain_objects(self, data: dict) -> Result[dict, tuple]:
         """Layer 3: Convert validated JSON to domain objects."""
         warnings: list[ImportWarning] = []
         entities: list[EntityDefinition] = []
+        relationships: list[RelationshipDefinition] = []
 
         schema_id = data["schema_id"]
         version = data.get("version")
@@ -586,19 +756,31 @@ class SchemaImportValidationService:
                 return entity_result
             entities.append(entity_result.value)
 
+        # Convert relationships (Phase 6A - ADR-022)
+        for i, rel_data in enumerate(data.get("relationships", [])):
+            rel_result = self._convert_relationship(rel_data, i)
+            if rel_result.is_failure():
+                return rel_result
+            relationships.append(rel_result.value)
+
         # Build SchemaExportDTO for reference
         entity_dtos = tuple(
             self._entity_to_dto(entity) for entity in entities
+        )
+        relationship_dtos = tuple(
+            self._relationship_to_dto(rel) for rel in relationships
         )
         schema_export_dto = SchemaExportDTO(
             schema_id=schema_id,
             entities=entity_dtos,
             version=version,
+            relationships=relationship_dtos,
         )
 
         return Success({
             "schema_export_dto": schema_export_dto,
             "entities": tuple(entities),
+            "relationships": tuple(relationships),
             "warnings": warnings,
             "version": version,
             "schema_id": schema_id,
@@ -814,3 +996,49 @@ class SchemaImportValidationService:
             return {"max_size_bytes": constraint.max_size_bytes}
         else:
             return {}
+
+    def _convert_relationship(
+        self,
+        rel_data: dict,
+        index: int,
+    ) -> Result[RelationshipDefinition, tuple]:
+        """Convert relationship JSON to RelationshipDefinition (Phase 6A)."""
+        location = f"relationships[{index}]"
+
+        try:
+            relationship = RelationshipDefinition(
+                id=RelationshipDefinitionId(rel_data["id"]),
+                source_entity_id=EntityDefinitionId(rel_data["source_entity_id"]),
+                target_entity_id=EntityDefinitionId(rel_data["target_entity_id"]),
+                relationship_type=RelationshipType(rel_data["relationship_type"]),
+                name_key=TranslationKey(rel_data["name_key"]),
+                description_key=(
+                    TranslationKey(rel_data["description_key"])
+                    if rel_data.get("description_key")
+                    else None
+                ),
+                inverse_name_key=(
+                    TranslationKey(rel_data["inverse_name_key"])
+                    if rel_data.get("inverse_name_key")
+                    else None
+                ),
+            )
+            return Success(relationship)
+        except Exception as e:
+            return Failure((ImportValidationError(
+                category="conversion_error",
+                message=f"Failed to create relationship: {e}",
+                location=location,
+            ),))
+
+    def _relationship_to_dto(self, rel: RelationshipDefinition) -> RelationshipExportDTO:
+        """Convert RelationshipDefinition back to DTO for reference."""
+        return RelationshipExportDTO(
+            id=rel.id.value,
+            source_entity_id=rel.source_entity_id.value,
+            target_entity_id=rel.target_entity_id.value,
+            relationship_type=rel.relationship_type.value,
+            name_key=rel.name_key.key,
+            description_key=rel.description_key.key if rel.description_key else None,
+            inverse_name_key=rel.inverse_name_key.key if rel.inverse_name_key else None,
+        )

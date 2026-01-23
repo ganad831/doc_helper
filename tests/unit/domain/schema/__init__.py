@@ -1,0 +1,1 @@
+"""Schema domain unit tests."""

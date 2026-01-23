@@ -111,6 +111,7 @@ class ImportResult:
     warnings: tuple = ()  # Tuple of ImportWarning
     entity_count: int = 0  # Number of entities imported
     field_count: int = 0  # Total fields imported
+    relationship_count: int = 0  # Number of relationships imported (Phase 6A)
     was_identical: bool = False  # True if schema was identical to existing
     was_skipped: bool = False  # True if identical schema was skipped (no-op)
     error: Optional[str] = None  # General error message (if failed)

@@ -1,4 +1,4 @@
-"""Schema Export DTOs (Phase 2 Step 4, updated Phase 3).
+"""Schema Export DTOs (Phase 2 Step 4, updated Phase 3, Phase 6A).
 
 DTOs for schema export data structure.
 These are the data structures that will be serialized to the export file.
@@ -11,6 +11,10 @@ RULES:
 
 Phase 3 Updates:
 - Added optional version field to SchemaExportDTO (Decision 5)
+
+Phase 6A Updates (ADR-022):
+- Added RelationshipExportDTO for relationship definitions
+- Added relationships field to SchemaExportDTO
 """
 
 from dataclasses import dataclass, field
@@ -73,17 +77,36 @@ class EntityExportDTO:
 
 
 @dataclass(frozen=True)
+class RelationshipExportDTO:
+    """Export DTO for a relationship definition (Phase 6A - ADR-022).
+
+    Contains relationship metadata for export.
+    RelationshipType is descriptive metadata only (no runtime behavior).
+    """
+
+    id: str  # Relationship identifier
+    source_entity_id: str  # Source entity ID
+    target_entity_id: str  # Target entity ID
+    relationship_type: str  # Type (CONTAINS, REFERENCES, ASSOCIATES)
+    name_key: str  # Translation key for relationship name
+    description_key: Optional[str] = None  # Translation key for description
+    inverse_name_key: Optional[str] = None  # Translation key for inverse name
+
+
+@dataclass(frozen=True)
 class SchemaExportDTO:
     """Export DTO for the complete schema.
 
     Top-level export structure containing all entities and metadata.
 
     Phase 3: Added optional version field (Decision 5).
+    Phase 6A: Added relationships field (ADR-022).
     """
 
     schema_id: str  # Schema/project identifier (Phase 2 Decision 7)
     entities: tuple  # Tuple of EntityExportDTO
     version: Optional[str] = None  # Optional semantic version (Phase 3 Decision 5)
+    relationships: tuple = ()  # Tuple of RelationshipExportDTO (Phase 6A)
 
 
 @dataclass(frozen=True)

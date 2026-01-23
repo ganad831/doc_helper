@@ -43,6 +43,10 @@ class ChangeType(str, Enum):
     OPTION_ADDED = "option_added"
     OPTION_REMOVED = "option_removed"
 
+    # Relationship changes (Phase 6A)
+    RELATIONSHIP_ADDED = "relationship_added"
+    RELATIONSHIP_REMOVED = "relationship_removed"
+
     @property
     def is_breaking(self) -> bool:
         """Check if this change type is breaking (Decision 3: Moderate policy).
@@ -76,6 +80,8 @@ class ChangeType(str, Enum):
             ChangeType.FIELD_ADDED,
             ChangeType.FIELD_REMOVED,
             ChangeType.FIELD_TYPE_CHANGED,
+            ChangeType.RELATIONSHIP_ADDED,
+            ChangeType.RELATIONSHIP_REMOVED,
         )
 
 
@@ -110,12 +116,13 @@ class SchemaChange(ValueObject):
     """
 
     change_type: ChangeType
-    entity_id: str
+    entity_id: Optional[str] = None  # Optional for relationship changes
     field_id: Optional[str] = None
     constraint_type: Optional[str] = None
     option_value: Optional[str] = None
     old_value: Optional[str] = None
     new_value: Optional[str] = None
+    relationship_id: Optional[str] = None  # Phase 6A: For relationship changes
 
     @property
     def is_breaking(self) -> bool:
@@ -131,15 +138,19 @@ class SchemaChange(ValueObject):
         """Get human-readable location of the change.
 
         Returns:
-            Location string (e.g., "entity.field")
+            Location string (e.g., "entity.field" or "relationship_id")
         """
+        # Relationship changes use relationship_id
+        if self.relationship_id:
+            return f"relationship:{self.relationship_id}"
+
         if self.field_id:
             if self.constraint_type:
                 return f"{self.entity_id}.{self.field_id}[{self.constraint_type}]"
             if self.option_value:
                 return f"{self.entity_id}.{self.field_id}[option:{self.option_value}]"
             return f"{self.entity_id}.{self.field_id}"
-        return self.entity_id
+        return self.entity_id or ""
 
     @property
     def description(self) -> str:
@@ -160,5 +171,7 @@ class SchemaChange(ValueObject):
             ChangeType.CONSTRAINT_MODIFIED: f"Constraint '{self.constraint_type}' modified on '{self.location}'",
             ChangeType.OPTION_ADDED: f"Option '{self.option_value}' added to '{self.location}'",
             ChangeType.OPTION_REMOVED: f"Option '{self.option_value}' removed from '{self.location}'",
+            ChangeType.RELATIONSHIP_ADDED: f"Relationship '{self.relationship_id}' added",
+            ChangeType.RELATIONSHIP_REMOVED: f"Relationship '{self.relationship_id}' removed",
         }
         return type_descriptions.get(self.change_type, f"Unknown change at {self.location}")

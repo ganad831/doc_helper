@@ -82,3 +82,41 @@ class EntityDefinitionId(ValueObject):
     def __str__(self) -> str:
         """String representation is the value itself."""
         return self.value
+
+
+@dataclass(frozen=True)
+class RelationshipDefinitionId(ValueObject):
+    """Strongly-typed ID for RelationshipDefinition (Phase 6A - ADR-022).
+
+    Relationship IDs are unique within an application schema.
+    Convention: lowercase with underscores (e.g., "project_contains_boreholes")
+
+    RULES (ADR-009):
+    - Use strongly-typed IDs instead of raw strings
+    - IDs are immutable value objects
+    - IDs enforce validation rules
+
+    Example:
+        rel_id = RelationshipDefinitionId("project_contains_boreholes")
+        rel_id2 = RelationshipDefinitionId("borehole_references_project")
+    """
+
+    value: str
+
+    def __post_init__(self) -> None:
+        """Validate relationship ID."""
+        if not self.value:
+            raise ValueError("RelationshipDefinitionId cannot be empty")
+        if not self.value.replace("_", "").replace("-", "").isalnum():
+            raise ValueError(
+                f"RelationshipDefinitionId contains invalid characters: {self.value}. "
+                "Only alphanumeric, hyphens, and underscores allowed."
+            )
+        if self.value != self.value.lower():
+            raise ValueError(
+                f"RelationshipDefinitionId must be lowercase: {self.value}"
+            )
+
+    def __str__(self) -> str:
+        """String representation is the value itself."""
+        return self.value

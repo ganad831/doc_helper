@@ -15,6 +15,7 @@ from typing import Optional
 
 from doc_helper.domain.schema.entity_definition import EntityDefinition
 from doc_helper.domain.schema.field_definition import FieldDefinition
+from doc_helper.domain.schema.relationship_definition import RelationshipDefinition
 from doc_helper.domain.schema.schema_change import ChangeType, SchemaChange
 from doc_helper.domain.schema.schema_compatibility import (
     CompatibilityLevel,
@@ -46,6 +47,8 @@ class SchemaComparisonService:
         target_entities: tuple,
         source_version: Optional[SchemaVersion] = None,
         target_version: Optional[SchemaVersion] = None,
+        source_relationships: tuple = (),
+        target_relationships: tuple = (),
     ) -> CompatibilityResult:
         """Compare two schema states and determine compatibility.
 
@@ -54,6 +57,8 @@ class SchemaComparisonService:
             target_entities: Tuple of EntityDefinition from target schema
             source_version: Optional version of source schema
             target_version: Optional version of target schema
+            source_relationships: Tuple of RelationshipDefinition from source schema (Phase 6A)
+            target_relationships: Tuple of RelationshipDefinition from target schema (Phase 6A)
 
         Returns:
             CompatibilityResult with level and list of changes
@@ -75,6 +80,12 @@ class SchemaComparisonService:
             target_entity = target_map[entity_id]
             field_changes = self._compare_fields(entity_id, source_entity, target_entity)
             changes.extend(field_changes)
+
+        # Detect relationship changes (Phase 6A)
+        relationship_changes = self._compare_relationships(
+            source_relationships, target_relationships
+        )
+        changes.extend(relationship_changes)
 
         # Determine compatibility level
         level = self._determine_level(changes)
@@ -340,6 +351,50 @@ class SchemaComparisonService:
                 field_id=field_id,
                 option_value=str(option_value),
             ))
+
+        return changes
+
+    def _compare_relationships(
+        self,
+        source_relationships: tuple,
+        target_relationships: tuple,
+    ) -> list[SchemaChange]:
+        """Compare relationships between schema versions (Phase 6A).
+
+        Args:
+            source_relationships: Tuple of RelationshipDefinition from source
+            target_relationships: Tuple of RelationshipDefinition from target
+
+        Returns:
+            List of relationship changes
+        """
+        changes: list[SchemaChange] = []
+
+        # Build lookup maps by relationship ID
+        source_map = {r.id.value: r for r in source_relationships}
+        target_map = {r.id.value: r for r in target_relationships}
+
+        source_ids = set(source_map.keys())
+        target_ids = set(target_map.keys())
+
+        # Relationships added (in target but not in source)
+        for rel_id in target_ids - source_ids:
+            changes.append(SchemaChange(
+                change_type=ChangeType.RELATIONSHIP_ADDED,
+                relationship_id=rel_id,
+            ))
+
+        # Relationships removed (in source but not in target)
+        for rel_id in source_ids - target_ids:
+            changes.append(SchemaChange(
+                change_type=ChangeType.RELATIONSHIP_REMOVED,
+                relationship_id=rel_id,
+            ))
+
+        # Note: Relationship modification is not tracked because
+        # relationships are ADD-ONLY per ADR-022. Changes to existing
+        # relationships would require creating a new relationship with
+        # a new ID and removing the old one.
 
         return changes
 

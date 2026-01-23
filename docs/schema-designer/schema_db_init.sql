@@ -74,9 +74,33 @@ CREATE INDEX IF NOT EXISTS idx_fields_type ON fields(field_type);
 -- Phase 2 Step 3: Will add validation rule storage
 
 -- ============================================================================
--- RELATIONSHIPS TABLE
+-- RELATIONSHIPS TABLE (Phase 6A - ADR-022)
 -- ============================================================================
--- Phase 2.1: Will add relationship storage (NOT Phase 2 Step 2)
+-- Stores explicit semantic relationships between entities.
+-- ADD-ONLY semantics: relationships can be created but not updated or deleted.
+
+CREATE TABLE IF NOT EXISTS relationships (
+    id TEXT PRIMARY KEY,                    -- Relationship ID (e.g., "project_contains_boreholes")
+    source_entity_id TEXT NOT NULL,         -- Source entity ID (where relationship originates)
+    target_entity_id TEXT NOT NULL,         -- Target entity ID (where relationship points)
+    relationship_type TEXT NOT NULL,        -- Semantic type (CONTAINS, REFERENCES, ASSOCIATES)
+    name_key TEXT NOT NULL,                 -- Translation key for relationship name
+    description_key TEXT,                   -- Translation key for description (optional)
+    inverse_name_key TEXT,                  -- Translation key for inverse name (optional)
+
+    -- Foreign key constraints
+    FOREIGN KEY (source_entity_id) REFERENCES entities(id) ON DELETE RESTRICT,
+    FOREIGN KEY (target_entity_id) REFERENCES entities(id) ON DELETE RESTRICT,
+
+    -- Constraints
+    CHECK (relationship_type IN ('CONTAINS', 'REFERENCES', 'ASSOCIATES')),
+    CHECK (source_entity_id != target_entity_id)  -- Self-references not allowed
+);
+
+-- Indexes for faster lookups
+CREATE INDEX IF NOT EXISTS idx_relationships_source ON relationships(source_entity_id);
+CREATE INDEX IF NOT EXISTS idx_relationships_target ON relationships(target_entity_id);
+CREATE INDEX IF NOT EXISTS idx_relationships_type ON relationships(relationship_type);
 
 -- ============================================================================
 -- SAMPLE DATA (Meta-Schema)

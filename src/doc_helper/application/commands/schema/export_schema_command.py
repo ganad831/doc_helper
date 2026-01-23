@@ -1,4 +1,4 @@
-"""Export Schema Command (Phase 2 Step 4, updated Phase 3).
+"""Export Schema Command (Phase 2 Step 4, updated Phase 3, Phase 6A).
 
 Command for exporting schema definitions to file.
 Follows approved guardrails and decisions.
@@ -17,9 +17,12 @@ PHASE 2 APPROVED DECISIONS:
 PHASE 3 UPDATE:
 - Decision 5: Version field is optional in export
 
+PHASE 6A UPDATE (ADR-022):
+- Relationships are now exported (RelationshipDefinition)
+- Relationships serialized after entities (dependency order)
+
 FORBIDDEN:
 - No import functionality
-- No relationships export (RelationshipDefinition)
 - No formulas, controls, output mappings
 - No runtime semantics
 """
@@ -35,11 +38,14 @@ from doc_helper.application.dto.export_dto import (
     ExportWarning,
     FieldExportDTO,
     FieldOptionExportDTO,
+    RelationshipExportDTO,
     SchemaExportDTO,
 )
 from doc_helper.domain.common.result import Result, Success, Failure
 from doc_helper.domain.schema.entity_definition import EntityDefinition
 from doc_helper.domain.schema.field_definition import FieldDefinition
+from doc_helper.domain.schema.relationship_definition import RelationshipDefinition
+from doc_helper.domain.schema.relationship_repository import IRelationshipRepository
 from doc_helper.domain.schema.schema_repository import ISchemaRepository
 from doc_helper.domain.validation.constraints import (
     FieldConstraint,
@@ -77,13 +83,19 @@ class ExportSchemaCommand:
             print(result.error)
     """
 
-    def __init__(self, schema_repository: ISchemaRepository) -> None:
+    def __init__(
+        self,
+        schema_repository: ISchemaRepository,
+        relationship_repository: Optional[IRelationshipRepository] = None,
+    ) -> None:
         """Initialize command.
 
         Args:
             schema_repository: Repository for reading schema definitions
+            relationship_repository: Repository for reading relationships (Phase 6A)
         """
         self._schema_repository = schema_repository
+        self._relationship_repository = relationship_repository
 
     def execute(
         self,
@@ -174,11 +186,26 @@ class ExportSchemaCommand:
         excluded_warnings = self._check_excluded_data(entities)
         warnings.extend(excluded_warnings)
 
+        # Load relationships (Phase 6A - ADR-022)
+        relationship_exports: list[RelationshipExportDTO] = []
+        if self._relationship_repository:
+            relationships_result = self._relationship_repository.get_all()
+            if relationships_result.is_success():
+                for rel_def in relationships_result.value:
+                    rel_export, rel_warnings = self._convert_relationship(rel_def)
+                    if isinstance(rel_export, str):
+                        # It's an error message
+                        return Failure(rel_export)
+                    relationship_exports.append(rel_export)
+                    warnings.extend(rel_warnings)
+            # Note: If relationships fail to load, we still export entities
+
         # Create export data (with optional version - Phase 3 Decision 5)
         export_data = SchemaExportDTO(
             schema_id=schema_id,
             entities=tuple(entity_exports),
             version=version,
+            relationships=tuple(relationship_exports),
         )
 
         # Write to file
@@ -390,6 +417,56 @@ class ExportSchemaCommand:
 
         return warnings
 
+    def _convert_relationship(
+        self,
+        rel_def: RelationshipDefinition,
+    ) -> tuple[RelationshipExportDTO | str, list[ExportWarning]]:
+        """Convert relationship definition to export DTO (Phase 6A - ADR-022).
+
+        Args:
+            rel_def: Relationship definition to convert
+
+        Returns:
+            Tuple of (RelationshipExportDTO or error string, list of warnings)
+        """
+        warnings: list[ExportWarning] = []
+
+        # Validate translation keys (Decision 3)
+        key_error = self._validate_translation_key(
+            rel_def.name_key.key,
+            f"relationship {rel_def.id.value} name_key"
+        )
+        if key_error:
+            return key_error, []
+
+        if rel_def.description_key:
+            key_error = self._validate_translation_key(
+                rel_def.description_key.key,
+                f"relationship {rel_def.id.value} description_key"
+            )
+            if key_error:
+                return key_error, []
+
+        if rel_def.inverse_name_key:
+            key_error = self._validate_translation_key(
+                rel_def.inverse_name_key.key,
+                f"relationship {rel_def.id.value} inverse_name_key"
+            )
+            if key_error:
+                return key_error, []
+
+        rel_export = RelationshipExportDTO(
+            id=rel_def.id.value,
+            source_entity_id=rel_def.source_entity_id.value,
+            target_entity_id=rel_def.target_entity_id.value,
+            relationship_type=rel_def.relationship_type.value,
+            name_key=rel_def.name_key.key,
+            description_key=rel_def.description_key.key if rel_def.description_key else None,
+            inverse_name_key=rel_def.inverse_name_key.key if rel_def.inverse_name_key else None,
+        )
+
+        return rel_export, warnings
+
     def _write_export_file(self, file_path: Path, export_data: SchemaExportDTO) -> None:
         """Write export data to JSON file.
 
@@ -460,5 +537,20 @@ class ExportSchemaCommand:
         # Include version only if provided (Phase 3 Decision 5: Optional)
         if export_data.version is not None:
             result["version"] = export_data.version
+
+        # Include relationships (Phase 6A - ADR-022)
+        # Relationships are always included (can be empty array)
+        result["relationships"] = [
+            {
+                "id": rel.id,
+                "source_entity_id": rel.source_entity_id,
+                "target_entity_id": rel.target_entity_id,
+                "relationship_type": rel.relationship_type,
+                "name_key": rel.name_key,
+                "description_key": rel.description_key,
+                "inverse_name_key": rel.inverse_name_key,
+            }
+            for rel in export_data.relationships
+        ]
 
         return result

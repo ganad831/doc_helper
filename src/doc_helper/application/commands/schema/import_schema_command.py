@@ -29,6 +29,8 @@ from doc_helper.application.services.schema_comparison_service import SchemaComp
 from doc_helper.application.services.schema_import_validation_service import SchemaImportValidationService
 from doc_helper.domain.common.result import Failure, Result, Success
 from doc_helper.domain.schema.entity_definition import EntityDefinition
+from doc_helper.domain.schema.relationship_definition import RelationshipDefinition
+from doc_helper.domain.schema.relationship_repository import IRelationshipRepository
 from doc_helper.domain.schema.schema_compatibility import CompatibilityLevel, CompatibilityResult
 from doc_helper.domain.schema.schema_repository import ISchemaRepository
 from doc_helper.domain.schema.schema_version import SchemaVersion
@@ -64,6 +66,7 @@ class ImportSchemaCommand:
         schema_repository: ISchemaRepository,
         comparison_service: Optional[SchemaComparisonService] = None,
         validation_service: Optional[SchemaImportValidationService] = None,
+        relationship_repository: Optional[IRelationshipRepository] = None,
     ) -> None:
         """Initialize command.
 
@@ -71,10 +74,12 @@ class ImportSchemaCommand:
             schema_repository: Repository for schema persistence
             comparison_service: Service for compatibility analysis (optional, created if not provided)
             validation_service: Service for validation (optional, created if not provided)
+            relationship_repository: Repository for relationship persistence (optional, Phase 6A)
         """
         self._schema_repository = schema_repository
         self._comparison_service = comparison_service or SchemaComparisonService()
         self._validation_service = validation_service or SchemaImportValidationService()
+        self._relationship_repository = relationship_repository
 
     def execute(
         self,
@@ -111,6 +116,7 @@ class ImportSchemaCommand:
 
         parsed_data = parse_result.value
         import_entities: tuple[EntityDefinition, ...] = parsed_data["entities"]
+        import_relationships: tuple[RelationshipDefinition, ...] = parsed_data.get("relationships", ())
         schema_id = parsed_data["schema_id"]
         imported_version = parsed_data.get("version")
         warnings.extend(parsed_data.get("warnings", []))
@@ -166,6 +172,7 @@ class ImportSchemaCommand:
                     warnings=tuple(warnings),
                     entity_count=len(import_entities),
                     field_count=sum(e.field_count for e in import_entities),
+                    relationship_count=len(import_relationships),
                     was_identical=True,
                     was_skipped=True,
                 )
@@ -202,7 +209,9 @@ class ImportSchemaCommand:
                 ))
 
         # Step 7: Perform atomic import (delete existing, save new)
-        import_result = self._perform_atomic_import(existing_entities, import_entities)
+        import_result = self._perform_atomic_import(
+            existing_entities, import_entities, import_relationships
+        )
 
         if import_result.is_failure():
             return ImportResult(
@@ -225,6 +234,7 @@ class ImportSchemaCommand:
             warnings=tuple(warnings),
             entity_count=len(import_entities),
             field_count=sum(e.field_count for e in import_entities),
+            relationship_count=len(import_relationships),
             was_identical=compatibility_result.is_identical if compatibility_result else False,
             was_skipped=False,
         )
@@ -233,30 +243,46 @@ class ImportSchemaCommand:
         self,
         existing_entities: tuple,
         import_entities: tuple[EntityDefinition, ...],
+        import_relationships: tuple[RelationshipDefinition, ...] = (),
     ) -> Result[None, str]:
         """Perform atomic import: delete existing, save new.
 
         IMPORTANT: This is all-or-nothing. If any operation fails,
         the schema may be in an inconsistent state.
 
+        Order of operations:
+        1. Delete existing entities (cascades to relationships via FK)
+        2. Save new entities
+        3. Save new relationships (requires entities to exist)
+
         Args:
             existing_entities: Current entities to delete
             import_entities: New entities to save
+            import_relationships: New relationships to save (Phase 6A)
 
         Returns:
             Result with None on success or error message
         """
-        # Delete existing entities
+        # Delete existing entities (relationships deleted via FK cascade or manually)
         for entity in existing_entities:
             delete_result = self._schema_repository.delete(entity.id)
             if delete_result.is_failure():
                 return Failure(f"Failed to delete existing entity {entity.id.value}: {delete_result.error}")
 
-        # Save new entities
+        # Save new entities (must be done before relationships)
         for entity in import_entities:
             save_result = self._schema_repository.save(entity)
             if save_result.is_failure():
                 return Failure(f"Failed to save imported entity {entity.id.value}: {save_result.error}")
+
+        # Save new relationships (Phase 6A)
+        if import_relationships and self._relationship_repository:
+            for relationship in import_relationships:
+                save_result = self._relationship_repository.save(relationship)
+                if save_result.is_failure():
+                    return Failure(
+                        f"Failed to save imported relationship {relationship.id.value}: {save_result.error}"
+                    )
 
         return Success(None)
 
@@ -294,6 +320,7 @@ class ImportSchemaCommand:
 
         parsed_data = parse_result.value
         import_entities: tuple[EntityDefinition, ...] = parsed_data["entities"]
+        import_relationships: tuple[RelationshipDefinition, ...] = parsed_data.get("relationships", ())
         schema_id = parsed_data["schema_id"]
         imported_version = parsed_data.get("version")
         warnings.extend(parsed_data.get("warnings", []))
@@ -348,6 +375,7 @@ class ImportSchemaCommand:
                     warnings=tuple(warnings),
                     entity_count=len(import_entities),
                     field_count=sum(e.field_count for e in import_entities),
+                    relationship_count=len(import_relationships),
                     was_identical=True,
                     was_skipped=True,
                 )
@@ -378,7 +406,9 @@ class ImportSchemaCommand:
                 ))
 
         # Step 6: Perform atomic import
-        import_result = self._perform_atomic_import(existing_entities, import_entities)
+        import_result = self._perform_atomic_import(
+            existing_entities, import_entities, import_relationships
+        )
 
         if import_result.is_failure():
             return ImportResult(
@@ -400,6 +430,7 @@ class ImportSchemaCommand:
             warnings=tuple(warnings),
             entity_count=len(import_entities),
             field_count=sum(e.field_count for e in import_entities),
+            relationship_count=len(import_relationships),
             was_identical=compatibility_result.is_identical if compatibility_result else False,
             was_skipped=False,
         )
