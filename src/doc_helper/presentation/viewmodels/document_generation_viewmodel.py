@@ -5,19 +5,21 @@ RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md):
 - Domain objects NEVER cross Application boundary
 - ID construction and enum conversion happen in Application layer
 
-ARCHITECTURAL FIX (Phase 6C):
-- ViewModel no longer imports domain types (ProjectId, DocumentFormat)
-- Uses GenerateDocumentFacade which accepts primitives/DTOs
-- Domain type construction moved to Application layer
+ARCHITECTURE ENFORCEMENT (Rule 0 Compliance):
+- ViewModel depends ONLY on Application layer use-cases
+- NO command imports
+- NO query imports
+- NO facade imports
+- NO repository access (direct or reach-through)
+- NO domain ID unwrapping
+- All orchestration delegated to Application layer
 """
 
 from pathlib import Path
 from typing import Optional
 
-from doc_helper.application.commands.generate_document_facade import (
-    GenerateDocumentFacade,
-)
 from doc_helper.application.dto import ValidationResultDTO, DocumentFormatDTO
+from doc_helper.application.usecases.document_usecases import DocumentUseCases
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
 
 
@@ -42,7 +44,7 @@ class DocumentGenerationViewModel(BaseViewModel):
     - Batch generation
 
     Example:
-        vm = DocumentGenerationViewModel(generate_facade)
+        vm = DocumentGenerationViewModel(document_usecases)
         vm.set_project(project_id, entity_def_id, validation_result)
         if vm.can_generate:
             vm.generate_document(template_path, output_path, format_dto)
@@ -50,15 +52,19 @@ class DocumentGenerationViewModel(BaseViewModel):
 
     def __init__(
         self,
-        generate_document_facade: GenerateDocumentFacade,
+        document_usecases: DocumentUseCases,
     ) -> None:
         """Initialize DocumentGenerationViewModel.
 
+        ARCHITECTURE ENFORCEMENT (Rule 0 Compliance):
+            ViewModel receives ONLY Application layer use-case.
+            NO commands, queries, facades, or repositories are injected.
+
         Args:
-            generate_document_facade: Facade for generating documents (accepts primitives/DTOs)
+            document_usecases: Use-case class for document generation (accepts primitives/DTOs)
         """
         super().__init__()
-        self._generate_document_facade = generate_document_facade
+        self._document_usecases = document_usecases
 
         # Store IDs and DTOs, NOT domain objects
         self._project_id: Optional[str] = None
@@ -238,8 +244,8 @@ class DocumentGenerationViewModel(BaseViewModel):
 
         try:
             # v1: Simple generation without progress tracking
-            # Facade handles domain type conversion (Clean Architecture)
-            result = self._generate_document_facade.execute(
+            # DocumentUseCases handles domain type conversion (Clean Architecture)
+            result = self._document_usecases.generate_document(
                 project_id=self._project_id,
                 template_path=template_path,
                 output_path=output_path,

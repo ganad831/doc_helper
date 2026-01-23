@@ -4,18 +4,23 @@ RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md):
 - Presentation layer uses DTOs, NOT domain objects
 - Domain objects NEVER cross Application boundary
 
+ARCHITECTURE ENFORCEMENT (Rule 0 Compliance):
+- ViewModel depends ONLY on WelcomeUseCases (Application layer use-case)
+- NO command imports
+- NO query imports
+- NO domain ID unwrapping
+- All orchestration delegated to WelcomeUseCases
+
 v2 PHASE 4: AppType-aware project creation.
 Exposes available AppTypes to UI for selection during project creation.
 """
 
 from typing import TYPE_CHECKING, Optional
 
-from doc_helper.application.commands.create_project_command import CreateProjectCommand
 from doc_helper.application.dto import ProjectSummaryDTO, AppTypeDTO
-from doc_helper.application.queries.get_project_query import GetRecentProjectsQuery
+from doc_helper.application.usecases.welcome_usecases import WelcomeUseCases
 from doc_helper.platform.registry.interfaces import IAppTypeRegistry
 from doc_helper.platform.routing.app_type_router import IAppTypeRouter
-# Domain imports moved to local scope to comply with DTO-only MVVM rule
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
 
 if TYPE_CHECKING:
@@ -35,8 +40,12 @@ class WelcomeViewModel(BaseViewModel):
     - Create new project with AppType selection
     - Open existing project
 
+    Architecture Compliance (Rule 0):
+        ViewModel depends ONLY on WelcomeUseCases (Application layer).
+        NO commands or queries are imported or accessed.
+
     Example:
-        vm = WelcomeViewModel(get_recent_query, create_command, app_type_registry)
+        vm = WelcomeViewModel(welcome_usecases, app_type_registry)
         vm.load_recent_projects()
         for project in vm.recent_projects:
             print(project.name)
@@ -48,8 +57,7 @@ class WelcomeViewModel(BaseViewModel):
 
     def __init__(
         self,
-        get_recent_query: GetRecentProjectsQuery,
-        create_project_command: CreateProjectCommand,
+        welcome_usecases: WelcomeUseCases,
         app_type_registry: IAppTypeRegistry,
         app_type_router: Optional[IAppTypeRouter] = None,
         tool_app_types: Optional[dict[str, "IAppType"]] = None,
@@ -57,15 +65,17 @@ class WelcomeViewModel(BaseViewModel):
         """Initialize WelcomeViewModel.
 
         Args:
-            get_recent_query: Query for getting recent projects
-            create_project_command: Command for creating new projects
+            welcome_usecases: Use-case class for welcome operations (create/recent)
             app_type_registry: Registry for available AppTypes
             app_type_router: Router for launching AppTypes (optional for backwards compat)
             tool_app_types: Dictionary of initialized TOOL AppType instances (keyed by app_type_id)
+
+        Architecture Compliance (Rule 0):
+            ViewModel receives ONLY use-case class via DI.
+            NO commands or queries are injected.
         """
         super().__init__()
-        self._get_recent_query = get_recent_query
-        self._create_project_command = create_project_command
+        self._welcome_usecases = welcome_usecases
         self._app_type_registry = app_type_registry
         self._app_type_router = app_type_router
         self._tool_app_types: dict[str, "IAppType"] = tool_app_types or {}
@@ -111,7 +121,7 @@ class WelcomeViewModel(BaseViewModel):
         return len(self._recent_projects) > 0
 
     def load_recent_projects(self, limit: int = 10) -> None:
-        """Load recent projects from repository.
+        """Load recent projects via use-case.
 
         Args:
             limit: Maximum number of projects to load
@@ -122,14 +132,14 @@ class WelcomeViewModel(BaseViewModel):
         self.notify_change("error_message")
 
         try:
-            result = self._get_recent_query.execute(limit=limit)
+            projects, error = self._welcome_usecases.get_recent_projects(limit=limit)
 
-            if result.is_success():
-                self._recent_projects = result.value
-                self._error_message = None
-            else:
+            if error:
                 self._recent_projects = []
-                self._error_message = f"Failed to load recent projects: {result.error}"
+                self._error_message = f"Failed to load recent projects: {error}"
+            else:
+                self._recent_projects = projects
+                self._error_message = None
 
         except Exception as e:
             self._recent_projects = []
@@ -277,7 +287,7 @@ class WelcomeViewModel(BaseViewModel):
         app_type_id: str,
         description: Optional[str] = None,
     ) -> tuple[bool, Optional[str]]:
-        """Create a new project.
+        """Create a new project via use-case.
 
         v2 PHASE 4: Accepts app_type_id parameter for AppType selection.
 
@@ -300,24 +310,21 @@ class WelcomeViewModel(BaseViewModel):
             return (False, None)
 
         try:
-            # PHASE 6C: Use string-accepting command method
-            # (AppType determines the root entity structure)
-            result = self._create_project_command.execute_with_str_ids(
+            # Delegate to use-case (no command access here)
+            success, project_id, error = self._welcome_usecases.create_project(
                 name=name.strip(),
-                entity_definition_id_str=app_type_id,
-                description=description,
                 app_type_id=app_type_id,
+                description=description,
             )
 
-            if result.is_success():
-                project_id = result.value
+            if success:
                 self._error_message = None
                 self.notify_change("error_message")
                 # Reload recent projects to include new project
                 self.load_recent_projects()
-                return (True, str(project_id.value))
+                return (True, project_id)
             else:
-                self._error_message = f"Failed to create project: {result.error}"
+                self._error_message = f"Failed to create project: {error}"
                 self.notify_change("error_message")
                 return (False, None)
 

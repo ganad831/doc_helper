@@ -7,7 +7,7 @@ RULES (unified_upgrade_plan_FINAL.md U6 Phase 4):
 - Test undo stack cleared on project open/close
 - Test undo stack NOT cleared on save
 
-PHASE 6C: Updated to use ProjectOperationsFacade.
+Architecture Enforcement: Updated to use ProjectUseCases (not facades).
 """
 
 import pytest
@@ -15,9 +15,7 @@ from typing import Any
 from unittest.mock import MagicMock, Mock
 from uuid import uuid4
 
-from doc_helper.application.commands.project_operations_facade import (
-    ProjectOperationsFacade,
-)
+from doc_helper.application.usecases.project_usecases import ProjectUseCases
 from doc_helper.application.dto import ProjectDTO, EntityDefinitionDTO
 from doc_helper.application.services.field_undo_service import FieldUndoService
 from doc_helper.domain.common.result import Success, Failure, Result
@@ -30,20 +28,14 @@ TEST_PROJECT_UUID = uuid4()
 
 
 @pytest.fixture
-def mock_project_operations_facade():
-    """Create mock ProjectOperationsFacade."""
-    facade = Mock(spec=ProjectOperationsFacade)
+def mock_project_usecases():
+    """Create mock ProjectUseCases."""
+    usecases = Mock(spec=ProjectUseCases)
     # Default successful get_project
-    facade.get_project.return_value = Success(None)
-    facade.save_project.return_value = Success(None)
-    facade.export_project.return_value = Success(None)
-    return facade
-
-
-@pytest.fixture
-def mock_update_field_command():
-    """Create mock UpdateFieldCommand."""
-    return Mock()
+    usecases.get_project.return_value = Success(None)
+    usecases.save_project.return_value = Success(None)
+    usecases.export_project.return_value = Success(None)
+    return usecases
 
 
 @pytest.fixture
@@ -106,8 +98,7 @@ def mock_navigation_adapter():
 
 @pytest.fixture
 def viewmodel(
-    mock_project_operations_facade,
-    mock_update_field_command,
+    mock_project_usecases,
     mock_validation_service,
     mock_formula_service,
     mock_control_service,
@@ -117,8 +108,7 @@ def viewmodel(
 ):
     """Create ProjectViewModel instance."""
     return ProjectViewModel(
-        project_operations_facade=mock_project_operations_facade,
-        update_field_command=mock_update_field_command,
+        project_usecases=mock_project_usecases,
         validation_service=mock_validation_service,
         formula_service=mock_formula_service,
         control_service=mock_control_service,
@@ -189,7 +179,7 @@ def test_redo_forwards_to_history_adapter(viewmodel, mock_history_adapter):
 
 
 def test_update_field_uses_field_undo_service(
-    viewmodel, mock_field_undo_service, mock_project_operations_facade
+    viewmodel, mock_field_undo_service, mock_project_usecases
 ):
     """Test: update_field() uses FieldUndoService instead of UpdateFieldCommand."""
     # Setup: Load project first
@@ -203,7 +193,7 @@ def test_update_field_uses_field_undo_service(
         field_count=0,
         is_saved=True,
     )
-    mock_project_operations_facade.get_project.return_value = Success(project_dto)
+    mock_project_usecases.get_project.return_value = Success(project_dto)
 
     # PHASE 6C: load_project now takes string ID
     project_id = str(TEST_PROJECT_UUID)
@@ -236,7 +226,7 @@ def test_update_field_uses_field_undo_service(
 
 
 def test_load_project_clears_undo_stack(
-    viewmodel, mock_history_adapter, mock_project_operations_facade
+    viewmodel, mock_history_adapter, mock_project_usecases
 ):
     """Test: load_project() clears undo/redo stacks."""
     # Mock successful project load
@@ -250,7 +240,7 @@ def test_load_project_clears_undo_stack(
         field_count=0,
         is_saved=True,
     )
-    mock_project_operations_facade.get_project.return_value = Success(project_dto)
+    mock_project_usecases.get_project.return_value = Success(project_dto)
 
     # PHASE 6C: load_project now takes string ID
     project_id = str(TEST_PROJECT_UUID)
@@ -279,7 +269,7 @@ def test_close_project_clears_undo_stack(viewmodel, mock_history_adapter):
 
 
 def test_save_project_does_not_clear_undo_stack(
-    viewmodel, mock_history_adapter, mock_project_operations_facade
+    viewmodel, mock_history_adapter, mock_project_usecases
 ):
     """Test: save_project() does NOT clear undo/redo stacks."""
     # Setup: Load project first
@@ -293,7 +283,7 @@ def test_save_project_does_not_clear_undo_stack(
         field_count=0,
         is_saved=True,
     )
-    mock_project_operations_facade.get_project.return_value = Success(project_dto)
+    mock_project_usecases.get_project.return_value = Success(project_dto)
 
     # PHASE 6C: load_project now takes string ID
     project_id = str(TEST_PROJECT_UUID)
@@ -313,7 +303,7 @@ def test_save_project_does_not_clear_undo_stack(
     mock_history_adapter.clear.reset_mock()
 
     # Mock successful save
-    mock_project_operations_facade.save_project.return_value = Success(None)
+    mock_project_usecases.save_project.return_value = Success(None)
 
     # Save project
     viewmodel.save_project()
@@ -337,7 +327,7 @@ def test_dispose_unsubscribes_from_history_adapter(viewmodel, mock_history_adapt
 
 
 def test_undo_reloads_project_dto(
-    viewmodel, mock_history_adapter, mock_project_operations_facade
+    viewmodel, mock_history_adapter, mock_project_usecases
 ):
     """Test: undo() reloads project DTO after successful undo."""
     # Setup: Load project first
@@ -351,7 +341,7 @@ def test_undo_reloads_project_dto(
         field_count=1,
         is_saved=True,
     )
-    mock_project_operations_facade.get_project.return_value = Success(project_dto)
+    mock_project_usecases.get_project.return_value = Success(project_dto)
 
     # PHASE 6C: load_project now takes string ID
     project_id = str(TEST_PROJECT_UUID)
@@ -367,8 +357,8 @@ def test_undo_reloads_project_dto(
 
     viewmodel.load_project(project_id, entity_def)
 
-    # Reset facade call count
-    mock_project_operations_facade.get_project.reset_mock()
+    # Reset usecases call count
+    mock_project_usecases.get_project.reset_mock()
 
     # Mock successful undo
     mock_history_adapter.undo.return_value = True
@@ -384,19 +374,19 @@ def test_undo_reloads_project_dto(
         field_count=1,
         is_saved=True,
     )
-    mock_project_operations_facade.get_project.return_value = Success(updated_project_dto)
+    mock_project_usecases.get_project.return_value = Success(updated_project_dto)
 
     # Undo
     result = viewmodel.undo()
 
     # Verify project was reloaded
     assert result is True
-    mock_project_operations_facade.get_project.assert_called_once()
+    mock_project_usecases.get_project.assert_called_once()
     assert viewmodel.current_project == updated_project_dto
 
 
 def test_redo_reloads_project_dto(
-    viewmodel, mock_history_adapter, mock_project_operations_facade
+    viewmodel, mock_history_adapter, mock_project_usecases
 ):
     """Test: redo() reloads project DTO after successful redo."""
     # Setup: Load project first
@@ -410,7 +400,7 @@ def test_redo_reloads_project_dto(
         field_count=1,
         is_saved=True,
     )
-    mock_project_operations_facade.get_project.return_value = Success(project_dto)
+    mock_project_usecases.get_project.return_value = Success(project_dto)
 
     # PHASE 6C: load_project now takes string ID
     project_id = str(TEST_PROJECT_UUID)
@@ -426,8 +416,8 @@ def test_redo_reloads_project_dto(
 
     viewmodel.load_project(project_id, entity_def)
 
-    # Reset facade call count
-    mock_project_operations_facade.get_project.reset_mock()
+    # Reset usecases call count
+    mock_project_usecases.get_project.reset_mock()
 
     # Mock successful redo
     mock_history_adapter.redo.return_value = True
@@ -443,12 +433,12 @@ def test_redo_reloads_project_dto(
         field_count=1,
         is_saved=True,
     )
-    mock_project_operations_facade.get_project.return_value = Success(updated_project_dto)
+    mock_project_usecases.get_project.return_value = Success(updated_project_dto)
 
     # Redo
     result = viewmodel.redo()
 
     # Verify project was reloaded
     assert result is True
-    mock_project_operations_facade.get_project.assert_called_once()
+    mock_project_usecases.get_project.assert_called_once()
     assert viewmodel.current_project == updated_project_dto

@@ -1,7 +1,7 @@
 """Schema Designer ViewModel (Phase 2 + Phase 6B + Phase 7).
 
 Manages presentation state for Schema Designer UI.
-Loads entities, fields, validation rules, and relationships from application queries.
+Loads entities, fields, validation rules, and relationships from application use-cases.
 
 Phase 2 Step 1 Scope (COMPLETE):
 - READ-ONLY view of schema
@@ -30,49 +30,38 @@ NOT in scope:
 - No formulas/controls/output mappings display
 - No validation rule creation
 
-ARCHITECTURAL FIX (Clean Architecture Compliance):
-- ViewModel depends ONLY on Application layer (queries, DTOs, OperationResult)
-- NO domain imports (ISchemaRepository, Result, domain IDs, constraints)
-- All domain access goes through GetSchemaEntitiesQuery
+ARCHITECTURE ENFORCEMENT (Rule 0 Compliance):
+- ViewModel depends ONLY on SchemaUseCases (Application layer use-case)
+- NO command imports
+- NO query imports
+- NO repository access (direct or reach-through)
+- NO domain ID unwrapping
+- All orchestration delegated to SchemaUseCases
 """
 
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
+from doc_helper.application.dto.export_dto import ExportResult
 from doc_helper.application.dto.operation_result import OperationResult
-from doc_helper.application.dto.export_dto import ExportResult, ExportWarning
 from doc_helper.application.dto.schema_dto import EntityDefinitionDTO, FieldDefinitionDTO
-from doc_helper.application.queries.schema.get_relationships_query import (
-    GetRelationshipsQuery,
-    RelationshipDTO,
-)
-from doc_helper.application.queries.schema.get_schema_entities_query import (
-    GetSchemaEntitiesQuery,
-)
+from doc_helper.application.queries.schema.get_relationships_query import RelationshipDTO
+from doc_helper.application.usecases.schema_usecases import SchemaUseCases
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
 
 
-# Type alias for relationship creator function (application layer dependency)
-# Signature: (relationship_id, source_entity_id, target_entity_id, relationship_type,
-#             name_key, description_key, inverse_name_key) -> OperationResult
-CreateRelationshipFn = Callable[
-    [str, str, str, str, str, Optional[str], Optional[str]],
-    OperationResult,
-]
-
-
 class SchemaDesignerViewModel(BaseViewModel):
-    """ViewModel for Schema Designer (READ-ONLY).
+    """ViewModel for Schema Designer.
 
     Responsibilities:
-    - Load all entities from application query
+    - Load all entities via use-case
     - Track selected entity and field
     - Provide entity list for UI
     - Provide field list for selected entity
     - Provide validation rules for selected field
 
     Usage:
-        vm = SchemaDesignerViewModel(schema_query, translation_service)
+        vm = SchemaDesignerViewModel(schema_usecases)
         vm.load_entities()
         entities = vm.entities  # List of EntityDefinitionDTO
         vm.select_entity(entity_id)
@@ -80,35 +69,26 @@ class SchemaDesignerViewModel(BaseViewModel):
         vm.select_field(field_id)
         rules = vm.validation_rules  # List of constraint descriptions
 
-    Clean Architecture Note:
-        ViewModel depends ONLY on Application layer components (queries, DTOs).
-        Domain layer types (Result, ISchemaRepository, IDs, constraints) are NOT imported.
+    Architecture Compliance (Rule 0):
+        ViewModel depends ONLY on SchemaUseCases (Application layer).
+        NO commands, queries, or repositories are imported or accessed.
     """
 
     def __init__(
         self,
-        schema_query: GetSchemaEntitiesQuery,
-        translation_service,  # ITranslationService
-        relationship_query: Optional[GetRelationshipsQuery] = None,
-        create_relationship_fn: Optional[CreateRelationshipFn] = None,
+        schema_usecases: SchemaUseCases,
     ) -> None:
         """Initialize Schema Designer ViewModel.
 
         Args:
-            schema_query: Query for loading schema entities (application layer)
-            translation_service: Service for translating labels/descriptions
-            relationship_query: Query for loading relationships (application layer)
-            create_relationship_fn: Function to create relationships (application layer)
+            schema_usecases: Use-case class for all schema operations
 
-        Clean Architecture Note:
-            ViewModel depends only on application-layer components (queries, DTOs).
-            Domain-layer repositories are NOT injected directly.
+        Architecture Compliance (Rule 0):
+            ViewModel receives ONLY use-case class via DI.
+            NO commands, queries, or repositories are injected.
         """
         super().__init__()
-        self._schema_query = schema_query
-        self._translation_service = translation_service
-        self._relationship_query = relationship_query
-        self._create_relationship_fn = create_relationship_fn
+        self._schema_usecases = schema_usecases
 
         # State
         self._entities: tuple[EntityDefinitionDTO, ...] = ()
@@ -165,8 +145,8 @@ class SchemaDesignerViewModel(BaseViewModel):
         if not self._selected_entity_id or not self._selected_field_id:
             return ()
 
-        # Delegate to application layer query (no domain access here)
-        return self._schema_query.get_field_validation_rules(
+        # Delegate to use-case (no domain access here)
+        return self._schema_usecases.get_field_validation_rules(
             self._selected_entity_id,
             self._selected_field_id,
         )
@@ -206,19 +186,18 @@ class SchemaDesignerViewModel(BaseViewModel):
     # -------------------------------------------------------------------------
 
     def load_entities(self) -> bool:
-        """Load all entities from application query.
+        """Load all entities from use-case.
 
         Returns:
             True if load succeeded, False otherwise
         """
-        result = self._schema_query.execute()
-        if result.is_failure():
-            self._error_message = result.error
-            self.notify_change("error_message")
-            return False
+        self._entities = self._schema_usecases.get_all_entities()
 
-        self._entities = result.value
-        self._error_message = None
+        if not self._entities:
+            # Could be empty or error - use-case returns empty tuple on error
+            self._error_message = None  # Don't set error for empty schema
+        else:
+            self._error_message = None
 
         self.notify_change("entities")
         self.notify_change("error_message")
@@ -229,24 +208,12 @@ class SchemaDesignerViewModel(BaseViewModel):
         return True
 
     def load_relationships(self) -> bool:
-        """Load all relationships using query (Phase 6B).
+        """Load all relationships from use-case (Phase 6B).
 
         Returns:
             True if load succeeded, False otherwise
         """
-        if not self._relationship_query:
-            # No query provided, relationships feature disabled
-            self._relationships = ()
-            return True
-
-        result = self._relationship_query.execute()
-
-        if result.is_failure():
-            # Don't fail entirely - just set empty relationships
-            self._relationships = ()
-            return False
-
-        self._relationships = result.value
+        self._relationships = self._schema_usecases.get_all_relationships()
         self.notify_change("relationships")
         self.notify_change("entity_relationships")
         return True
@@ -312,26 +279,18 @@ class SchemaDesignerViewModel(BaseViewModel):
         Returns:
             OperationResult with created entity ID or error message
         """
-        from doc_helper.application.commands.schema.create_entity_command import (
-            CreateEntityCommand,
-        )
-
-        # CreateEntityCommand needs repository - get it from schema_query
-        command = CreateEntityCommand(self._schema_query._schema_repository)
-        result = command.execute(
+        result = self._schema_usecases.create_entity(
             entity_id=entity_id,
             name_key=name_key,
             description_key=description_key,
             is_root_entity=is_root_entity,
-            parent_entity_id=None,  # Simplified for Phase 2 Step 2
         )
 
-        if result.is_success():
+        if result.success:
             # Reload entities to show new entity
             self.load_entities()
-            return OperationResult.ok(result.value.value)  # Return entity ID string
-        else:
-            return OperationResult.fail(result.error)
+
+        return result
 
     def add_field(
         self,
@@ -357,13 +316,7 @@ class SchemaDesignerViewModel(BaseViewModel):
         Returns:
             OperationResult with created field ID or error message
         """
-        from doc_helper.application.commands.schema.add_field_command import (
-            AddFieldCommand,
-        )
-
-        # AddFieldCommand needs repository - get it from schema_query
-        command = AddFieldCommand(self._schema_query._schema_repository)
-        result = command.execute(
+        result = self._schema_usecases.add_field(
             entity_id=entity_id,
             field_id=field_id,
             field_type=field_type,
@@ -373,15 +326,14 @@ class SchemaDesignerViewModel(BaseViewModel):
             default_value=default_value,
         )
 
-        if result.is_success():
+        if result.success:
             # Reload entities to show new field
             self.load_entities()
             # Re-select the entity to update field list
             if self._selected_entity_id == entity_id:
                 self.select_entity(entity_id)
-            return OperationResult.ok(result.value.value)  # Return field ID string
-        else:
-            return OperationResult.fail(result.error)
+
+        return result
 
     # -------------------------------------------------------------------------
     # Phase 6B: Relationship Operations (ADD-ONLY per ADR-022)
@@ -414,17 +366,14 @@ class SchemaDesignerViewModel(BaseViewModel):
         Returns:
             OperationResult with created relationship ID or error message
         """
-        if not self._create_relationship_fn:
-            return OperationResult.fail("Relationship creation not configured")
-
-        result = self._create_relationship_fn(
-            relationship_id,
-            source_entity_id,
-            target_entity_id,
-            relationship_type,
-            name_key,
-            description_key,
-            inverse_name_key,
+        result = self._schema_usecases.create_relationship(
+            relationship_id=relationship_id,
+            source_entity_id=source_entity_id,
+            target_entity_id=target_entity_id,
+            relationship_type=relationship_type,
+            name_key=name_key,
+            description_key=description_key,
+            inverse_name_key=inverse_name_key,
         )
 
         if result.success:
@@ -439,9 +388,7 @@ class SchemaDesignerViewModel(BaseViewModel):
         Returns:
             Tuple of (entity_id, entity_name) pairs
         """
-        return tuple(
-            (entity.id, entity.name) for entity in self._entities
-        )
+        return self._schema_usecases.get_entity_list_for_selection()
 
     # -------------------------------------------------------------------------
     # Phase 7: Export Operations
@@ -455,8 +402,7 @@ class SchemaDesignerViewModel(BaseViewModel):
     ) -> tuple[bool, Optional[ExportResult], Optional[str]]:
         """Export schema to JSON file (Phase 7).
 
-        Calls existing ExportSchemaCommand to export entities, fields,
-        constraints, and relationships to a JSON file.
+        Delegates to SchemaUseCases which handles command execution.
 
         Args:
             schema_id: Identifier for the schema (included in export)
@@ -469,29 +415,16 @@ class SchemaDesignerViewModel(BaseViewModel):
             - export_result: ExportResult with data and warnings (on success)
             - error_message: Error message (on failure)
         """
-        from doc_helper.application.commands.schema.export_schema_command import (
-            ExportSchemaCommand,
-        )
-
-        # Get relationship repository if available
-        relationship_repository = None
-        if self._relationship_query:
-            relationship_repository = self._relationship_query._relationship_repository
-
-        # Create and execute command
-        command = ExportSchemaCommand(
-            self._schema_query._schema_repository,
-            relationship_repository,
-        )
-
-        result = command.execute(
+        return self._schema_usecases.export_schema(
             schema_id=schema_id,
             file_path=file_path,
             version=version,
         )
 
-        if result.is_success():
-            export_result = result.value
-            return (True, export_result, None)
-        else:
-            return (False, None, result.error)
+    def dispose(self) -> None:
+        """Clean up resources."""
+        super().dispose()
+        self._entities = ()
+        self._relationships = ()
+        self._selected_entity_id = None
+        self._selected_field_id = None

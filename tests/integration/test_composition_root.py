@@ -28,6 +28,7 @@ from doc_helper.domain.document.transformer_registry import TransformerRegistry
 from doc_helper.infrastructure.document.word_document_adapter import WordDocumentAdapter
 from doc_helper.infrastructure.document.excel_document_adapter import ExcelDocumentAdapter
 from doc_helper.infrastructure.document.pdf_document_adapter import PdfDocumentAdapter
+from doc_helper.application.usecases.welcome_usecases import WelcomeUseCases
 from doc_helper.presentation.viewmodels.welcome_viewmodel import WelcomeViewModel
 
 
@@ -212,14 +213,12 @@ class TestDependencyWiring:
         assert isinstance(cmd._project_repository, IProjectRepository)
 
     def test_welcome_viewmodel_has_dependencies(self, container):
-        """Test WelcomeViewModel is wired with query and command."""
+        """Test WelcomeViewModel is wired with use-case (Rule 0 compliance)."""
         vm = container.resolve(WelcomeViewModel)
 
-        # ViewModel should have query and command
-        assert vm._get_recent_query is not None
-        assert vm._create_project_command is not None
-        assert isinstance(vm._get_recent_query, GetRecentProjectsQuery)
-        assert isinstance(vm._create_project_command, CreateProjectCommand)
+        # ViewModel should have use-case (NOT direct commands/queries)
+        assert vm._welcome_usecases is not None
+        assert isinstance(vm._welcome_usecases, WelcomeUseCases)
 
     def test_document_generation_service_has_dependencies(self, container):
         """Test DocumentGenerationService is wired with adapters and registry."""

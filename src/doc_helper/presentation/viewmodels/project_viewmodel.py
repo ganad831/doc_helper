@@ -5,25 +5,24 @@ RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md):
 - Domain objects NEVER cross Application boundary
 - Presentation passes string IDs to Application layer
 
-PHASE 6C: Presentation Boundary Normalization
-- Removed TYPE_CHECKING import of ProjectId
-- All domain ID construction now in Application layer
-- ViewModel uses string IDs and Application-layer facades/methods
-
 UNDO/REDO (unified_upgrade_plan_FINAL.md U6 Phase 4):
 - ViewModel uses FieldUndoService instead of UpdateFieldCommand directly
 - ViewModel provides undo(), redo(), can_undo, can_redo for UI binding
 - ViewModel subscribes to HistoryAdapter signals for state change notifications
 - Undo stack cleared on project close/open (NOT on save)
+
+ARCHITECTURE ENFORCEMENT (Rule 0 Compliance):
+- ViewModel depends ONLY on Application layer use-cases and services
+- NO command imports
+- NO query imports
+- NO facade imports
+- NO repository access (direct or reach-through)
+- NO domain ID unwrapping
+- All orchestration delegated to Application layer
 """
 
 from typing import Any, Optional
 
-from doc_helper.application.commands.import_project_command import ImportProjectCommand
-from doc_helper.application.commands.project_operations_facade import (
-    ProjectOperationsFacade,
-)
-from doc_helper.application.commands.update_field_command import UpdateFieldCommand
 from doc_helper.application.dto import (
     EntityDefinitionDTO,
     EvaluationResultDTO,
@@ -36,14 +35,11 @@ from doc_helper.application.dto import (
     ValidationResultDTO,
 )
 from doc_helper.application.mappers import EvaluationResultMapper, ValidationMapper
-from doc_helper.application.queries.get_field_history_query import (
-    GetFieldHistoryQuery,
-)
-from doc_helper.application.queries.search_fields_query import SearchFieldsQuery
 from doc_helper.application.services.control_service import ControlService
 from doc_helper.application.services.field_undo_service import FieldUndoService
 from doc_helper.application.services.formula_service import FormulaService
 from doc_helper.application.services.validation_service import ValidationService
+from doc_helper.application.usecases.project_usecases import ProjectUseCases
 from doc_helper.presentation.adapters.history_adapter import HistoryAdapter
 from doc_helper.presentation.adapters.navigation_adapter import NavigationAdapter
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
@@ -74,48 +70,37 @@ class ProjectViewModel(BaseViewModel):
 
     def __init__(
         self,
-        project_operations_facade: ProjectOperationsFacade,
-        update_field_command: UpdateFieldCommand,
+        project_usecases: ProjectUseCases,
         validation_service: ValidationService,
         formula_service: FormulaService,
         control_service: ControlService,
         field_undo_service: FieldUndoService,
         history_adapter: HistoryAdapter,
         navigation_adapter: NavigationAdapter,
-        search_fields_query: Optional[SearchFieldsQuery] = None,
-        get_field_history_query: Optional[GetFieldHistoryQuery] = None,
-        import_project_command: Optional[ImportProjectCommand] = None,
     ) -> None:
         """Initialize ProjectViewModel.
 
-        PHASE 6C: Now uses ProjectOperationsFacade for get/save/export operations.
-        This removes domain ID construction from Presentation layer.
+        ARCHITECTURE ENFORCEMENT (Rule 0 Compliance):
+            ViewModel receives ONLY Application layer use-cases and services.
+            NO commands, queries, facades, or repositories are injected.
 
         Args:
-            project_operations_facade: Facade for project load/save/export (Phase 6C)
-            update_field_command: Command for updating field values (legacy, use field_undo_service)
+            project_usecases: Use-case class for ALL project operations
             validation_service: Service for validation
             formula_service: Service for formula evaluation
             control_service: Service for control rule evaluation
-            field_undo_service: Undo-enabled field update service (NEW - U6 Phase 4)
-            history_adapter: Qt signal bridge for undo/redo state (NEW - U6 Phase 4)
-            navigation_adapter: Qt signal bridge for navigation state (NEW - U7)
-            search_fields_query: Query for searching fields (ADR-026)
-            get_field_history_query: Query for field history (ADR-027)
-            import_project_command: Command for importing projects (ADR-039)
+            field_undo_service: Undo-enabled field update service (U6 Phase 4)
+            history_adapter: Qt signal bridge for undo/redo state (U6 Phase 4)
+            navigation_adapter: Qt signal bridge for navigation state (U7)
         """
         super().__init__()
-        self._project_operations_facade = project_operations_facade
-        self._update_field_command = update_field_command
+        self._project_usecases = project_usecases
         self._validation_service = validation_service
         self._formula_service = formula_service
         self._control_service = control_service
         self._field_undo_service = field_undo_service
         self._history_adapter = history_adapter
         self._navigation_adapter = navigation_adapter
-        self._search_fields_query = search_fields_query
-        self._get_field_history_query = get_field_history_query
-        self._import_project_command = import_project_command
 
         # Store IDs and DTOs, NOT domain objects
         self._project_id: Optional[str] = None
@@ -226,8 +211,8 @@ class ProjectViewModel(BaseViewModel):
         self.notify_change("error_message")
 
         try:
-            # Use facade which accepts string ID (Phase 6C)
-            result = self._project_operations_facade.get_project(project_id)
+            # Use ProjectUseCases which accepts string ID
+            result = self._project_usecases.get_project(project_id)
 
             if result.is_success():
                 project_dto = result.value
@@ -301,8 +286,8 @@ class ProjectViewModel(BaseViewModel):
             )
 
             if result.is_success():
-                # Reload project DTO to get updated state (Phase 6C: use facade)
-                reload_result = self._project_operations_facade.get_project(
+                # Reload project DTO to get updated state
+                reload_result = self._project_usecases.get_project(
                     self._project_id
                 )
                 if reload_result.is_success() and reload_result.value:
@@ -325,7 +310,7 @@ class ProjectViewModel(BaseViewModel):
     def save_project(self) -> bool:
         """Save current project.
 
-        PHASE 6C: Uses ProjectOperationsFacade which accepts string ID.
+        Uses ProjectUseCases which accepts string ID.
 
         Returns:
             True if saved successfully
@@ -336,8 +321,8 @@ class ProjectViewModel(BaseViewModel):
             return False
 
         try:
-            # Use facade which accepts string ID (Phase 6C)
-            result = self._project_operations_facade.save_project(self._project_id)
+            # Use ProjectUseCases which accepts string ID
+            result = self._project_usecases.save_project(self._project_id)
 
             if result.is_success():
                 self._has_unsaved_changes = False
@@ -438,8 +423,6 @@ class ProjectViewModel(BaseViewModel):
     def undo(self) -> bool:
         """Undo last operation.
 
-        PHASE 6C: Uses ProjectOperationsFacade for reload.
-
         Returns:
             True if undo succeeded, False otherwise
 
@@ -451,8 +434,8 @@ class ProjectViewModel(BaseViewModel):
         success = self._history_adapter.undo()
 
         if success and self._project_id:
-            # Reload project DTO to reflect undone changes (Phase 6C: use facade)
-            reload_result = self._project_operations_facade.get_project(
+            # Reload project DTO to reflect undone changes
+            reload_result = self._project_usecases.get_project(
                 self._project_id
             )
             if reload_result.is_success() and reload_result.value:
@@ -463,8 +446,6 @@ class ProjectViewModel(BaseViewModel):
 
     def redo(self) -> bool:
         """Redo previously undone operation.
-
-        PHASE 6C: Uses ProjectOperationsFacade for reload.
 
         Returns:
             True if redo succeeded, False otherwise
@@ -477,8 +458,8 @@ class ProjectViewModel(BaseViewModel):
         success = self._history_adapter.redo()
 
         if success and self._project_id:
-            # Reload project DTO to reflect redone changes (Phase 6C: use facade)
-            reload_result = self._project_operations_facade.get_project(
+            # Reload project DTO to reflect redone changes
+            reload_result = self._project_usecases.get_project(
                 self._project_id
             )
             if reload_result.is_success() and reload_result.value:
@@ -608,6 +589,10 @@ class ProjectViewModel(BaseViewModel):
         ADR-026: Search Architecture
         Searches field labels, field IDs, and field values.
 
+        Architecture Compliance (Rule 0):
+            Delegates to ProjectUseCases (Application layer).
+            NO direct query access in Presentation.
+
         Args:
             search_term: The search string
 
@@ -615,23 +600,17 @@ class ProjectViewModel(BaseViewModel):
             List of SearchResultDTO instances matching the search term
             Empty list if search not available or no matches found
         """
-        if not self._search_fields_query or not self._project_id:
+        if not self._project_usecases or not self._project_id:
             return []
 
         if not search_term or len(search_term.strip()) < 2:
             return []  # Minimum 2 characters required
 
-        result = self._search_fields_query.execute(
+        return self._project_usecases.search_fields(
             project_id=self._project_id,
             search_term=search_term.strip(),
             limit=100,
         )
-
-        if result.is_success():
-            return result.value
-        else:
-            # Log error but return empty list (don't crash on search failure)
-            return []
 
     def get_field_history(
         self, field_id: str, limit: Optional[int] = 20, offset: int = 0
@@ -641,6 +620,10 @@ class ProjectViewModel(BaseViewModel):
         ADR-027: Field History Storage
         Returns paginated history showing field value changes over time.
 
+        Architecture Compliance (Rule 0):
+            Delegates to ProjectUseCases (Application layer).
+            NO direct query access in Presentation.
+
         Args:
             field_id: The field ID to get history for
             limit: Maximum number of entries to return (default: 20)
@@ -649,20 +632,15 @@ class ProjectViewModel(BaseViewModel):
         Returns:
             FieldHistoryResultDTO with entries, or None if not available
         """
-        if not self._get_field_history_query or not self._project_id:
+        if not self._project_usecases or not self._project_id:
             return None
 
-        result = self._get_field_history_query.execute_for_field(
+        return self._project_usecases.get_field_history(
             project_id=self._project_id,
             field_id=field_id,
             limit=limit,
             offset=offset,
         )
-
-        if result.is_success():
-            return result.value
-        else:
-            return None
 
     # ====================================================
     # IMPORT/EXPORT (ADR-039) - STUBS
@@ -672,7 +650,7 @@ class ProjectViewModel(BaseViewModel):
         """Export current project to interchange format.
 
         ADR-039: Import/Export Data Format
-        PHASE 6C: Uses ProjectOperationsFacade which accepts string ID.
+        Uses ProjectUseCases which accepts string ID.
 
         Args:
             output_file_path: Path where to save the export file
@@ -694,8 +672,8 @@ class ProjectViewModel(BaseViewModel):
                 field_value_count=0,
             )
 
-        # Use facade which accepts string ID (Phase 6C)
-        result = self._project_operations_facade.export_project(
+        # Use ProjectUseCases which accepts string ID
+        result = self._project_usecases.export_project(
             self._project_id, output_file_path
         )
 
@@ -720,6 +698,10 @@ class ProjectViewModel(BaseViewModel):
 
         ADR-039: Import/Export Data Format
 
+        Architecture Compliance (Rule 0):
+            Delegates to ProjectUseCases (Application layer).
+            NO direct command access in Presentation.
+
         Args:
             input_file_path: Path to the import file
 
@@ -730,7 +712,7 @@ class ProjectViewModel(BaseViewModel):
             - On success, the newly imported project is NOT automatically loaded
             - Caller should prompt user to open the imported project
         """
-        if not self._import_project_command:
+        if not self._project_usecases:
             return ImportResultDTO(
                 success=False,
                 project_id="",
@@ -744,24 +726,7 @@ class ProjectViewModel(BaseViewModel):
                 validation_warnings=[],
             )
 
-        # Execute import command
-        result = self._import_project_command.execute(input_file_path)
-
-        if result.is_success():
-            return result.value
-        else:
-            return ImportResultDTO(
-                success=False,
-                project_id="",
-                project_name="",
-                error_message=result.error,
-                format_version="",
-                imported_at="",
-                entity_count=0,
-                record_count=0,
-                field_value_count=0,
-                validation_warnings=[],
-            )
+        return self._project_usecases.import_project(input_file_path)
 
     # ====================================================
 

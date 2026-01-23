@@ -149,6 +149,11 @@ class SchemaDesignerAppType(IAppType):
         Creates the ViewModel and View for the Schema Designer tool.
         The view is returned as a dialog that can be shown by the caller.
 
+        Architecture Compliance (Rule 0):
+            - Creates SchemaUseCases (Application layer use-case)
+            - ViewModel receives ONLY use-case, not queries/commands
+            - All command/query orchestration happens in SchemaUseCases
+
         Args:
             parent: Parent widget for the view
 
@@ -164,9 +169,7 @@ class SchemaDesignerAppType(IAppType):
                 "Call initialize(platform_services) first."
             )
 
-        from doc_helper.application.queries.schema.get_schema_entities_query import (
-            GetSchemaEntitiesQuery,
-        )
+        from doc_helper.application.usecases.schema_usecases import SchemaUseCases
         from doc_helper.presentation.viewmodels.schema_designer_viewmodel import (
             SchemaDesignerViewModel,
         )
@@ -174,16 +177,16 @@ class SchemaDesignerAppType(IAppType):
             SchemaDesignerView,
         )
 
-        # Create application-layer query (Clean Architecture: ViewModel uses query, not repository)
-        schema_query = GetSchemaEntitiesQuery(
+        # Create SchemaUseCases (Rule 0: all command/query orchestration in use-case)
+        schema_usecases = SchemaUseCases(
             schema_repository=self.get_schema_repository(),
+            relationship_repository=None,  # Schema Designer doesn't use relationships
             translation_service=self._platform_services.translation_service,
         )
 
-        # Create ViewModel with query and translation service
+        # Create ViewModel with use-case only (Rule 0 compliant)
         viewmodel = SchemaDesignerViewModel(
-            schema_query=schema_query,
-            translation_service=self._platform_services.translation_service,
+            schema_usecases=schema_usecases,
         )
 
         # Create and return View

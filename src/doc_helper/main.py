@@ -50,6 +50,9 @@ from doc_helper.application.services.formula_service import FormulaService
 from doc_helper.application.services.override_service import OverrideService
 from doc_helper.application.services.translation_service import TranslationApplicationService
 from doc_helper.application.services.validation_service import ValidationService
+from doc_helper.application.usecases.document_usecases import DocumentUseCases
+from doc_helper.application.usecases.project_usecases import ProjectUseCases
+from doc_helper.application.usecases.welcome_usecases import WelcomeUseCases
 from doc_helper.domain.document.document_format import DocumentFormat
 from doc_helper.domain.override.repositories import IOverrideRepository
 from doc_helper.domain.project.field_history_repository import IFieldHistoryRepository
@@ -484,13 +487,55 @@ def configure_container() -> Container:
     # PRESENTATION: ViewModels (Scoped - Per Project Session)
     # ========================================================================
 
+    # WelcomeUseCases (singleton - Application layer use-case)
+    # Rule 0: Presentation receives use-case, not commands/queries
+    container.register_singleton(
+        WelcomeUseCases,
+        lambda: WelcomeUseCases(
+            create_project_command=container.resolve(CreateProjectCommand),
+            get_recent_projects_query=container.resolve(GetRecentProjectsQuery),
+        ),
+    )
+
+    # ProjectUseCases (singleton - Application layer use-case)
+    # Rule 0: Presentation receives use-case, not commands/queries/facades
+    container.register_singleton(
+        ProjectUseCases,
+        lambda: ProjectUseCases(
+            get_project_query=container.resolve(GetProjectQuery),
+            save_project_command=container.resolve(SaveProjectCommand),
+            export_project_command=container.resolve(ExportProjectCommand),
+            import_project_command=container.resolve(ImportProjectCommand),
+            search_fields_query=container.resolve(SearchFieldsQuery),
+            get_field_history_query=container.resolve(GetFieldHistoryQuery),
+        ),
+    )
+
+    # DocumentUseCases (singleton - Application layer use-case)
+    # Rule 0: Presentation receives use-case, not commands/queries/facades
+    from doc_helper.application.commands.generate_document_command import (
+        GenerateDocumentCommand,
+    )
+    container.register_singleton(
+        GenerateDocumentCommand,
+        lambda: GenerateDocumentCommand(
+            document_generation_service=container.resolve(DocumentGenerationService),
+        ),
+    )
+    container.register_singleton(
+        DocumentUseCases,
+        lambda: DocumentUseCases(
+            generate_document_command=container.resolve(GenerateDocumentCommand),
+        ),
+    )
+
     # WelcomeViewModel (singleton - no project context, v2 PHASE 4: AppType-aware)
     # Note: tool_app_types captured from PLATFORM section above
+    # Rule 0: ViewModel depends ONLY on use-case, not commands/queries
     container.register_singleton(
         WelcomeViewModel,
         lambda tool_types=tool_app_types: WelcomeViewModel(
-            get_recent_query=container.resolve(GetRecentProjectsQuery),
-            create_project_command=container.resolve(CreateProjectCommand),
+            welcome_usecases=container.resolve(WelcomeUseCases),
             app_type_registry=container.resolve(AppTypeRegistry),
             app_type_router=container.resolve(IAppTypeRouter),
             tool_app_types=tool_types,

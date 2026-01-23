@@ -1,12 +1,15 @@
-"""Facade for document generation with primitive/DTO parameters.
+"""Document Use Cases (Architecture Enforcement Phase).
 
-This facade wraps GenerateDocumentCommand to accept primitives and DTOs
-instead of domain types, enabling Clean Architecture compliance.
+Application layer use-case class that encapsulates ALL document operations.
 
-ARCHITECTURAL FIX:
-- Presentation layer passes string IDs and DTOs
-- This facade converts to domain types (ProjectId, DocumentFormat)
-- Domain type construction stays in Application layer
+RULE 0 ENFORCEMENT:
+- Presentation ONLY calls use-case methods
+- All domain type construction happens HERE
+- All command/query orchestration happens HERE
+- Returns primitives/DTOs to Presentation (no domain types)
+
+This class wraps:
+- GenerateDocumentCommand (generate document)
 """
 
 from pathlib import Path
@@ -21,41 +24,45 @@ from doc_helper.domain.document.document_format import DocumentFormat
 from doc_helper.domain.project.project_ids import ProjectId
 
 
-class GenerateDocumentFacade:
-    """Facade for document generation accepting primitives/DTOs.
+class DocumentUseCases:
+    """Use-case class for ALL document operations.
 
-    This facade:
-    - Accepts string project_id instead of ProjectId
-    - Accepts DocumentFormatDTO instead of DocumentFormat enum
-    - Converts to domain types before calling the underlying command
-    - Keeps domain type construction in Application layer
+    This class provides a clean boundary between Presentation and Application layers.
 
-    Usage:
-        facade = GenerateDocumentFacade(generate_command)
-        result = facade.execute(
-            project_id="project-123",
-            template_path=Path("template.docx"),
-            output_path=Path("output.docx"),
-            format_dto=DocumentFormatDTO(id="DOCX", name="Word Document", extension=".docx")
-        )
+    RULE 0 COMPLIANCE:
+        - Presentation receives ONLY this use-case class via DI
+        - NO commands, queries, or repositories are exposed
+        - All domain type construction happens internally
+
+    Usage in ViewModel:
+        # ViewModel __init__ receives DocumentUseCases via DI
+        def __init__(self, document_usecases: DocumentUseCases, ...):
+            self._document_usecases = document_usecases
+
+        # ViewModel calls use-case methods with primitives/DTOs
+        def generate(self, project_id: str, ...):
+            return self._document_usecases.generate_document(project_id, ...)
     """
 
-    def __init__(self, command: GenerateDocumentCommand) -> None:
-        """Initialize facade.
+    def __init__(
+        self,
+        generate_document_command: GenerateDocumentCommand,
+    ) -> None:
+        """Initialize DocumentUseCases.
 
         Args:
-            command: Underlying GenerateDocumentCommand
+            generate_document_command: Command for generating documents
         """
-        self._command = command
+        self._generate_document_command = generate_document_command
 
-    def execute(
+    def generate_document(
         self,
         project_id: str,
         template_path: Union[str, Path],
         output_path: Union[str, Path],
         format_dto: DocumentFormatDTO,
     ) -> Result[Path, str]:
-        """Execute document generation with primitive/DTO parameters.
+        """Generate a document with primitive/DTO parameters.
 
         Args:
             project_id: Project ID as string
@@ -81,7 +88,7 @@ class GenerateDocumentFacade:
         domain_format = domain_format_result.value
 
         # Delegate to underlying command
-        return self._command.execute(
+        return self._generate_document_command.execute(
             project_id=domain_project_id,
             template_path=template_path,
             output_path=output_path,

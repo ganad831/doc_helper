@@ -236,10 +236,14 @@ class TestSqliteSchemaRepositoryPhase2Step2:
         assert FieldDefinitionId("field1") in loaded_entity.fields
         assert FieldDefinitionId("field2") in loaded_entity.fields
 
-    def test_save_existing_entity_no_new_fields_failure(
+    def test_save_existing_entity_no_new_fields_updates_existing(
         self, repository: SqliteSchemaRepository
     ) -> None:
-        """Should fail when trying to save existing entity with no new fields."""
+        """Should succeed when saving existing entity with same fields (UPDATE behavior).
+
+        Phase 2 Step 3: save() now supports UPDATE of existing fields.
+        When all fields already exist, they are updated (not rejected).
+        """
         # Create and save initial entity
         entity = EntityDefinition(
             id=EntityDefinitionId("test_entity"),
@@ -267,10 +271,9 @@ class TestSqliteSchemaRepositoryPhase2Step2:
         )
         repository.save(entity)
 
-        # Try to save again with same fields
+        # Save again with same fields - should UPDATE (succeed), not reject
         result = repository.save(entity)
-        assert result.is_failure()
-        assert "no new fields to add" in result.error.lower()
+        assert result.is_success()  # Phase 2 Step 3: UPDATE existing fields is valid
 
     def test_save_existing_entity_with_duplicate_field_ignored(
         self, repository: SqliteSchemaRepository
