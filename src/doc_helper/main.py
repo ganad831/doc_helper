@@ -121,6 +121,9 @@ from doc_helper.infrastructure.persistence.sqlite_schema_repository import (
 from doc_helper.presentation.viewmodels.project_viewmodel import ProjectViewModel
 from doc_helper.presentation.viewmodels.welcome_viewmodel import WelcomeViewModel
 from doc_helper.presentation.views.welcome_view import WelcomeView
+from doc_helper.presentation.adapters.adapter_registration import (
+    register_history_adapter,
+)
 
 # Platform imports (v2 architecture)
 from doc_helper.platform.discovery.app_type_discovery_service import (
@@ -469,12 +472,15 @@ def configure_container() -> Container:
     # APPLICATION: Undo Infrastructure (Singleton - U6 Phase 7)
     # ========================================================================
 
-    # Register undo services: UndoManager, FieldUndoService, OverrideUndoService, HistoryAdapter
+    # Register undo services: UndoManager, FieldUndoService, OverrideUndoService
     register_undo_services(
         container,
         field_service=container.resolve(FieldService),
         override_service=container.resolve(OverrideService),
     )
+
+    # Register HistoryAdapter (Presentation layer - bridges UndoManager to Qt signals)
+    register_history_adapter(container)
 
     # ========================================================================
     # APPLICATION: Navigation Infrastructure (Singleton - U7)
