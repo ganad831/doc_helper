@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from doc_helper.app_types.contracts.app_type_metadata import AppTypeMetadata
+from doc_helper.app_types.contracts.app_type_metadata import AppTypeKind, AppTypeMetadata
 from doc_helper.platform.discovery.manifest_parser import (
     ManifestCapabilities,
     ManifestSchema,
@@ -19,6 +19,7 @@ def create_manifest(
     app_type_id: str,
     name: str = "Test App",
     version: str = "1.0.0",
+    kind: AppTypeKind = AppTypeKind.DOCUMENT,
 ) -> ParsedManifest:
     """Helper to create test manifests."""
     return ParsedManifest(
@@ -26,6 +27,7 @@ def create_manifest(
             app_type_id=app_type_id,
             name=name,
             version=version,
+            kind=kind,
         ),
         schema=ManifestSchema(source="config.db", schema_type="sqlite"),
         templates=ManifestTemplates(),
@@ -303,3 +305,106 @@ class TestRouterWithRegistryChanges:
         assert router.get_current_id() == "test_app"
         assert router.get_current_manifest() is None
         assert router.get_current_metadata() is None
+
+
+class TestLaunchTool:
+    """Tests for launch_tool method."""
+
+    @pytest.fixture
+    def registry_with_tool(self) -> AppTypeRegistry:
+        """Create registry with TOOL and DOCUMENT AppTypes."""
+        registry = AppTypeRegistry()
+        registry.register(
+            create_manifest(
+                "schema_designer",
+                "Schema Designer",
+                "1.0.0",
+                kind=AppTypeKind.TOOL,
+            )
+        )
+        registry.register(
+            create_manifest(
+                "soil_investigation",
+                "Soil Investigation",
+                "1.0.0",
+                kind=AppTypeKind.DOCUMENT,
+            )
+        )
+        return registry
+
+    def test_launch_tool_succeeds_for_tool_apptype(
+        self, registry_with_tool: AppTypeRegistry
+    ) -> None:
+        """launch_tool should succeed for TOOL AppType."""
+        router = AppTypeRouter(registry_with_tool)
+
+        success, error = router.launch_tool("schema_designer")
+
+        assert success is True
+        assert error is None
+
+    def test_launch_tool_sets_current(
+        self, registry_with_tool: AppTypeRegistry
+    ) -> None:
+        """launch_tool should set the tool as current."""
+        router = AppTypeRouter(registry_with_tool)
+
+        router.launch_tool("schema_designer")
+
+        assert router.get_current_id() == "schema_designer"
+
+    def test_launch_tool_fails_for_document_apptype(
+        self, registry_with_tool: AppTypeRegistry
+    ) -> None:
+        """launch_tool should fail for DOCUMENT AppType."""
+        router = AppTypeRouter(registry_with_tool)
+
+        success, error = router.launch_tool("soil_investigation")
+
+        assert success is False
+        assert error is not None
+        assert "not a TOOL" in error
+
+    def test_launch_tool_fails_for_nonexistent(
+        self, registry_with_tool: AppTypeRegistry
+    ) -> None:
+        """launch_tool should fail for nonexistent AppType."""
+        router = AppTypeRouter(registry_with_tool)
+
+        success, error = router.launch_tool("nonexistent")
+
+        assert success is False
+        assert error is not None
+        assert "not found" in error
+
+    def test_launch_tool_does_not_change_current_on_failure(
+        self, registry_with_tool: AppTypeRegistry
+    ) -> None:
+        """launch_tool should not change current on failure."""
+        router = AppTypeRouter(registry_with_tool)
+        router.set_current("soil_investigation")
+
+        router.launch_tool("nonexistent")  # Should fail
+
+        assert router.get_current_id() == "soil_investigation"  # Unchanged
+
+    def test_launch_tool_can_switch_between_tools(
+        self, registry_with_tool: AppTypeRegistry
+    ) -> None:
+        """launch_tool should allow switching between tools."""
+        # Add another tool
+        registry_with_tool.register(
+            create_manifest(
+                "report_builder",
+                "Report Builder",
+                "1.0.0",
+                kind=AppTypeKind.TOOL,
+            )
+        )
+        router = AppTypeRouter(registry_with_tool)
+
+        router.launch_tool("schema_designer")
+        assert router.get_current_id() == "schema_designer"
+
+        router.launch_tool("report_builder")
+        assert router.get_current_id() == "report_builder"

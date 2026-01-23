@@ -1,0 +1,17 @@
+{
+  "id": "schema_designer",
+  "name": "Schema Designer",
+  "version": "1.0.0",
+  "kind": "tool",
+  "description": "Design and edit schema definitions for document types",
+  "schema": {
+    "source": "config.db",
+    "type": "sqlite"
+  },
+  "templates": {},
+  "capabilities": {
+    "supports_pdf_export": false,
+    "supports_excel_export": false,
+    "supports_word_export": false
+  }
+}

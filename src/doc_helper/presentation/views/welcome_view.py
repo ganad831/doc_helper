@@ -13,6 +13,8 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QListWidget,
+    QListWidgetItem,
+    QMenu,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
@@ -59,6 +61,7 @@ class WelcomeView(BaseView):
         self._projects_list: Optional[QListWidget] = None
         self._open_button: Optional[QPushButton] = None
         self._new_button: Optional[QPushButton] = None
+        self._tools_button: Optional[QPushButton] = None
         self._error_label: Optional[QLabel] = None
 
     def _build_ui(self) -> None:
@@ -109,6 +112,11 @@ class WelcomeView(BaseView):
         self._new_button = QPushButton("Create New Project")
         self._new_button.clicked.connect(self._on_create_project)
         buttons_layout.addWidget(self._new_button)
+
+        # Tools button - shows available TOOL AppTypes
+        self._tools_button = QPushButton("Tools")
+        self._tools_button.clicked.connect(self._on_tools_clicked)
+        buttons_layout.addWidget(self._tools_button)
 
         buttons_layout.addStretch()
         main_layout.addLayout(buttons_layout)
@@ -218,6 +226,72 @@ class WelcomeView(BaseView):
         else:
             # Error is already displayed via error_message binding
             pass
+
+    def _on_tools_clicked(self) -> None:
+        """Handle Tools button click.
+
+        Shows a menu of available TOOL AppTypes. Delegates launching
+        to ViewModel which routes through AppTypeRouter.
+        """
+        if not self._tools_button:
+            return
+
+        # Get available TOOL AppTypes from ViewModel
+        tool_app_types = self._viewmodel.get_tool_app_types()
+
+        if not tool_app_types:
+            QMessageBox.information(
+                self._root,
+                "No Tools Available",
+                "No tools are currently available.",
+            )
+            return
+
+        # Create a popup menu with available tools
+        menu = QMenu(self._tools_button)
+
+        for tool in tool_app_types:
+            action = menu.addAction(tool.name)
+            # Store app_type_id in action data
+            action.setData(tool.app_type_id)
+            if tool.description:
+                action.setToolTip(tool.description)
+
+        # Show menu and handle selection
+        action = menu.exec(self._tools_button.mapToGlobal(
+            self._tools_button.rect().bottomLeft()
+        ))
+
+        if action:
+            app_type_id = action.data()
+            self._launch_tool(app_type_id)
+
+    def _launch_tool(self, app_type_id: str) -> None:
+        """Launch a TOOL AppType.
+
+        Delegates to ViewModel, which routes through AppTypeRouter.
+
+        Args:
+            app_type_id: ID of TOOL AppType to launch
+        """
+        success, error = self._viewmodel.launch_tool(app_type_id)
+
+        if success:
+            # TODO: Navigate to tool-specific view
+            # For now, show a message indicating the tool was launched
+            tool_name = app_type_id.replace("_", " ").title()
+            QMessageBox.information(
+                self._root,
+                "Tool Launched",
+                f"{tool_name} has been activated.\n\n"
+                "(Tool view implementation pending)",
+            )
+        else:
+            QMessageBox.warning(
+                self._root,
+                "Launch Failed",
+                f"Could not launch tool: {error}",
+            )
 
     def dispose(self) -> None:
         """Dispose of the view."""

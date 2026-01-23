@@ -4,9 +4,9 @@ Routes operations to the appropriate AppType based on project context.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Tuple
 
-from doc_helper.app_types.contracts.app_type_metadata import AppTypeMetadata
+from doc_helper.app_types.contracts.app_type_metadata import AppTypeKind, AppTypeMetadata
 from doc_helper.platform.discovery.manifest_parser import ParsedManifest
 from doc_helper.platform.registry.interfaces import IAppTypeRegistry
 
@@ -100,6 +100,24 @@ class IAppTypeRouter(ABC):
         """
         pass
 
+    @abstractmethod
+    def launch_tool(self, app_type_id: str) -> Tuple[bool, Optional[str]]:
+        """Launch a TOOL AppType.
+
+        Validates the app_type_id refers to a registered TOOL AppType
+        and sets up context for the tool. The presentation layer
+        handles the actual UI display.
+
+        Args:
+            app_type_id: ID of TOOL AppType to launch
+
+        Returns:
+            Tuple of (success: bool, error_message: str | None)
+            - (True, None) if tool can be launched
+            - (False, "error message") if validation fails
+        """
+        pass
+
 
 class AppTypeRouter(IAppTypeRouter):
     """Router implementation for directing operations to AppTypes.
@@ -190,3 +208,36 @@ class AppTypeRouter(IAppTypeRouter):
             True if app_type_id is registered
         """
         return self._registry.exists(app_type_id)
+
+    def launch_tool(self, app_type_id: str) -> Tuple[bool, Optional[str]]:
+        """Launch a TOOL AppType.
+
+        Validates the app_type_id refers to a registered TOOL AppType
+        and sets up context for the tool.
+
+        Args:
+            app_type_id: ID of TOOL AppType to launch
+
+        Returns:
+            Tuple of (success: bool, error_message: str | None)
+        """
+        # Check if AppType exists
+        if not self._registry.exists(app_type_id):
+            return (False, f"AppType '{app_type_id}' not found")
+
+        # Get metadata to check kind
+        metadata = self._registry.get_metadata(app_type_id)
+        if metadata is None:
+            return (False, f"Could not retrieve metadata for '{app_type_id}'")
+
+        # Verify it's a TOOL AppType
+        if metadata.kind != AppTypeKind.TOOL:
+            return (
+                False,
+                f"AppType '{app_type_id}' is not a TOOL (kind: {metadata.kind.value})",
+            )
+
+        # Set as current (tools can be active context)
+        self._current_app_type_id = app_type_id
+
+        return (True, None)

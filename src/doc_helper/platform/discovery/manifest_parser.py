@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from doc_helper.app_types.contracts.app_type_metadata import AppTypeMetadata
+from doc_helper.app_types.contracts.app_type_metadata import AppTypeKind, AppTypeMetadata
 from doc_helper.domain.common.result import Failure, Result, Success
 from doc_helper.domain.common.value_object import ValueObject
 
@@ -114,6 +114,7 @@ class ManifestParser:
             "id": "soil_investigation",
             "name": "Soil Investigation Report",
             "version": "1.0.0",
+            "kind": "document",
             "description": "Generate professional soil investigation reports",
             "icon": "resources/icon.png",
             "schema": {
@@ -140,6 +141,7 @@ class ManifestParser:
         - schema.type: Schema format (currently only "sqlite")
 
     Optional Fields:
+        - kind: AppType classification ("document" or "tool", defaults to "document")
         - description: Short description for UI display
         - icon: Relative path to icon file
         - templates.*: Template paths
@@ -296,10 +298,19 @@ class ManifestParser:
         self, data: dict[str, Any], manifest_path: Path
     ) -> AppTypeMetadata:
         """Build AppTypeMetadata from manifest data."""
+        # Parse kind field (defaults to DOCUMENT if not specified)
+        kind_str = data.get("kind", "document")
+        try:
+            kind = AppTypeKind.from_string(kind_str)
+        except ValueError:
+            # Default to DOCUMENT for backwards compatibility
+            kind = AppTypeKind.DOCUMENT
+
         return AppTypeMetadata(
             app_type_id=str(data.get("id", "")),
             name=str(data.get("name", "")),
             version=str(data.get("version", "")),
+            kind=kind,
             description=data.get("description"),
             icon_path=data.get("icon"),
         )

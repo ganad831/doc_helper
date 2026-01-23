@@ -14,6 +14,7 @@ from doc_helper.application.commands.create_project_command import CreateProject
 from doc_helper.application.dto import ProjectSummaryDTO, AppTypeDTO
 from doc_helper.application.queries.get_project_query import GetRecentProjectsQuery
 from doc_helper.platform.registry.interfaces import IAppTypeRegistry
+from doc_helper.platform.routing.app_type_router import IAppTypeRouter
 # Domain imports moved to local scope to comply with DTO-only MVVM rule
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
 
@@ -45,6 +46,7 @@ class WelcomeViewModel(BaseViewModel):
         get_recent_query: GetRecentProjectsQuery,
         create_project_command: CreateProjectCommand,
         app_type_registry: IAppTypeRegistry,
+        app_type_router: Optional[IAppTypeRouter] = None,
     ) -> None:
         """Initialize WelcomeViewModel.
 
@@ -52,11 +54,13 @@ class WelcomeViewModel(BaseViewModel):
             get_recent_query: Query for getting recent projects
             create_project_command: Command for creating new projects
             app_type_registry: Registry for available AppTypes
+            app_type_router: Router for launching AppTypes (optional for backwards compat)
         """
         super().__init__()
         self._get_recent_query = get_recent_query
         self._create_project_command = create_project_command
         self._app_type_registry = app_type_registry
+        self._app_type_router = app_type_router
 
         self._recent_projects: list[ProjectSummaryDTO] = []
         self._is_loading = False
@@ -131,9 +135,75 @@ class WelcomeViewModel(BaseViewModel):
             self.notify_change("error_message")
 
     def get_available_app_types(self) -> list[AppTypeDTO]:
-        """Get list of available AppTypes.
+        """Get list of available DOCUMENT AppTypes.
 
         v2 PHASE 4: Returns AppType metadata for UI display.
+        Only returns DOCUMENT AppTypes (for "Create New Project").
+        TOOL AppTypes are accessed via get_tool_app_types().
+
+        Returns:
+            List of AppTypeDTO objects containing metadata (DOCUMENT only)
+        """
+        return [
+            dto for dto in self._get_all_app_types()
+            if dto.is_document
+        ]
+
+    def get_tool_app_types(self) -> list[AppTypeDTO]:
+        """Get list of available TOOL AppTypes.
+
+        Returns AppType metadata for TOOL AppTypes (Schema Designer, etc.)
+        that should be shown in the "Tools" section.
+
+        Returns:
+            List of AppTypeDTO objects containing metadata (TOOL only)
+        """
+        return [
+            dto for dto in self._get_all_app_types()
+            if dto.is_tool
+        ]
+
+    def has_tool_app_types(self) -> bool:
+        """Check if any TOOL AppTypes are available.
+
+        Returns:
+            True if at least one TOOL AppType is registered
+        """
+        return len(self.get_tool_app_types()) > 0
+
+    def launch_tool(self, app_type_id: str) -> tuple[bool, Optional[str]]:
+        """Launch a TOOL AppType.
+
+        Delegates to AppTypeRouter to validate and set up context.
+        The View should use the result to navigate to the appropriate UI.
+
+        Args:
+            app_type_id: ID of TOOL AppType to launch
+
+        Returns:
+            Tuple of (success: bool, error_message: str | None)
+            - (True, None) if tool can be launched
+            - (False, "error message") if validation fails
+        """
+        if self._app_type_router is None:
+            self._error_message = "AppType router not configured"
+            self.notify_change("error_message")
+            return (False, self._error_message)
+
+        success, error = self._app_type_router.launch_tool(app_type_id)
+
+        if not success:
+            self._error_message = error
+            self.notify_change("error_message")
+            return (False, error)
+
+        # Clear any previous error on success
+        self._error_message = None
+        self.notify_change("error_message")
+        return (True, None)
+
+    def _get_all_app_types(self) -> list[AppTypeDTO]:
+        """Get list of ALL registered AppTypes (internal).
 
         Returns:
             List of AppTypeDTO objects containing metadata
@@ -149,6 +219,7 @@ class WelcomeViewModel(BaseViewModel):
                             name=manifest.metadata.name,
                             version=manifest.metadata.version,
                             description=manifest.metadata.description,
+                            kind=manifest.metadata.kind.value,
                         )
                     )
             return app_types

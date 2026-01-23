@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from doc_helper.app_types.contracts.app_type_metadata import AppTypeKind
 from doc_helper.domain.common.result import Failure, Success
 from doc_helper.platform.discovery.manifest_parser import (
     ManifestParseError,
@@ -342,3 +343,90 @@ class TestManifestParseError:
         """Error without path should still have message."""
         error = ManifestParseError("Invalid field")
         assert "Invalid field" in str(error)
+
+
+class TestManifestParserKindField:
+    """Tests for parsing the 'kind' field in manifests."""
+
+    @pytest.fixture
+    def parser(self) -> ManifestParser:
+        """Create parser instance."""
+        return ManifestParser()
+
+    def test_parse_document_kind(self, parser: ManifestParser) -> None:
+        """Manifest with kind='document' should parse as DOCUMENT."""
+        manifest = {
+            "id": "test_app",
+            "name": "Test App",
+            "version": "1.0.0",
+            "kind": "document",
+            "schema": {"source": "db", "type": "sqlite"},
+        }
+        result = parser.parse_string(json.dumps(manifest))
+
+        assert isinstance(result, Success)
+        assert result.value.metadata.kind == AppTypeKind.DOCUMENT
+        assert result.value.metadata.is_document is True
+        assert result.value.metadata.is_tool is False
+
+    def test_parse_tool_kind(self, parser: ManifestParser) -> None:
+        """Manifest with kind='tool' should parse as TOOL."""
+        manifest = {
+            "id": "schema_designer",
+            "name": "Schema Designer",
+            "version": "1.0.0",
+            "kind": "tool",
+            "schema": {"source": "db", "type": "sqlite"},
+        }
+        result = parser.parse_string(json.dumps(manifest))
+
+        assert isinstance(result, Success)
+        assert result.value.metadata.kind == AppTypeKind.TOOL
+        assert result.value.metadata.is_tool is True
+        assert result.value.metadata.is_document is False
+
+    def test_parse_missing_kind_defaults_to_document(
+        self, parser: ManifestParser
+    ) -> None:
+        """Manifest without 'kind' field should default to DOCUMENT."""
+        manifest = {
+            "id": "test_app",
+            "name": "Test App",
+            "version": "1.0.0",
+            "schema": {"source": "db", "type": "sqlite"},
+        }
+        result = parser.parse_string(json.dumps(manifest))
+
+        assert isinstance(result, Success)
+        assert result.value.metadata.kind == AppTypeKind.DOCUMENT
+
+    def test_parse_kind_case_insensitive(self, parser: ManifestParser) -> None:
+        """Kind field parsing should be case-insensitive."""
+        manifest = {
+            "id": "test_app",
+            "name": "Test App",
+            "version": "1.0.0",
+            "kind": "TOOL",
+            "schema": {"source": "db", "type": "sqlite"},
+        }
+        result = parser.parse_string(json.dumps(manifest))
+
+        assert isinstance(result, Success)
+        assert result.value.metadata.kind == AppTypeKind.TOOL
+
+    def test_parse_invalid_kind_defaults_to_document(
+        self, parser: ManifestParser
+    ) -> None:
+        """Invalid kind value should default to DOCUMENT."""
+        manifest = {
+            "id": "test_app",
+            "name": "Test App",
+            "version": "1.0.0",
+            "kind": "invalid_kind",
+            "schema": {"source": "db", "type": "sqlite"},
+        }
+        result = parser.parse_string(json.dumps(manifest))
+
+        # Invalid kind should still parse, defaulting to DOCUMENT
+        assert isinstance(result, Success)
+        assert result.value.metadata.kind == AppTypeKind.DOCUMENT

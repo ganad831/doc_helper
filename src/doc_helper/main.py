@@ -468,6 +468,7 @@ def configure_container() -> Container:
             get_recent_query=container.resolve(GetRecentProjectsQuery),
             create_project_command=container.resolve(CreateProjectCommand),
             app_type_registry=container.resolve(AppTypeRegistry),
+            app_type_router=container.resolve(IAppTypeRouter),
         ),
     )
 
