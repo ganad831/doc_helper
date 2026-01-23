@@ -20,8 +20,11 @@ from doc_helper.infrastructure.persistence.sqlite_schema_repository import (
 )
 
 if TYPE_CHECKING:
+    from PyQt6.QtWidgets import QWidget
+
     from doc_helper.app_types.contracts.i_platform_services import IPlatformServices
     from doc_helper.domain.document.transformer_registry import TransformerRegistry
+    from doc_helper.presentation.views.schema_designer_view import SchemaDesignerView
 
 
 # Default app_type_id
@@ -83,19 +86,15 @@ class SchemaDesignerAppType(IAppType):
     def get_schema_repository(self) -> ISchemaRepository:
         """Get schema repository for this AppType.
 
-        For Schema Designer, this returns a repository pointing to
-        the default schema database. In production, this would be
-        configurable to point to any AppType's schema.
+        Returns its own schema repository pointing to config.db.
+        Schema Designer uses a meta-schema that describes schema structure.
 
         Returns:
-            SqliteSchemaRepository pointing to config.db
+            SqliteSchemaRepository pointing to this AppType's config.db
         """
         if self._schema_repository is None:
-            # Default to soil_investigation schema for now
-            # TODO: Make configurable to edit any AppType's schema
-            from doc_helper.app_types.soil_investigation import SoilInvestigationAppType
-            soil_app = SoilInvestigationAppType()
-            self._schema_repository = soil_app.get_schema_repository()
+            config_db_path = self._package_dir / "config.db"
+            self._schema_repository = SqliteSchemaRepository(db_path=config_db_path)
         return self._schema_repository
 
     def set_schema_repository(self, repository: ISchemaRepository) -> None:
@@ -143,6 +142,43 @@ class SchemaDesignerAppType(IAppType):
             None (TOOL AppTypes don't have templates)
         """
         return None
+
+    def create_view(self, parent: "Optional[QWidget]" = None) -> "SchemaDesignerView":
+        """Create and return the Schema Designer view.
+
+        Creates the ViewModel and View for the Schema Designer tool.
+        The view is returned as a dialog that can be shown by the caller.
+
+        Args:
+            parent: Parent widget for the view
+
+        Returns:
+            SchemaDesignerView instance ready to be shown
+
+        Raises:
+            RuntimeError: If AppType not initialized with platform services
+        """
+        if self._platform_services is None:
+            raise RuntimeError(
+                "SchemaDesignerAppType must be initialized before creating view. "
+                "Call initialize(platform_services) first."
+            )
+
+        from doc_helper.presentation.viewmodels.schema_designer_viewmodel import (
+            SchemaDesignerViewModel,
+        )
+        from doc_helper.presentation.views.schema_designer_view import (
+            SchemaDesignerView,
+        )
+
+        # Create ViewModel with schema repository and translation service
+        viewmodel = SchemaDesignerViewModel(
+            schema_repository=self.get_schema_repository(),
+            translation_service=self._platform_services.translation_service,
+        )
+
+        # Create and return View
+        return SchemaDesignerView(viewmodel=viewmodel, parent=parent)
 
 
 # Export for convenient import

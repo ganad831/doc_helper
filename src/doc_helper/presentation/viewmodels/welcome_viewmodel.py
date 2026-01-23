@@ -8,7 +8,7 @@ v2 PHASE 4: AppType-aware project creation.
 Exposes available AppTypes to UI for selection during project creation.
 """
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from doc_helper.application.commands.create_project_command import CreateProjectCommand
 from doc_helper.application.dto import ProjectSummaryDTO, AppTypeDTO
@@ -17,6 +17,11 @@ from doc_helper.platform.registry.interfaces import IAppTypeRegistry
 from doc_helper.platform.routing.app_type_router import IAppTypeRouter
 # Domain imports moved to local scope to comply with DTO-only MVVM rule
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
+
+if TYPE_CHECKING:
+    from PyQt6.QtWidgets import QWidget
+
+    from doc_helper.app_types.contracts.i_app_type import IAppType
 
 
 class WelcomeViewModel(BaseViewModel):
@@ -47,6 +52,7 @@ class WelcomeViewModel(BaseViewModel):
         create_project_command: CreateProjectCommand,
         app_type_registry: IAppTypeRegistry,
         app_type_router: Optional[IAppTypeRouter] = None,
+        tool_app_types: Optional[dict[str, "IAppType"]] = None,
     ) -> None:
         """Initialize WelcomeViewModel.
 
@@ -55,12 +61,14 @@ class WelcomeViewModel(BaseViewModel):
             create_project_command: Command for creating new projects
             app_type_registry: Registry for available AppTypes
             app_type_router: Router for launching AppTypes (optional for backwards compat)
+            tool_app_types: Dictionary of initialized TOOL AppType instances (keyed by app_type_id)
         """
         super().__init__()
         self._get_recent_query = get_recent_query
         self._create_project_command = create_project_command
         self._app_type_registry = app_type_registry
         self._app_type_router = app_type_router
+        self._tool_app_types: dict[str, "IAppType"] = tool_app_types or {}
 
         self._recent_projects: list[ProjectSummaryDTO] = []
         self._is_loading = False
@@ -201,6 +209,42 @@ class WelcomeViewModel(BaseViewModel):
         self._error_message = None
         self.notify_change("error_message")
         return (True, None)
+
+    def get_tool_view(
+        self,
+        app_type_id: str,
+        parent: "Optional[QWidget]" = None,
+    ) -> "Optional[QWidget]":
+        """Get the view for a TOOL AppType.
+
+        Creates and returns the view for the specified tool. The tool
+        must have been successfully launched via launch_tool() first.
+
+        Args:
+            app_type_id: ID of TOOL AppType
+            parent: Parent widget for the view
+
+        Returns:
+            View widget for the tool, or None if tool not available
+        """
+        tool_app_type = self._tool_app_types.get(app_type_id)
+        if tool_app_type is None:
+            self._error_message = f"Tool '{app_type_id}' is not registered"
+            self.notify_change("error_message")
+            return None
+
+        # Check if tool has create_view method (TOOL AppTypes should have this)
+        if not hasattr(tool_app_type, "create_view"):
+            self._error_message = f"Tool '{app_type_id}' does not support view creation"
+            self.notify_change("error_message")
+            return None
+
+        try:
+            return tool_app_type.create_view(parent)
+        except Exception as e:
+            self._error_message = f"Failed to create tool view: {str(e)}"
+            self.notify_change("error_message")
+            return None
 
     def _get_all_app_types(self) -> list[AppTypeDTO]:
         """Get list of ALL registered AppTypes (internal).

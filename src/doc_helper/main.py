@@ -123,6 +123,7 @@ from doc_helper.presentation.views.welcome_view import WelcomeView
 from doc_helper.platform.discovery.app_type_discovery_service import (
     AppTypeDiscoveryService,
 )
+from doc_helper.platform.platform_services import PlatformServices
 from doc_helper.platform.registry.app_type_registry import AppTypeRegistry
 from doc_helper.platform.routing.app_type_router import AppTypeRouter, IAppTypeRouter
 
@@ -131,6 +132,7 @@ from doc_helper.app_types.soil_investigation import (
     SoilInvestigationAppType,
     DEFAULT_APP_TYPE_ID,
 )
+from doc_helper.app_types.schema_designer import SchemaDesignerAppType
 
 
 def configure_container() -> Container:
@@ -304,6 +306,27 @@ def configure_container() -> Container:
     container.register_instance(TransformerRegistry, transformer_registry)
 
     # ========================================================================
+    # PLATFORM: TOOL AppType Initialization
+    # ========================================================================
+
+    # Create PlatformServices for AppType initialization
+    # Note: ITranslationService must be resolved (registered above)
+    translation_service = container.resolve(ITranslationService)
+    platform_services = PlatformServices(
+        translation_service=translation_service,
+        transformer_registry=transformer_registry,
+    )
+
+    # Initialize TOOL AppTypes that need to be accessible from WelcomeView
+    schema_designer_app_type = SchemaDesignerAppType()
+    schema_designer_app_type.initialize(platform_services)
+
+    # Store initialized tool AppTypes for WelcomeViewModel
+    tool_app_types: dict[str, object] = {
+        schema_designer_app_type.app_type_id: schema_designer_app_type,
+    }
+
+    # ========================================================================
     # APPLICATION: Services (Singleton - Stateless)
     # ========================================================================
 
@@ -462,13 +485,15 @@ def configure_container() -> Container:
     # ========================================================================
 
     # WelcomeViewModel (singleton - no project context, v2 PHASE 4: AppType-aware)
+    # Note: tool_app_types captured from PLATFORM section above
     container.register_singleton(
         WelcomeViewModel,
-        lambda: WelcomeViewModel(
+        lambda tool_types=tool_app_types: WelcomeViewModel(
             get_recent_query=container.resolve(GetRecentProjectsQuery),
             create_project_command=container.resolve(CreateProjectCommand),
             app_type_registry=container.resolve(AppTypeRegistry),
             app_type_router=container.resolve(IAppTypeRouter),
+            tool_app_types=tool_types,
         ),
     )
 

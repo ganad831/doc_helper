@@ -274,3 +274,156 @@ class TestWelcomeViewModelLaunchTool:
         assert success is False
         assert error is not None
         assert "not configured" in error
+
+
+class TestWelcomeViewModelGetToolView:
+    """Tests for get_tool_view in WelcomeViewModel."""
+
+    @pytest.fixture
+    def mock_recent_query(self) -> MagicMock:
+        """Create mock GetRecentProjectsQuery."""
+        return MagicMock(spec=GetRecentProjectsQuery)
+
+    @pytest.fixture
+    def mock_create_command(self) -> MagicMock:
+        """Create mock CreateProjectCommand."""
+        return MagicMock(spec=CreateProjectCommand)
+
+    @pytest.fixture
+    def registry(self) -> AppTypeRegistry:
+        """Create registry."""
+        registry = AppTypeRegistry()
+        registry.register(
+            create_manifest("schema_designer", "Schema Designer", AppTypeKind.TOOL)
+        )
+        return registry
+
+    @pytest.fixture
+    def router(self, registry: AppTypeRegistry) -> AppTypeRouter:
+        """Create router with registry."""
+        return AppTypeRouter(registry)
+
+    @pytest.fixture
+    def mock_tool_app_type(self) -> MagicMock:
+        """Create mock tool AppType with create_view method."""
+        mock_app_type = MagicMock()
+        mock_view = MagicMock()
+        mock_app_type.create_view.return_value = mock_view
+        return mock_app_type
+
+    def test_get_tool_view_returns_view_from_registered_tool(
+        self,
+        mock_recent_query: MagicMock,
+        mock_create_command: MagicMock,
+        registry: AppTypeRegistry,
+        router: AppTypeRouter,
+        mock_tool_app_type: MagicMock,
+    ) -> None:
+        """get_tool_view should return view from registered tool AppType."""
+        tool_app_types = {"schema_designer": mock_tool_app_type}
+        viewmodel = WelcomeViewModel(
+            get_recent_query=mock_recent_query,
+            create_project_command=mock_create_command,
+            app_type_registry=registry,
+            app_type_router=router,
+            tool_app_types=tool_app_types,
+        )
+
+        view = viewmodel.get_tool_view("schema_designer")
+
+        assert view is not None
+        mock_tool_app_type.create_view.assert_called_once()
+
+    def test_get_tool_view_returns_none_for_unregistered_tool(
+        self,
+        mock_recent_query: MagicMock,
+        mock_create_command: MagicMock,
+        registry: AppTypeRegistry,
+        router: AppTypeRouter,
+    ) -> None:
+        """get_tool_view should return None for unregistered tool."""
+        viewmodel = WelcomeViewModel(
+            get_recent_query=mock_recent_query,
+            create_project_command=mock_create_command,
+            app_type_registry=registry,
+            app_type_router=router,
+            tool_app_types={},  # No tools registered
+        )
+
+        view = viewmodel.get_tool_view("schema_designer")
+
+        assert view is None
+        assert viewmodel.error_message is not None
+        assert "not registered" in viewmodel.error_message
+
+    def test_get_tool_view_passes_parent_to_create_view(
+        self,
+        mock_recent_query: MagicMock,
+        mock_create_command: MagicMock,
+        registry: AppTypeRegistry,
+        router: AppTypeRouter,
+        mock_tool_app_type: MagicMock,
+    ) -> None:
+        """get_tool_view should pass parent widget to create_view."""
+        tool_app_types = {"schema_designer": mock_tool_app_type}
+        viewmodel = WelcomeViewModel(
+            get_recent_query=mock_recent_query,
+            create_project_command=mock_create_command,
+            app_type_registry=registry,
+            app_type_router=router,
+            tool_app_types=tool_app_types,
+        )
+        mock_parent = MagicMock()
+
+        viewmodel.get_tool_view("schema_designer", parent=mock_parent)
+
+        mock_tool_app_type.create_view.assert_called_once_with(mock_parent)
+
+    def test_get_tool_view_handles_create_view_exception(
+        self,
+        mock_recent_query: MagicMock,
+        mock_create_command: MagicMock,
+        registry: AppTypeRegistry,
+        router: AppTypeRouter,
+    ) -> None:
+        """get_tool_view should handle exception from create_view."""
+        mock_app_type = MagicMock()
+        mock_app_type.create_view.side_effect = RuntimeError("Not initialized")
+        tool_app_types = {"schema_designer": mock_app_type}
+        viewmodel = WelcomeViewModel(
+            get_recent_query=mock_recent_query,
+            create_project_command=mock_create_command,
+            app_type_registry=registry,
+            app_type_router=router,
+            tool_app_types=tool_app_types,
+        )
+
+        view = viewmodel.get_tool_view("schema_designer")
+
+        assert view is None
+        assert viewmodel.error_message is not None
+        assert "Failed to create tool view" in viewmodel.error_message
+
+    def test_get_tool_view_returns_none_for_tool_without_create_view(
+        self,
+        mock_recent_query: MagicMock,
+        mock_create_command: MagicMock,
+        registry: AppTypeRegistry,
+        router: AppTypeRouter,
+    ) -> None:
+        """get_tool_view should return None for tool without create_view method."""
+        mock_app_type = MagicMock(spec=[])  # No methods
+        tool_app_types = {"schema_designer": mock_app_type}
+        viewmodel = WelcomeViewModel(
+            get_recent_query=mock_recent_query,
+            create_project_command=mock_create_command,
+            app_type_registry=registry,
+            app_type_router=router,
+            tool_app_types=tool_app_types,
+        )
+
+        view = viewmodel.get_tool_view("schema_designer")
+
+        assert view is None
+        assert viewmodel.error_message is not None
+        assert "does not support view creation" in viewmodel.error_message

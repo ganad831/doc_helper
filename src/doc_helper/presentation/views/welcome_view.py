@@ -269,29 +269,40 @@ class WelcomeView(BaseView):
     def _launch_tool(self, app_type_id: str) -> None:
         """Launch a TOOL AppType.
 
-        Delegates to ViewModel, which routes through AppTypeRouter.
+        Delegates to ViewModel, which routes through AppTypeRouter,
+        then creates and shows the tool's view.
 
         Args:
             app_type_id: ID of TOOL AppType to launch
         """
         success, error = self._viewmodel.launch_tool(app_type_id)
 
-        if success:
-            # TODO: Navigate to tool-specific view
-            # For now, show a message indicating the tool was launched
-            tool_name = app_type_id.replace("_", " ").title()
-            QMessageBox.information(
-                self._root,
-                "Tool Launched",
-                f"{tool_name} has been activated.\n\n"
-                "(Tool view implementation pending)",
-            )
-        else:
+        if not success:
             QMessageBox.warning(
                 self._root,
                 "Launch Failed",
                 f"Could not launch tool: {error}",
             )
+            return
+
+        # Get the tool view from ViewModel
+        tool_view = self._viewmodel.get_tool_view(app_type_id, self._root)
+
+        if tool_view is None:
+            error_msg = self._viewmodel.error_message or "Unknown error"
+            QMessageBox.warning(
+                self._root,
+                "View Creation Failed",
+                f"Could not create tool view: {error_msg}",
+            )
+            return
+
+        # Show the tool view as a modal dialog
+        if isinstance(tool_view, QDialog):
+            tool_view.exec()
+        else:
+            # For non-dialog views, show as a window
+            tool_view.show()
 
     def dispose(self) -> None:
         """Dispose of the view."""
