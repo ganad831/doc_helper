@@ -17,9 +17,12 @@ Phase 2 Step 2 Scope (CURRENT):
 - Add fields to existing entities
 
 Phase 5: UX Polish & Onboarding
-- Persistent header subtitle (dismissible per session)
-- Empty state messaging for entity and field lists
-- Tooltips for toolbar buttons
+- Step 1: Persistent header subtitle (dismissible per session)
+- Step 1: Empty state messaging for entity and field lists
+- Step 1: Tooltips for toolbar buttons
+- Step 2: First-launch welcome dialog (permanently dismissible)
+- Step 2: "What is this?" help access point
+- Step 2: Static help dialog
 
 NOT in current scope:
 - No edit/delete buttons
@@ -112,10 +115,36 @@ class SchemaDesignerView(BaseView):
         # Main layout
         main_layout = QVBoxLayout(dialog)
 
-        # Title label
+        # Title row with help link
+        title_layout = QHBoxLayout()
+
         title_label = QLabel("Schema Designer - Create Entities & Fields")
         title_label.setStyleSheet("font-size: 14pt; font-weight: bold; padding: 10px;")
-        main_layout.addWidget(title_label)
+        title_layout.addWidget(title_label)
+
+        title_layout.addStretch()
+
+        # Phase 5 Step 2: "What is this?" help access point
+        help_link = QPushButton("What is this?")
+        help_link.setFlat(True)
+        help_link.setCursor(Qt.CursorShape.PointingHandCursor)
+        help_link.setStyleSheet(
+            "QPushButton { "
+            "color: #4299e1; "
+            "text-decoration: underline; "
+            "border: none; "
+            "padding: 10px; "
+            "font-size: 9pt; "
+            "} "
+            "QPushButton:hover { "
+            "color: #2b6cb0; "
+            "}"
+        )
+        help_link.setToolTip("Learn more about Schema Designer")
+        help_link.clicked.connect(self._on_help_clicked)
+        title_layout.addWidget(help_link)
+
+        main_layout.addLayout(title_layout)
 
         # Phase 5: Persistent header subtitle (dismissible per session)
         self._subtitle_frame = self._create_subtitle_frame()
@@ -170,6 +199,21 @@ class SchemaDesignerView(BaseView):
 
         # Load entities
         self._load_entities()
+
+        # Phase 5 Step 2: Show welcome dialog on first launch
+        self._show_welcome_if_first_launch()
+
+    def _show_welcome_if_first_launch(self) -> None:
+        """Show the welcome dialog if this is the first launch.
+
+        Uses QSettings to persist the "don't show again" preference.
+        Phase 5 Step 2: Onboarding only, no business logic.
+        """
+        from doc_helper.presentation.dialogs.schema_designer_welcome_dialog import (
+            SchemaDesignerWelcomeDialog,
+        )
+
+        SchemaDesignerWelcomeDialog.show_if_first_launch(self._root)
 
     def _create_entity_panel(self) -> QWidget:
         """Create the entity list panel.
@@ -391,6 +435,18 @@ class SchemaDesignerView(BaseView):
         self._subtitle_dismissed = True
         if self._subtitle_frame:
             self._subtitle_frame.setVisible(False)
+
+    def _on_help_clicked(self) -> None:
+        """Handle 'What is this?' help link click.
+
+        Opens the static help dialog explaining Schema Designer.
+        Phase 5 Step 2: Navigation only, no business logic.
+        """
+        from doc_helper.presentation.dialogs.schema_designer_help_dialog import (
+            SchemaDesignerHelpDialog,
+        )
+
+        SchemaDesignerHelpDialog.show_help(self._root)
 
     # -------------------------------------------------------------------------
     # Event Handlers (User Interactions)

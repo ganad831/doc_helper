@@ -10,6 +10,12 @@ from doc_helper.presentation.dialogs.pre_generation_checklist_dialog import (
 from doc_helper.presentation.dialogs.search_dialog import SearchDialog
 from doc_helper.presentation.dialogs.field_history_dialog import FieldHistoryDialog
 from doc_helper.presentation.dialogs.import_export_dialog import ImportExportDialog
+from doc_helper.presentation.dialogs.schema_designer_help_dialog import (
+    SchemaDesignerHelpDialog,
+)
+from doc_helper.presentation.dialogs.schema_designer_welcome_dialog import (
+    SchemaDesignerWelcomeDialog,
+)
 
 __all__ = [
     "SettingsDialog",
@@ -20,4 +26,6 @@ __all__ = [
     "SearchDialog",
     "FieldHistoryDialog",
     "ImportExportDialog",
+    "SchemaDesignerHelpDialog",
+    "SchemaDesignerWelcomeDialog",
 ]
