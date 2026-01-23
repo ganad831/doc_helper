@@ -34,10 +34,10 @@ from doc_helper.application.commands.schema.export_schema_command import (
 )
 from doc_helper.application.dto.export_dto import ExportResult
 from doc_helper.application.dto.operation_result import OperationResult
+from doc_helper.application.dto.relationship_dto import RelationshipDTO
 from doc_helper.application.dto.schema_dto import EntityDefinitionDTO
 from doc_helper.application.queries.schema.get_relationships_query import (
     GetRelationshipsQuery,
-    RelationshipDTO,
 )
 from doc_helper.application.queries.schema.get_schema_entities_query import (
     GetSchemaEntitiesQuery,

@@ -3,30 +3,13 @@
 Query for retrieving relationship definitions from the schema.
 """
 
-from dataclasses import dataclass
 from typing import Optional
 
+from doc_helper.application.dto.relationship_dto import RelationshipDTO
 from doc_helper.domain.common.result import Result, Success, Failure
 from doc_helper.domain.schema.relationship_definition import RelationshipDefinition
 from doc_helper.domain.schema.relationship_repository import IRelationshipRepository
 from doc_helper.domain.schema.schema_ids import EntityDefinitionId
-
-
-@dataclass(frozen=True)
-class RelationshipDTO:
-    """Data Transfer Object for relationship information.
-
-    Provides a simple, serializable representation of a relationship
-    for use in application and presentation layers.
-    """
-
-    id: str
-    source_entity_id: str
-    target_entity_id: str
-    relationship_type: str
-    name_key: str
-    description_key: Optional[str]
-    inverse_name_key: Optional[str]
 
 
 class GetRelationshipsQuery:

@@ -9,5 +9,18 @@
       "Bash(git diff:*)",
       "Bash(git log:*)"
     ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "ARCHITECTURE LOCK REMINDER: Before processing this request, verify it doesn't violate DTO-only MVVM, Use-Case Architecture boundaries, or cause domain leakage. If risk detected, STOP and report. Input: $ARGUMENTS",
+            "statusMessage": "Checking architecture compliance..."
+          }
+        ]
+      }
+    ]
   }
 }

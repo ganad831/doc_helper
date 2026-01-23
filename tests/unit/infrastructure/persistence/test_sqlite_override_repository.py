@@ -31,18 +31,54 @@ def temp_db_path():
         yield Path(tmpdir) / "test_overrides.db"
 
 
+# Fixed project IDs for testing (used by sample_override fixtures)
+TEST_PROJECT_ID_1 = uuid4()
+TEST_PROJECT_ID_2 = uuid4()
+
+
+def _create_projects_table(db_path: Path) -> None:
+    """Create projects table required by foreign key constraint.
+
+    The SqliteOverrideRepository has a FOREIGN KEY constraint referencing
+    projects(project_id). Tests must create this table first.
+    """
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS projects (
+            project_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL
+        )
+    """)
+    # Insert test project records that will be referenced
+    conn.execute(
+        "INSERT OR IGNORE INTO projects (project_id, name) VALUES (?, ?)",
+        (str(TEST_PROJECT_ID_1), "Test Project 1")
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO projects (project_id, name) VALUES (?, ?)",
+        (str(TEST_PROJECT_ID_2), "Test Project 2")
+    )
+    conn.commit()
+    conn.close()
+
+
 @pytest.fixture
 def repository(temp_db_path):
-    """Create repository instance."""
+    """Create repository instance with projects table for FK constraint."""
+    # Create projects table BEFORE repository (FK constraint requires it)
+    _create_projects_table(temp_db_path)
     return SqliteOverrideRepository(temp_db_path)
 
 
 @pytest.fixture
 def sample_override():
-    """Create sample override for testing."""
+    """Create sample override for testing.
+
+    Uses TEST_PROJECT_ID_1 which exists in the projects table.
+    """
     return Override(
         id=OverrideId(uuid4()),
-        project_id=ProjectId(uuid4()),
+        project_id=ProjectId(TEST_PROJECT_ID_1),
         field_id=FieldDefinitionId("test_field"),
         override_value=100,
         original_value=50,
@@ -54,10 +90,13 @@ def sample_override():
 
 @pytest.fixture
 def sample_override_2():
-    """Create second sample override for testing."""
+    """Create second sample override for testing.
+
+    Uses TEST_PROJECT_ID_2 which exists in the projects table.
+    """
     return Override(
         id=OverrideId(uuid4()),
-        project_id=ProjectId(uuid4()),
+        project_id=ProjectId(TEST_PROJECT_ID_2),
         field_id=FieldDefinitionId("test_field_2"),
         override_value="test_value",
         original_value="original_value",
@@ -277,7 +316,7 @@ def test_save_json_serialization(repository):
     """Test that complex types are serialized correctly as JSON."""
     override = Override(
         id=OverrideId(uuid4()),
-        project_id=ProjectId(uuid4()),
+        project_id=ProjectId(TEST_PROJECT_ID_1),
         field_id=FieldDefinitionId("complex_field"),
         override_value={"nested": {"dict": [1, 2, 3]}, "list": ["a", "b"]},
         original_value=[100, 200, 300],
@@ -398,7 +437,7 @@ def test_save_with_none_optional_fields(repository):
     """Test saving override with None optional fields."""
     override = Override(
         id=OverrideId(uuid4()),
-        project_id=ProjectId(uuid4()),
+        project_id=ProjectId(TEST_PROJECT_ID_1),
         field_id=FieldDefinitionId("test_field"),
         override_value=100,
         original_value=50,
@@ -420,7 +459,7 @@ def test_save_with_none_optional_fields(repository):
 
 def test_multiple_overrides_different_states(repository):
     """Test saving and retrieving overrides with different states."""
-    project_id = ProjectId(uuid4())
+    project_id = ProjectId(TEST_PROJECT_ID_1)
 
     overrides = [
         Override(

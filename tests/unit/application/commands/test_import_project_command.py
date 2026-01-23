@@ -18,7 +18,7 @@ from doc_helper.domain.project.project_ids import ProjectId
 from doc_helper.domain.project.project_repository import IProjectRepository
 from doc_helper.domain.schema.entity_definition import EntityDefinition
 from doc_helper.domain.schema.schema_repository import ISchemaRepository
-from doc_helper.domain.schema.schema_ids import EntityDefinitionId
+from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
 from doc_helper.application.commands.import_project_command import ImportProjectCommand
 from doc_helper.application.dto import ImportResultDTO
 from doc_helper.application.services.validation_service import ValidationService
@@ -92,6 +92,37 @@ class InMemorySchemaRepository(ISchemaRepository):
     def get_child_entities(self, parent_entity_id: EntityDefinitionId) -> Result[tuple, str]:
         """Get child entities."""
         return Success(())
+
+    def save(self, entity: EntityDefinition) -> Result[None, str]:
+        """Save entity definition (stub for testing)."""
+        return Success(None)
+
+    def update(self, entity: EntityDefinition) -> Result[None, str]:
+        """Update entity definition (stub for testing)."""
+        return Success(None)
+
+    def delete(self, entity_id: EntityDefinitionId) -> Result[None, str]:
+        """Delete entity definition (stub for testing)."""
+        return Success(None)
+
+    def get_entity_dependencies(self, entity_id: EntityDefinitionId) -> Result[dict, str]:
+        """Get entity dependencies (stub for testing)."""
+        return Success({
+            "referenced_by_table_fields": [],
+            "referenced_by_lookup_fields": [],
+            "child_entities": [],
+        })
+
+    def get_field_dependencies(
+        self, entity_id: EntityDefinitionId, field_id: FieldDefinitionId
+    ) -> Result[dict, str]:
+        """Get field dependencies (stub for testing)."""
+        return Success({
+            "referenced_by_formulas": [],
+            "referenced_by_controls_source": [],
+            "referenced_by_controls_target": [],
+            "referenced_by_lookup_display": [],
+        })
 
 
 class FakeProjectImporter:

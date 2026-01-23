@@ -18,7 +18,8 @@ from typing import Optional
 from doc_helper.domain.common.result import Failure, Result, Success
 from doc_helper.domain.project.project_ids import ProjectId
 from doc_helper.domain.project.project_repository import IProjectRepository
-from doc_helper.domain.project.project import Project
+from doc_helper.application.dto.project_dto import ProjectDTO
+from doc_helper.application.mappers.project_mapper import ProjectMapper
 from doc_helper.application.undo.undo_history_repository import IUndoHistoryRepository
 from doc_helper.application.undo.undo_manager import UndoManager
 from doc_helper.application.undo.undo_persistence_dto import UndoCommandPersistenceDTO
@@ -32,7 +33,7 @@ class OpenProjectCommand:
 
     RULES (IMPLEMENTATION_RULES.md Section 5):
     - Command handlers are stateless (dependencies injected)
-    - Commands return Result[Project, str]
+    - Commands return Result[ProjectDTO, str] (DTO-only boundary)
     - Commands take IDs, not domain objects
 
     ADR-031: After successfully loading project, restores undo history
@@ -54,8 +55,8 @@ class OpenProjectCommand:
         )
         result = command.execute(project_id=project_id)
         if isinstance(result, Success):
-            project = result.value
-            print(f"Project opened: {project.name}")
+            project_dto = result.value  # ProjectDTO, not domain Project
+            print(f"Project opened: {project_dto.name}")
     """
 
     def __init__(
@@ -85,7 +86,7 @@ class OpenProjectCommand:
         self._undo_manager = undo_manager
         self._field_service = field_service
 
-    def execute(self, project_id: ProjectId) -> Result[Project, str]:
+    def execute(self, project_id: ProjectId) -> Result[ProjectDTO, str]:
         """Execute open project command.
 
         ADR-031: After successful load, restores undo history for session continuation.
@@ -95,7 +96,7 @@ class OpenProjectCommand:
             project_id: ID of project to open
 
         Returns:
-            Success(Project) if loaded, Failure(error) otherwise
+            Success(ProjectDTO) if loaded, Failure(error) otherwise
 
         Validation Failures:
             - "project_id must be a ProjectId" - Invalid project ID type
@@ -129,7 +130,8 @@ class OpenProjectCommand:
         # (failure is non-blocking - logs warning, opens with empty undo stack)
         self._restore_undo_history(project_id)
 
-        return Success(project)
+        # Map domain entity to DTO (domain objects never cross Application boundary)
+        return Success(ProjectMapper.to_dto(project))
 
     def _restore_undo_history(self, project_id: ProjectId) -> None:
         """Restore undo history after successful project load.

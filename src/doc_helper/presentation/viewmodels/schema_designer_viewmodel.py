@@ -44,8 +44,8 @@ from typing import Optional
 
 from doc_helper.application.dto.export_dto import ExportResult
 from doc_helper.application.dto.operation_result import OperationResult
+from doc_helper.application.dto.relationship_dto import RelationshipDTO
 from doc_helper.application.dto.schema_dto import EntityDefinitionDTO, FieldDefinitionDTO
-from doc_helper.application.queries.schema.get_relationships_query import RelationshipDTO
 from doc_helper.application.usecases.schema_usecases import SchemaUseCases
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
 

@@ -1,3 +1,24 @@
+## ARCHITECTURE LOCK — READ CAREFULLY
+
+**AGENT_RULES.md is authoritative and non-negotiable.**
+
+The application uses:
+- DTO-only MVVM
+- Application Use-Case Architecture
+- No facades
+- No domain leakage across boundaries
+
+You MUST:
+- Preserve all boundaries
+- Return DTOs or primitives only
+- Avoid command/query imports in Presentation
+- Avoid Domain objects outside Domain layer
+
+If a change risks architectural drift:
+**STOP and report instead of proceeding.**
+
+---
+
 ## This plan in @plan.md is approved and frozen.
 
 **For non-negotiable execution rules, see [AGENT_RULES.md](AGENT_RULES.md)**
