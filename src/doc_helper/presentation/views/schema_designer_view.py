@@ -1,4 +1,4 @@
-"""Schema Designer View (Phase 2 + Phase 6B).
+"""Schema Designer View (Phase 2 + Phase 6B + Phase 7).
 
 UI component for viewing and creating schema definitions.
 Displays entities, fields, validation rules, and relationships in a four-panel layout.
@@ -32,9 +32,14 @@ Phase 6B: Relationship UI (ADR-022)
 - ADD-ONLY semantics (no edit/delete)
 - Clear messaging about immutability
 
+Phase 7: Export UI
+- "Export Schema" button in toolbar
+- Export dialog with file picker
+- Display export warnings
+
 NOT in current scope:
 - No edit/delete buttons for entities/fields/relationships
-- No export functionality
+- No import functionality
 - No formulas/controls/output mappings display
 - No validation rule creation
 """
@@ -176,6 +181,16 @@ class SchemaDesignerView(BaseView):
         title_layout.addWidget(title_label)
 
         title_layout.addStretch()
+
+        # Phase 7: Export Schema button
+        export_button = QPushButton("Export Schema")
+        export_button.setStyleSheet("font-size: 9pt; padding: 5px 15px;")
+        export_button.clicked.connect(self._on_export_schema_clicked)
+        export_button.setToolTip(
+            "Export schema to JSON file.\n"
+            "Includes entities, fields, constraints, and relationships."
+        )
+        title_layout.addWidget(export_button)
 
         # Phase 5 Step 2: "What is this?" help access point
         help_link = QPushButton("What is this?")
@@ -1049,6 +1064,62 @@ class SchemaDesignerView(BaseView):
                     self._root,
                     "Error Creating Relationship",
                     f"Failed to create relationship:\n\n{result.error}",
+                )
+
+    # -------------------------------------------------------------------------
+    # Phase 7: Export Operations
+    # -------------------------------------------------------------------------
+
+    def _on_export_schema_clicked(self) -> None:
+        """Handle Export Schema button click (Phase 7).
+
+        Opens dialog to export schema to JSON file.
+        Displays warnings returned by ExportSchemaCommand.
+        """
+        from doc_helper.presentation.dialogs.export_schema_dialog import (
+            ExportSchemaDialog,
+        )
+
+        dialog = ExportSchemaDialog(parent=self._root)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            export_data = dialog.get_export_data()
+            if not export_data:
+                return
+
+            # Export schema via ViewModel
+            success, export_result, error = self._viewmodel.export_schema(
+                schema_id=export_data["schema_id"],
+                file_path=export_data["file_path"],
+                version=export_data["version"],
+            )
+
+            if success and export_result:
+                # Build success message
+                file_path = export_data["file_path"]
+                message = f"Schema exported successfully!\n\nFile: {file_path}"
+
+                # Include warning count if any
+                if export_result.warnings:
+                    warning_count = len(export_result.warnings)
+                    message += f"\n\nWarnings: {warning_count}"
+
+                    # Show first few warnings in message
+                    for i, warning in enumerate(export_result.warnings[:5]):
+                        message += f"\n- {warning.message}"
+
+                    if warning_count > 5:
+                        message += f"\n... and {warning_count - 5} more warnings"
+
+                QMessageBox.information(
+                    self._root,
+                    "Export Successful",
+                    message,
+                )
+            else:
+                QMessageBox.critical(
+                    self._root,
+                    "Export Failed",
+                    f"Failed to export schema:\n\n{error}",
                 )
 
     def dispose(self) -> None:

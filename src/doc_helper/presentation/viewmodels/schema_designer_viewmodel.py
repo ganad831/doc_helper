@@ -1,4 +1,4 @@
-"""Schema Designer ViewModel (Phase 2 + Phase 6B).
+"""Schema Designer ViewModel (Phase 2 + Phase 6B + Phase 7).
 
 Manages presentation state for Schema Designer UI.
 Loads entities, fields, validation rules, and relationships from application queries.
@@ -20,9 +20,13 @@ Phase 6B Scope (ADR-022):
 - Display relationship metadata
 - Validation error display
 
+Phase 7 Scope:
+- Export schema to JSON file
+- Display export warnings
+
 NOT in scope:
 - No edit/delete operations
-- No export functionality
+- No import functionality
 - No formulas/controls/output mappings display
 - No validation rule creation
 
@@ -32,9 +36,11 @@ ARCHITECTURAL FIX (Clean Architecture Compliance):
 - All domain access goes through GetSchemaEntitiesQuery
 """
 
+from pathlib import Path
 from typing import Callable, Optional
 
 from doc_helper.application.dto.operation_result import OperationResult
+from doc_helper.application.dto.export_dto import ExportResult, ExportWarning
 from doc_helper.application.dto.schema_dto import EntityDefinitionDTO, FieldDefinitionDTO
 from doc_helper.application.queries.schema.get_relationships_query import (
     GetRelationshipsQuery,
@@ -436,3 +442,56 @@ class SchemaDesignerViewModel(BaseViewModel):
         return tuple(
             (entity.id, entity.name) for entity in self._entities
         )
+
+    # -------------------------------------------------------------------------
+    # Phase 7: Export Operations
+    # -------------------------------------------------------------------------
+
+    def export_schema(
+        self,
+        schema_id: str,
+        file_path: Path,
+        version: Optional[str] = None,
+    ) -> tuple[bool, Optional[ExportResult], Optional[str]]:
+        """Export schema to JSON file (Phase 7).
+
+        Calls existing ExportSchemaCommand to export entities, fields,
+        constraints, and relationships to a JSON file.
+
+        Args:
+            schema_id: Identifier for the schema (included in export)
+            file_path: Path to write export file
+            version: Optional semantic version string
+
+        Returns:
+            Tuple of (success, export_result, error_message):
+            - success: True if export succeeded
+            - export_result: ExportResult with data and warnings (on success)
+            - error_message: Error message (on failure)
+        """
+        from doc_helper.application.commands.schema.export_schema_command import (
+            ExportSchemaCommand,
+        )
+
+        # Get relationship repository if available
+        relationship_repository = None
+        if self._relationship_query:
+            relationship_repository = self._relationship_query._relationship_repository
+
+        # Create and execute command
+        command = ExportSchemaCommand(
+            self._schema_query._schema_repository,
+            relationship_repository,
+        )
+
+        result = command.execute(
+            schema_id=schema_id,
+            file_path=file_path,
+            version=version,
+        )
+
+        if result.is_success():
+            export_result = result.value
+            return (True, export_result, None)
+        else:
+            return (False, None, result.error)
