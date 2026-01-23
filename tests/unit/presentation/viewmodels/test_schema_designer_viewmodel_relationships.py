@@ -2,9 +2,10 @@
 
 Tests the relationship management features added to SchemaDesignerViewModel.
 
-ARCHITECTURAL NOTE:
-- ViewModel constructor now takes GetSchemaEntitiesQuery (application layer)
-- NOT ISchemaRepository (domain layer) - Clean Architecture compliance
+ARCHITECTURAL NOTE (Rule 0 Compliance):
+- ViewModel constructor now takes SchemaUseCases (application layer use-case)
+- NOT individual queries/commands or repositories
+- All orchestration delegated to SchemaUseCases
 """
 
 import pytest
@@ -14,7 +15,7 @@ from doc_helper.application.dto.operation_result import OperationResult
 from doc_helper.application.queries.schema.get_relationships_query import (
     RelationshipDTO,
 )
-from doc_helper.domain.common.result import Success, Failure
+from doc_helper.application.usecases.schema_usecases import SchemaUseCases
 from doc_helper.presentation.viewmodels.schema_designer_viewmodel import (
     SchemaDesignerViewModel,
 )
@@ -24,90 +25,40 @@ class TestSchemaDesignerViewModelRelationships:
     """Tests for relationship features in SchemaDesignerViewModel."""
 
     @pytest.fixture
-    def mock_schema_query(self) -> MagicMock:
-        """Create mock schema query (application layer)."""
-        query = MagicMock()
-        query.execute.return_value = Success(())
-        query.get_field_validation_rules.return_value = ()
-        # Mock the internal repository for commands (accessed via _schema_repository)
-        query._schema_repository = MagicMock()
-        query._schema_repository.exists.return_value = True
-        return query
-
-    @pytest.fixture
-    def mock_relationship_query(self) -> MagicMock:
-        """Create mock relationship query (application layer)."""
-        query = MagicMock()
-        query.execute.return_value = Success(())
-        return query
-
-    @pytest.fixture
-    def mock_create_relationship_fn(self) -> MagicMock:
-        """Create mock relationship creator function (application layer)."""
-        fn = MagicMock()
-        fn.return_value = OperationResult.ok("test_relationship_id")
-        return fn
-
-    @pytest.fixture
-    def mock_translation_service(self) -> MagicMock:
-        """Create mock translation service."""
-        service = MagicMock()
-        service.get_current_language.return_value = "en"
-        service.get.return_value = "Translated Text"
-        return service
+    def mock_schema_usecases(self) -> MagicMock:
+        """Create mock SchemaUseCases (Rule 0 compliant)."""
+        usecases = MagicMock(spec=SchemaUseCases)
+        usecases.get_all_entities.return_value = ()
+        usecases.get_all_relationships.return_value = ()
+        usecases.get_field_validation_rules.return_value = ()
+        usecases.create_relationship.return_value = OperationResult.ok("test_relationship_id")
+        usecases.get_entity_list_for_selection.return_value = ()
+        return usecases
 
     @pytest.fixture
     def viewmodel(
         self,
-        mock_schema_query: MagicMock,
-        mock_translation_service: MagicMock,
-        mock_relationship_query: MagicMock,
-        mock_create_relationship_fn: MagicMock,
+        mock_schema_usecases: MagicMock,
     ) -> SchemaDesignerViewModel:
-        """Create viewmodel with all dependencies."""
+        """Create viewmodel with SchemaUseCases dependency."""
         return SchemaDesignerViewModel(
-            schema_query=mock_schema_query,
-            translation_service=mock_translation_service,
-            relationship_query=mock_relationship_query,
-            create_relationship_fn=mock_create_relationship_fn,
+            schema_usecases=mock_schema_usecases,
         )
 
     # -------------------------------------------------------------------------
     # Constructor Tests
     # -------------------------------------------------------------------------
 
-    def test_constructor_accepts_relationship_query(
+    def test_constructor_accepts_schema_usecases(
         self,
-        mock_schema_query: MagicMock,
-        mock_translation_service: MagicMock,
-        mock_relationship_query: MagicMock,
-        mock_create_relationship_fn: MagicMock,
+        mock_schema_usecases: MagicMock,
     ) -> None:
-        """ViewModel should accept optional relationship query."""
+        """ViewModel should accept SchemaUseCases dependency."""
         vm = SchemaDesignerViewModel(
-            schema_query=mock_schema_query,
-            translation_service=mock_translation_service,
-            relationship_query=mock_relationship_query,
-            create_relationship_fn=mock_create_relationship_fn,
+            schema_usecases=mock_schema_usecases,
         )
         assert vm is not None
-        assert vm._relationship_query is mock_relationship_query
-        assert vm._create_relationship_fn is mock_create_relationship_fn
-
-    def test_constructor_works_without_relationship_query(
-        self,
-        mock_schema_query: MagicMock,
-        mock_translation_service: MagicMock,
-    ) -> None:
-        """ViewModel should work without relationship query."""
-        vm = SchemaDesignerViewModel(
-            schema_query=mock_schema_query,
-            translation_service=mock_translation_service,
-            # No relationship_query or create_relationship_fn
-        )
-        assert vm is not None
-        assert vm._relationship_query is None
-        assert vm._create_relationship_fn is None
+        assert vm._schema_usecases is mock_schema_usecases
 
     # -------------------------------------------------------------------------
     # Property Tests
@@ -176,44 +127,27 @@ class TestSchemaDesignerViewModelRelationships:
     def test_load_relationships_success(
         self,
         viewmodel: SchemaDesignerViewModel,
-        mock_relationship_query: MagicMock,
+        mock_schema_usecases: MagicMock,
     ) -> None:
-        """load_relationships should load via query."""
+        """load_relationships should load via use-case."""
         # Setup
-        mock_relationship_query.execute.return_value = Success(())
+        mock_schema_usecases.get_all_relationships.return_value = ()
 
         # Act
         result = viewmodel.load_relationships()
 
         # Assert
         assert result is True
-        mock_relationship_query.execute.assert_called_once()
-
-    def test_load_relationships_without_query(
-        self,
-        mock_schema_query: MagicMock,
-        mock_translation_service: MagicMock,
-    ) -> None:
-        """load_relationships should succeed with empty result when no query."""
-        vm = SchemaDesignerViewModel(
-            schema_query=mock_schema_query,
-            translation_service=mock_translation_service,
-            # No relationship_query
-        )
-
-        result = vm.load_relationships()
-
-        assert result is True
-        assert vm.relationships == ()
+        mock_schema_usecases.get_all_relationships.assert_called_once()
 
     def test_load_relationships_notifies_change(
         self,
         viewmodel: SchemaDesignerViewModel,
-        mock_relationship_query: MagicMock,
+        mock_schema_usecases: MagicMock,
     ) -> None:
         """load_relationships should notify 'relationships' change."""
         # Setup
-        mock_relationship_query.execute.return_value = Success(())
+        mock_schema_usecases.get_all_relationships.return_value = ()
         callback_called = False
 
         def on_change():
@@ -231,19 +165,18 @@ class TestSchemaDesignerViewModelRelationships:
     def test_load_entities_also_loads_relationships(
         self,
         viewmodel: SchemaDesignerViewModel,
-        mock_schema_query: MagicMock,
-        mock_relationship_query: MagicMock,
+        mock_schema_usecases: MagicMock,
     ) -> None:
         """load_entities should also call load_relationships."""
         # Setup
-        mock_schema_query.execute.return_value = Success(())
-        mock_relationship_query.execute.return_value = Success(())
+        mock_schema_usecases.get_all_entities.return_value = ()
+        mock_schema_usecases.get_all_relationships.return_value = ()
 
         # Act
         viewmodel.load_entities()
 
         # Assert
-        mock_relationship_query.execute.assert_called_once()
+        mock_schema_usecases.get_all_relationships.assert_called_once()
 
     # -------------------------------------------------------------------------
     # Select Entity Tests (Relationship Notification)
@@ -274,13 +207,12 @@ class TestSchemaDesignerViewModelRelationships:
     def test_create_relationship_success(
         self,
         viewmodel: SchemaDesignerViewModel,
-        mock_create_relationship_fn: MagicMock,
-        mock_relationship_query: MagicMock,
+        mock_schema_usecases: MagicMock,
     ) -> None:
-        """create_relationship should create via function and reload."""
+        """create_relationship should create via use-case and reload."""
         # Setup
-        mock_create_relationship_fn.return_value = OperationResult.ok("project_contains_boreholes")
-        mock_relationship_query.execute.return_value = Success(())
+        mock_schema_usecases.create_relationship.return_value = OperationResult.ok("project_contains_boreholes")
+        mock_schema_usecases.get_all_relationships.return_value = ()
 
         # Act
         result = viewmodel.create_relationship(
@@ -294,49 +226,25 @@ class TestSchemaDesignerViewModelRelationships:
         # Assert
         assert result.success is True
         assert result.value == "project_contains_boreholes"
-        mock_create_relationship_fn.assert_called_once_with(
-            "project_contains_boreholes",
-            "project",
-            "borehole",
-            "CONTAINS",
-            "relationship.test",
-            None,  # description_key
-            None,  # inverse_name_key
-        )
-
-    def test_create_relationship_without_function_fails(
-        self,
-        mock_schema_query: MagicMock,
-        mock_translation_service: MagicMock,
-    ) -> None:
-        """create_relationship should fail when no function configured."""
-        vm = SchemaDesignerViewModel(
-            schema_query=mock_schema_query,
-            translation_service=mock_translation_service,
-            # No create_relationship_fn
-        )
-
-        result = vm.create_relationship(
-            relationship_id="test",
+        mock_schema_usecases.create_relationship.assert_called_once_with(
+            relationship_id="project_contains_boreholes",
             source_entity_id="project",
             target_entity_id="borehole",
             relationship_type="CONTAINS",
             name_key="relationship.test",
+            description_key=None,
+            inverse_name_key=None,
         )
-
-        assert result.success is False
-        assert "not configured" in result.error.lower()
 
     def test_create_relationship_reloads_after_success(
         self,
         viewmodel: SchemaDesignerViewModel,
-        mock_create_relationship_fn: MagicMock,
-        mock_relationship_query: MagicMock,
+        mock_schema_usecases: MagicMock,
     ) -> None:
         """create_relationship should reload relationships after success."""
         # Setup
-        mock_create_relationship_fn.return_value = OperationResult.ok("test")
-        mock_relationship_query.execute.return_value = Success(())
+        mock_schema_usecases.create_relationship.return_value = OperationResult.ok("test")
+        mock_schema_usecases.get_all_relationships.return_value = ()
 
         # Act
         viewmodel.create_relationship(
@@ -347,19 +255,18 @@ class TestSchemaDesignerViewModelRelationships:
             name_key="relationship.test",
         )
 
-        # Assert - execute called for reload after successful creation
-        assert mock_relationship_query.execute.call_count >= 1
+        # Assert - get_all_relationships called for reload after successful creation
+        assert mock_schema_usecases.get_all_relationships.call_count >= 1
 
     def test_create_relationship_passes_optional_fields(
         self,
         viewmodel: SchemaDesignerViewModel,
-        mock_create_relationship_fn: MagicMock,
-        mock_relationship_query: MagicMock,
+        mock_schema_usecases: MagicMock,
     ) -> None:
-        """create_relationship should pass optional fields to function."""
+        """create_relationship should pass optional fields to use-case."""
         # Setup
-        mock_create_relationship_fn.return_value = OperationResult.ok("test")
-        mock_relationship_query.execute.return_value = Success(())
+        mock_schema_usecases.create_relationship.return_value = OperationResult.ok("test")
+        mock_schema_usecases.get_all_relationships.return_value = ()
 
         # Act
         result = viewmodel.create_relationship(
@@ -374,14 +281,14 @@ class TestSchemaDesignerViewModelRelationships:
 
         # Assert
         assert result.success is True
-        mock_create_relationship_fn.assert_called_once_with(
-            "test",
-            "project",
-            "borehole",
-            "CONTAINS",
-            "relationship.test",
-            "relationship.test.desc",
-            "relationship.test.inverse",
+        mock_schema_usecases.create_relationship.assert_called_once_with(
+            relationship_id="test",
+            source_entity_id="project",
+            target_entity_id="borehole",
+            relationship_type="CONTAINS",
+            name_key="relationship.test",
+            description_key="relationship.test.desc",
+            inverse_name_key="relationship.test.inverse",
         )
 
     # -------------------------------------------------------------------------
@@ -389,38 +296,21 @@ class TestSchemaDesignerViewModelRelationships:
     # -------------------------------------------------------------------------
 
     def test_get_entity_list_for_relationship_empty(
-        self, viewmodel: SchemaDesignerViewModel
+        self, viewmodel: SchemaDesignerViewModel, mock_schema_usecases: MagicMock
     ) -> None:
         """get_entity_list_for_relationship should return empty when no entities."""
+        mock_schema_usecases.get_entity_list_for_selection.return_value = ()
         result = viewmodel.get_entity_list_for_relationship()
         assert result == ()
 
     def test_get_entity_list_for_relationship_returns_id_name_pairs(
-        self, viewmodel: SchemaDesignerViewModel
+        self, viewmodel: SchemaDesignerViewModel, mock_schema_usecases: MagicMock
     ) -> None:
         """get_entity_list_for_relationship should return (id, name) tuples."""
-        # Setup: Inject test entities via DTOs
-        from doc_helper.application.dto.schema_dto import EntityDefinitionDTO
-
-        viewmodel._entities = (
-            EntityDefinitionDTO(
-                id="project",
-                name="Project",
-                description=None,
-                field_count=5,
-                is_root_entity=True,
-                parent_entity_id=None,
-                fields=(),
-            ),
-            EntityDefinitionDTO(
-                id="borehole",
-                name="Borehole",
-                description=None,
-                field_count=10,
-                is_root_entity=False,
-                parent_entity_id=None,
-                fields=(),
-            ),
+        # Setup: Configure mock to return entity pairs
+        mock_schema_usecases.get_entity_list_for_selection.return_value = (
+            ("project", "Project"),
+            ("borehole", "Borehole"),
         )
 
         # Act

@@ -11,11 +11,14 @@ NOTE: Some tests require time.sleep() delays to prevent command merging.
 SetFieldValueCommand has a 500ms merge window, so edits within this window
 are merged into a single command. Tests add 0.6s delays between edits
 to ensure separate commands.
+
+Architecture Enforcement: Updated to use ProjectUseCases (not facades/queries/commands).
 """
 
 import pytest
 import time
 from typing import Any, Optional
+from unittest.mock import Mock
 from uuid import uuid4
 
 from doc_helper.application.dto import (
@@ -25,11 +28,13 @@ from doc_helper.application.dto import (
 )
 from doc_helper.application.services.field_undo_service import FieldUndoService
 from doc_helper.application.undo.undo_manager import UndoManager
+from doc_helper.application.usecases.project_usecases import ProjectUseCases
 from doc_helper.domain.common.result import Success, Failure
-from doc_helper.domain.project.project_ids import ProjectId
-from doc_helper.domain.schema.schema_ids import FieldDefinitionId
 from doc_helper.presentation.adapters.history_adapter import HistoryAdapter
 from doc_helper.presentation.viewmodels.project_viewmodel import ProjectViewModel
+
+# Note: Tests use string field IDs (not FieldDefinitionId domain objects)
+# per Rule 0 compliance - Presentation layer uses primitives/DTOs only
 
 
 # Test constants
@@ -88,17 +93,19 @@ def field_undo_service(mock_field_service, undo_manager):
 
 
 @pytest.fixture
-def mock_get_project_query():
-    """Create mock GetProjectQuery."""
-    from unittest.mock import Mock
+def mock_project_usecases():
+    """Create mock ProjectUseCases (Rule 0 compliant).
 
-    query = Mock()
+    This fixture replaces the old get_project_query, save_project_command,
+    and update_field_command fixtures. ViewModels now depend on use-cases only.
+    """
+    usecases = Mock(spec=ProjectUseCases)
 
-    def execute(project_id: ProjectId):
+    def get_project(project_id: str):
         """Return mock ProjectDTO."""
         return Success(
             ProjectDTO(
-                id=str(project_id.value),
+                id=project_id,
                 name="Test Project",
                 description=None,
                 file_path=None,
@@ -109,25 +116,10 @@ def mock_get_project_query():
             )
         )
 
-    query.execute.side_effect = execute
-    return query
-
-
-@pytest.fixture
-def mock_save_project_command():
-    """Create mock SaveProjectCommand."""
-    from unittest.mock import Mock
-
-    command = Mock()
-    command.execute.return_value = Success(None)
-    return command
-
-
-@pytest.fixture
-def mock_update_field_command():
-    """Create mock UpdateFieldCommand (legacy, not used)."""
-    from unittest.mock import Mock
-    return Mock()
+    usecases.get_project.side_effect = get_project
+    usecases.save_project.return_value = Success(None)
+    usecases.export_project.return_value = Success(None)
+    return usecases
 
 
 @pytest.fixture
@@ -176,9 +168,7 @@ def mock_navigation_adapter():
 
 @pytest.fixture
 def viewmodel(
-    mock_get_project_query,
-    mock_save_project_command,
-    mock_update_field_command,
+    mock_project_usecases,
     mock_validation_service,
     mock_formula_service,
     mock_control_service,
@@ -186,11 +176,12 @@ def viewmodel(
     history_adapter,
     mock_navigation_adapter,
 ):
-    """Create ProjectViewModel instance with real undo infrastructure."""
+    """Create ProjectViewModel instance with real undo infrastructure.
+
+    Architecture Enforcement: Uses ProjectUseCases (Rule 0 compliant).
+    """
     return ProjectViewModel(
-        get_project_query=mock_get_project_query,
-        save_project_command=mock_save_project_command,
-        update_field_command=mock_update_field_command,
+        project_usecases=mock_project_usecases,
         validation_service=mock_validation_service,
         formula_service=mock_formula_service,
         control_service=mock_control_service,
@@ -201,9 +192,12 @@ def viewmodel(
 
 
 @pytest.fixture
-def loaded_project(viewmodel, mock_get_project_query, mock_field_service):
-    """Load a test project into the viewmodel."""
-    project_id = ProjectId(TEST_PROJECT_UUID)
+def loaded_project(viewmodel, mock_project_usecases, mock_field_service):
+    """Load a test project into the viewmodel.
+
+    Architecture Enforcement: Uses string ID (not ProjectId domain object).
+    """
+    project_id = str(TEST_PROJECT_UUID)
     entity_def = EntityDefinitionDTO(
         id="entity-1",
         name="Test Entity",
@@ -285,7 +279,7 @@ def test_T1_basic_field_edit_undo(loaded_project, mock_field_service):
     4. Field returns to "initial_a"
     """
     vm = loaded_project
-    field_id = FieldDefinitionId("field_a")
+    field_id = "field_a"  # String ID per Rule 0
 
     # Verify initial state
     initial_result = mock_field_service.get_field_value(
@@ -346,7 +340,7 @@ def test_T2_undo_recomputes_dependent_fields(loaded_project, mock_field_service,
     is mocked since we're testing the undo mechanism, not the formula engine.
     """
     vm = loaded_project
-    field_a = FieldDefinitionId("field_a")
+    field_a = "field_a"  # String ID per Rule 0
 
     # Set initial value
     mock_field_service.set_field_value(str(TEST_PROJECT_UUID), "field_a", 5)
@@ -446,7 +440,7 @@ def test_T4_multiple_undo_redo_sequence(loaded_project, mock_field_service):
     8. Verify can still undo to "edit_1", then "initial_a"
     """
     vm = loaded_project
-    field_id = FieldDefinitionId("field_a")
+    field_id = "field_a"  # String ID per Rule 0
 
     # Initial: field_a = "initial_a"
     initial_result = mock_field_service.get_field_value(
@@ -548,7 +542,7 @@ def test_T5_stack_cleared_on_close_not_save(loaded_project, mock_field_service):
     5. Verify cannot undo after close
     """
     vm = loaded_project
-    field_id = FieldDefinitionId("field_a")
+    field_id = "field_a"  # String ID per Rule 0
 
     # Make 2 edits
     vm.update_field(field_id, "edit_1")
@@ -590,7 +584,7 @@ def test_T5_stack_cleared_on_close_not_save(loaded_project, mock_field_service):
 
 
 def test_T5_stack_cleared_on_open(
-    viewmodel, mock_get_project_query, mock_field_service
+    viewmodel, mock_project_usecases, mock_field_service
 ):
     """T5: Undo stack cleared when opening a different project.
 
@@ -599,11 +593,13 @@ def test_T5_stack_cleared_on_open(
     2. Verify can undo
     3. Load project B (different project)
     4. Verify undo stack cleared
+
+    Architecture Enforcement: Uses string IDs (not ProjectId domain objects).
     """
     vm = viewmodel
 
-    # Load project A
-    project_a_id = ProjectId(uuid4())
+    # Load project A - using string ID per Rule 0
+    project_a_id = str(uuid4())
     entity_def = EntityDefinitionDTO(
         id="entity-1",
         name="Test Entity",
@@ -633,14 +629,14 @@ def test_T5_stack_cleared_on_open(
     vm.load_project(project_a_id, entity_def)
 
     # Make edits in project A
-    field_id = FieldDefinitionId("field_a")
+    field_id = "field_a"  # String ID per Rule 0
     vm.update_field(field_id, "edit_1")
 
     # Verify can undo
     assert vm.can_undo is True
 
-    # Load project B (different project)
-    project_b_id = ProjectId(uuid4())
+    # Load project B (different project) - using string ID per Rule 0
+    project_b_id = str(uuid4())
     vm.load_project(project_b_id, entity_def)
 
     # Verify undo stack cleared when opening new project

@@ -7,9 +7,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from doc_helper.app_types.contracts.app_type_metadata import AppTypeKind, AppTypeMetadata
-from doc_helper.application.commands.create_project_command import CreateProjectCommand
 from doc_helper.application.dto import AppTypeDTO
-from doc_helper.application.queries.get_project_query import GetRecentProjectsQuery
+from doc_helper.application.usecases.welcome_usecases import WelcomeUseCases
 from doc_helper.platform.discovery.manifest_parser import (
     ManifestCapabilities,
     ManifestSchema,
@@ -47,14 +46,12 @@ class TestWelcomeViewModelAppTypeFiltering:
     """Tests for AppType filtering in WelcomeViewModel."""
 
     @pytest.fixture
-    def mock_recent_query(self) -> MagicMock:
-        """Create mock GetRecentProjectsQuery."""
-        return MagicMock(spec=GetRecentProjectsQuery)
-
-    @pytest.fixture
-    def mock_create_command(self) -> MagicMock:
-        """Create mock CreateProjectCommand."""
-        return MagicMock(spec=CreateProjectCommand)
+    def mock_welcome_usecases(self) -> MagicMock:
+        """Create mock WelcomeUseCases (Rule 0 compliant)."""
+        usecases = MagicMock(spec=WelcomeUseCases)
+        usecases.get_recent_projects.return_value = ([], None)
+        usecases.create_project.return_value = (True, "project-id", None)
+        return usecases
 
     @pytest.fixture
     def registry_with_mixed_apptypes(self) -> AppTypeRegistry:
@@ -79,15 +76,13 @@ class TestWelcomeViewModelAppTypeFiltering:
     @pytest.fixture
     def viewmodel(
         self,
-        mock_recent_query: MagicMock,
-        mock_create_command: MagicMock,
+        mock_welcome_usecases: MagicMock,
         registry_with_mixed_apptypes: AppTypeRegistry,
         router: AppTypeRouter,
     ) -> WelcomeViewModel:
         """Create WelcomeViewModel with mixed AppTypes."""
         return WelcomeViewModel(
-            get_recent_query=mock_recent_query,
-            create_project_command=mock_create_command,
+            welcome_usecases=mock_welcome_usecases,
             app_type_registry=registry_with_mixed_apptypes,
             app_type_router=router,
         )
@@ -124,8 +119,7 @@ class TestWelcomeViewModelAppTypeFiltering:
 
     def test_has_tool_app_types_false_when_no_tools(
         self,
-        mock_recent_query: MagicMock,
-        mock_create_command: MagicMock,
+        mock_welcome_usecases: MagicMock,
     ) -> None:
         """has_tool_app_types should return False when no TOOL AppTypes exist."""
         registry = AppTypeRegistry()
@@ -134,8 +128,7 @@ class TestWelcomeViewModelAppTypeFiltering:
         )
         router = AppTypeRouter(registry)
         viewmodel = WelcomeViewModel(
-            get_recent_query=mock_recent_query,
-            create_project_command=mock_create_command,
+            welcome_usecases=mock_welcome_usecases,
             app_type_registry=registry,
             app_type_router=router,
         )
@@ -170,14 +163,12 @@ class TestWelcomeViewModelLaunchTool:
     """Tests for launch_tool in WelcomeViewModel."""
 
     @pytest.fixture
-    def mock_recent_query(self) -> MagicMock:
-        """Create mock GetRecentProjectsQuery."""
-        return MagicMock(spec=GetRecentProjectsQuery)
-
-    @pytest.fixture
-    def mock_create_command(self) -> MagicMock:
-        """Create mock CreateProjectCommand."""
-        return MagicMock(spec=CreateProjectCommand)
+    def mock_welcome_usecases(self) -> MagicMock:
+        """Create mock WelcomeUseCases (Rule 0 compliant)."""
+        usecases = MagicMock(spec=WelcomeUseCases)
+        usecases.get_recent_projects.return_value = ([], None)
+        usecases.create_project.return_value = (True, "project-id", None)
+        return usecases
 
     @pytest.fixture
     def registry_with_tool(self) -> AppTypeRegistry:
@@ -199,15 +190,13 @@ class TestWelcomeViewModelLaunchTool:
     @pytest.fixture
     def viewmodel(
         self,
-        mock_recent_query: MagicMock,
-        mock_create_command: MagicMock,
+        mock_welcome_usecases: MagicMock,
         registry_with_tool: AppTypeRegistry,
         router: AppTypeRouter,
     ) -> WelcomeViewModel:
         """Create WelcomeViewModel with tool AppType."""
         return WelcomeViewModel(
-            get_recent_query=mock_recent_query,
-            create_project_command=mock_create_command,
+            welcome_usecases=mock_welcome_usecases,
             app_type_registry=registry_with_tool,
             app_type_router=router,
         )
@@ -257,14 +246,12 @@ class TestWelcomeViewModelLaunchTool:
 
     def test_launch_tool_without_router_fails(
         self,
-        mock_recent_query: MagicMock,
-        mock_create_command: MagicMock,
+        mock_welcome_usecases: MagicMock,
         registry_with_tool: AppTypeRegistry,
     ) -> None:
         """launch_tool should fail gracefully when router is not configured."""
         viewmodel = WelcomeViewModel(
-            get_recent_query=mock_recent_query,
-            create_project_command=mock_create_command,
+            welcome_usecases=mock_welcome_usecases,
             app_type_registry=registry_with_tool,
             app_type_router=None,  # No router
         )
@@ -280,14 +267,12 @@ class TestWelcomeViewModelGetToolView:
     """Tests for get_tool_view in WelcomeViewModel."""
 
     @pytest.fixture
-    def mock_recent_query(self) -> MagicMock:
-        """Create mock GetRecentProjectsQuery."""
-        return MagicMock(spec=GetRecentProjectsQuery)
-
-    @pytest.fixture
-    def mock_create_command(self) -> MagicMock:
-        """Create mock CreateProjectCommand."""
-        return MagicMock(spec=CreateProjectCommand)
+    def mock_welcome_usecases(self) -> MagicMock:
+        """Create mock WelcomeUseCases (Rule 0 compliant)."""
+        usecases = MagicMock(spec=WelcomeUseCases)
+        usecases.get_recent_projects.return_value = ([], None)
+        usecases.create_project.return_value = (True, "project-id", None)
+        return usecases
 
     @pytest.fixture
     def registry(self) -> AppTypeRegistry:
@@ -313,8 +298,7 @@ class TestWelcomeViewModelGetToolView:
 
     def test_get_tool_view_returns_view_from_registered_tool(
         self,
-        mock_recent_query: MagicMock,
-        mock_create_command: MagicMock,
+        mock_welcome_usecases: MagicMock,
         registry: AppTypeRegistry,
         router: AppTypeRouter,
         mock_tool_app_type: MagicMock,
@@ -322,8 +306,7 @@ class TestWelcomeViewModelGetToolView:
         """get_tool_view should return view from registered tool AppType."""
         tool_app_types = {"schema_designer": mock_tool_app_type}
         viewmodel = WelcomeViewModel(
-            get_recent_query=mock_recent_query,
-            create_project_command=mock_create_command,
+            welcome_usecases=mock_welcome_usecases,
             app_type_registry=registry,
             app_type_router=router,
             tool_app_types=tool_app_types,
@@ -336,15 +319,13 @@ class TestWelcomeViewModelGetToolView:
 
     def test_get_tool_view_returns_none_for_unregistered_tool(
         self,
-        mock_recent_query: MagicMock,
-        mock_create_command: MagicMock,
+        mock_welcome_usecases: MagicMock,
         registry: AppTypeRegistry,
         router: AppTypeRouter,
     ) -> None:
         """get_tool_view should return None for unregistered tool."""
         viewmodel = WelcomeViewModel(
-            get_recent_query=mock_recent_query,
-            create_project_command=mock_create_command,
+            welcome_usecases=mock_welcome_usecases,
             app_type_registry=registry,
             app_type_router=router,
             tool_app_types={},  # No tools registered
@@ -358,8 +339,7 @@ class TestWelcomeViewModelGetToolView:
 
     def test_get_tool_view_passes_parent_to_create_view(
         self,
-        mock_recent_query: MagicMock,
-        mock_create_command: MagicMock,
+        mock_welcome_usecases: MagicMock,
         registry: AppTypeRegistry,
         router: AppTypeRouter,
         mock_tool_app_type: MagicMock,
@@ -367,8 +347,7 @@ class TestWelcomeViewModelGetToolView:
         """get_tool_view should pass parent widget to create_view."""
         tool_app_types = {"schema_designer": mock_tool_app_type}
         viewmodel = WelcomeViewModel(
-            get_recent_query=mock_recent_query,
-            create_project_command=mock_create_command,
+            welcome_usecases=mock_welcome_usecases,
             app_type_registry=registry,
             app_type_router=router,
             tool_app_types=tool_app_types,
@@ -381,8 +360,7 @@ class TestWelcomeViewModelGetToolView:
 
     def test_get_tool_view_handles_create_view_exception(
         self,
-        mock_recent_query: MagicMock,
-        mock_create_command: MagicMock,
+        mock_welcome_usecases: MagicMock,
         registry: AppTypeRegistry,
         router: AppTypeRouter,
     ) -> None:
@@ -391,8 +369,7 @@ class TestWelcomeViewModelGetToolView:
         mock_app_type.create_view.side_effect = RuntimeError("Not initialized")
         tool_app_types = {"schema_designer": mock_app_type}
         viewmodel = WelcomeViewModel(
-            get_recent_query=mock_recent_query,
-            create_project_command=mock_create_command,
+            welcome_usecases=mock_welcome_usecases,
             app_type_registry=registry,
             app_type_router=router,
             tool_app_types=tool_app_types,
@@ -406,8 +383,7 @@ class TestWelcomeViewModelGetToolView:
 
     def test_get_tool_view_returns_none_for_tool_without_create_view(
         self,
-        mock_recent_query: MagicMock,
-        mock_create_command: MagicMock,
+        mock_welcome_usecases: MagicMock,
         registry: AppTypeRegistry,
         router: AppTypeRouter,
     ) -> None:
@@ -415,8 +391,7 @@ class TestWelcomeViewModelGetToolView:
         mock_app_type = MagicMock(spec=[])  # No methods
         tool_app_types = {"schema_designer": mock_app_type}
         viewmodel = WelcomeViewModel(
-            get_recent_query=mock_recent_query,
-            create_project_command=mock_create_command,
+            welcome_usecases=mock_welcome_usecases,
             app_type_registry=registry,
             app_type_router=router,
             tool_app_types=tool_app_types,
