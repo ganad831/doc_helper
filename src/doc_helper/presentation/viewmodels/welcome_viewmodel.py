@@ -300,13 +300,11 @@ class WelcomeViewModel(BaseViewModel):
             return (False, None)
 
         try:
-            # v2 PHASE 4: Use app_type_id as entity_definition_id
+            # PHASE 6C: Use string-accepting command method
             # (AppType determines the root entity structure)
-            from doc_helper.domain.schema.schema_ids import EntityDefinitionId
-
-            result = self._create_project_command.execute(
+            result = self._create_project_command.execute_with_str_ids(
                 name=name.strip(),
-                entity_definition_id=EntityDefinitionId(app_type_id),
+                entity_definition_id_str=app_type_id,
                 description=description,
                 app_type_id=app_type_id,
             )

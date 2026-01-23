@@ -6,6 +6,7 @@ RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md):
 """
 
 from typing import Any, Optional
+from uuid import UUID
 
 from doc_helper.domain.common.result import Failure, Result, Success
 from doc_helper.domain.project.project import Project
@@ -97,6 +98,31 @@ class ValidationService:
         # Validate
         result = self.validate_project(project, entity_definition)
         return Success(result)
+
+    def validate_by_project_id_str(
+        self,
+        project_id: str,
+    ) -> Result[ValidationResult, str]:
+        """Validate a project by its string ID.
+
+        PHASE 6C: String-accepting variant for Presentation layer.
+        Converts string to domain ID internally.
+
+        Args:
+            project_id: Project ID as string (UUID format)
+
+        Returns:
+            Success(ValidationResult) if validation completes, Failure(error) otherwise
+        """
+        if not project_id:
+            return Failure("project_id cannot be empty")
+
+        try:
+            domain_project_id = ProjectId(UUID(project_id))
+        except (ValueError, AttributeError) as e:
+            return Failure(f"Invalid project ID format: {str(e)}")
+
+        return self.validate_by_project_id(domain_project_id)
 
     def validate_project(
         self,

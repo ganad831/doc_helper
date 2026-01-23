@@ -126,3 +126,38 @@ class CreateProjectCommand:
             return Failure(f"Failed to create project: {save_result.error}")
 
         return Success(project_id)
+
+    def execute_with_str_ids(
+        self,
+        name: str,
+        entity_definition_id_str: str,
+        description: Optional[str] = None,
+        app_type_id: Optional[str] = None,
+    ) -> Result[ProjectId, str]:
+        """Execute create project command with string IDs.
+
+        PHASE 6C: String-accepting variant for Presentation layer.
+        Converts string to domain ID internally.
+
+        Args:
+            name: Project name
+            entity_definition_id_str: Entity definition ID as string
+            description: Optional project description
+            app_type_id: AppType identifier (defaults to "soil_investigation" for v1)
+
+        Returns:
+            Success(project_id) if created, Failure(error) otherwise
+        """
+        if not entity_definition_id_str:
+            return Failure("entity_definition_id cannot be empty")
+
+        # Convert string to domain ID (Application layer responsibility)
+        entity_definition_id = EntityDefinitionId(entity_definition_id_str)
+
+        # Delegate to main execute method
+        return self.execute(
+            name=name,
+            entity_definition_id=entity_definition_id,
+            description=description,
+            app_type_id=app_type_id,
+        )

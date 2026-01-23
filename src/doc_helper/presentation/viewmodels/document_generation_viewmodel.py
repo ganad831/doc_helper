@@ -3,14 +3,19 @@
 RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md):
 - Presentation layer uses DTOs, NOT domain objects
 - Domain objects NEVER cross Application boundary
-- Simple enums (DocumentFormat) and IDs (ProjectId) can cross boundaries
+- ID construction and enum conversion happen in Application layer
+
+ARCHITECTURAL FIX (Phase 6C):
+- ViewModel no longer imports domain types (ProjectId, DocumentFormat)
+- Uses GenerateDocumentFacade which accepts primitives/DTOs
+- Domain type construction moved to Application layer
 """
 
 from pathlib import Path
 from typing import Optional
 
-from doc_helper.application.commands.generate_document_command import (
-    GenerateDocumentCommand,
+from doc_helper.application.commands.generate_document_facade import (
+    GenerateDocumentFacade,
 )
 from doc_helper.application.dto import ValidationResultDTO, DocumentFormatDTO
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
@@ -37,23 +42,23 @@ class DocumentGenerationViewModel(BaseViewModel):
     - Batch generation
 
     Example:
-        vm = DocumentGenerationViewModel(generate_command)
+        vm = DocumentGenerationViewModel(generate_facade)
         vm.set_project(project_id, entity_def_id, validation_result)
         if vm.can_generate:
-            vm.generate_document(template_path, output_path, DocumentFormat.WORD)
+            vm.generate_document(template_path, output_path, format_dto)
     """
 
     def __init__(
         self,
-        generate_document_command: GenerateDocumentCommand,
+        generate_document_facade: GenerateDocumentFacade,
     ) -> None:
         """Initialize DocumentGenerationViewModel.
 
         Args:
-            generate_document_command: Command for generating documents
+            generate_document_facade: Facade for generating documents (accepts primitives/DTOs)
         """
         super().__init__()
-        self._generate_document_command = generate_document_command
+        self._generate_document_facade = generate_document_facade
 
         # Store IDs and DTOs, NOT domain objects
         self._project_id: Optional[str] = None
@@ -232,22 +237,13 @@ class DocumentGenerationViewModel(BaseViewModel):
         self.notify_change("success_message")
 
         try:
-            # Import domain types only when needed (command layer handles conversion)
-            from doc_helper.domain.project.project_ids import ProjectId
-            from doc_helper.domain.document.document_format import DocumentFormat
-
-            # Convert string ID to typed ID for command
-            project_id = ProjectId(self._project_id)
-
-            # Convert DTO to domain enum
-            domain_format = self._convert_format_dto_to_domain(document_format)
-
             # v1: Simple generation without progress tracking
-            result = self._generate_document_command.execute(
-                project_id=project_id,
+            # Facade handles domain type conversion (Clean Architecture)
+            result = self._generate_document_facade.execute(
+                project_id=self._project_id,
                 template_path=template_path,
                 output_path=output_path,
-                format=domain_format,
+                format_dto=document_format,
             )
 
             # Check result without importing Success/Failure
@@ -270,34 +266,6 @@ class DocumentGenerationViewModel(BaseViewModel):
         finally:
             self._is_generating = False
             self.notify_change("is_generating")
-
-    @staticmethod
-    def _convert_format_dto_to_domain(dto: DocumentFormatDTO) -> "DocumentFormat":
-        """Convert DocumentFormatDTO to domain DocumentFormat.
-
-        Args:
-            dto: DocumentFormatDTO to convert
-
-        Returns:
-            Domain DocumentFormat enum
-
-        Raises:
-            ValueError: If DTO format ID is unknown
-        """
-        from doc_helper.domain.document.document_format import DocumentFormat
-
-        # Map DTO id to domain enum
-        format_map = {
-            "DOCX": DocumentFormat.WORD,
-            "XLSX": DocumentFormat.EXCEL,
-            "PDF": DocumentFormat.PDF,
-        }
-
-        domain_format = format_map.get(dto.id)
-        if domain_format is None:
-            raise ValueError(f"Unknown document format: {dto.id}")
-
-        return domain_format
 
     def clear_messages(self) -> None:
         """Clear all messages."""

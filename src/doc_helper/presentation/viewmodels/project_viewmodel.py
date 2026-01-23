@@ -3,7 +3,12 @@
 RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md):
 - Presentation layer uses DTOs, NOT domain objects
 - Domain objects NEVER cross Application boundary
-- Simple IDs (ProjectId, FieldDefinitionId) can cross boundaries
+- Presentation passes string IDs to Application layer
+
+PHASE 6C: Presentation Boundary Normalization
+- Removed TYPE_CHECKING import of ProjectId
+- All domain ID construction now in Application layer
+- ViewModel uses string IDs and Application-layer facades/methods
 
 UNDO/REDO (unified_upgrade_plan_FINAL.md U6 Phase 4):
 - ViewModel uses FieldUndoService instead of UpdateFieldCommand directly
@@ -12,12 +17,12 @@ UNDO/REDO (unified_upgrade_plan_FINAL.md U6 Phase 4):
 - Undo stack cleared on project close/open (NOT on save)
 """
 
-from typing import TYPE_CHECKING, Any, Optional
-from uuid import UUID
+from typing import Any, Optional
 
-from doc_helper.application.commands.export_project_command import ExportProjectCommand
 from doc_helper.application.commands.import_project_command import ImportProjectCommand
-from doc_helper.application.commands.save_project_command import SaveProjectCommand
+from doc_helper.application.commands.project_operations_facade import (
+    ProjectOperationsFacade,
+)
 from doc_helper.application.commands.update_field_command import UpdateFieldCommand
 from doc_helper.application.dto import (
     EntityDefinitionDTO,
@@ -34,7 +39,6 @@ from doc_helper.application.mappers import EvaluationResultMapper, ValidationMap
 from doc_helper.application.queries.get_field_history_query import (
     GetFieldHistoryQuery,
 )
-from doc_helper.application.queries.get_project_query import GetProjectQuery
 from doc_helper.application.queries.search_fields_query import SearchFieldsQuery
 from doc_helper.application.services.control_service import ControlService
 from doc_helper.application.services.field_undo_service import FieldUndoService
@@ -43,10 +47,6 @@ from doc_helper.application.services.validation_service import ValidationService
 from doc_helper.presentation.adapters.history_adapter import HistoryAdapter
 from doc_helper.presentation.adapters.navigation_adapter import NavigationAdapter
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
-
-# ADR-020: DTO-only MVVM - Domain imports only for type checking
-if TYPE_CHECKING:
-    from doc_helper.domain.project.project_ids import ProjectId
 
 
 class ProjectViewModel(BaseViewModel):
@@ -74,8 +74,7 @@ class ProjectViewModel(BaseViewModel):
 
     def __init__(
         self,
-        get_project_query: GetProjectQuery,
-        save_project_command: SaveProjectCommand,
+        project_operations_facade: ProjectOperationsFacade,
         update_field_command: UpdateFieldCommand,
         validation_service: ValidationService,
         formula_service: FormulaService,
@@ -85,14 +84,15 @@ class ProjectViewModel(BaseViewModel):
         navigation_adapter: NavigationAdapter,
         search_fields_query: Optional[SearchFieldsQuery] = None,
         get_field_history_query: Optional[GetFieldHistoryQuery] = None,
-        export_project_command: Optional[ExportProjectCommand] = None,
         import_project_command: Optional[ImportProjectCommand] = None,
     ) -> None:
         """Initialize ProjectViewModel.
 
+        PHASE 6C: Now uses ProjectOperationsFacade for get/save/export operations.
+        This removes domain ID construction from Presentation layer.
+
         Args:
-            get_project_query: Query for loading projects
-            save_project_command: Command for saving projects
+            project_operations_facade: Facade for project load/save/export (Phase 6C)
             update_field_command: Command for updating field values (legacy, use field_undo_service)
             validation_service: Service for validation
             formula_service: Service for formula evaluation
@@ -102,12 +102,10 @@ class ProjectViewModel(BaseViewModel):
             navigation_adapter: Qt signal bridge for navigation state (NEW - U7)
             search_fields_query: Query for searching fields (ADR-026)
             get_field_history_query: Query for field history (ADR-027)
-            export_project_command: Command for exporting projects (ADR-039)
             import_project_command: Command for importing projects (ADR-039)
         """
         super().__init__()
-        self._get_project_query = get_project_query
-        self._save_project_command = save_project_command
+        self._project_operations_facade = project_operations_facade
         self._update_field_command = update_field_command
         self._validation_service = validation_service
         self._formula_service = formula_service
@@ -117,7 +115,6 @@ class ProjectViewModel(BaseViewModel):
         self._navigation_adapter = navigation_adapter
         self._search_fields_query = search_fields_query
         self._get_field_history_query = get_field_history_query
-        self._export_project_command = export_project_command
         self._import_project_command = import_project_command
 
         # Store IDs and DTOs, NOT domain objects
@@ -197,13 +194,16 @@ class ProjectViewModel(BaseViewModel):
 
     def load_project(
         self,
-        project_id: "ProjectId",
+        project_id: str,
         entity_definition: EntityDefinitionDTO,
     ) -> bool:
         """Load a project.
 
+        PHASE 6C: Now accepts string project_id instead of domain ProjectId.
+        Domain ID construction happens in Application layer.
+
         Args:
-            project_id: ID of project to load
+            project_id: ID of project to load (string UUID format)
             entity_definition: Entity definition DTO for the project
 
         Returns:
@@ -226,7 +226,8 @@ class ProjectViewModel(BaseViewModel):
         self.notify_change("error_message")
 
         try:
-            result = self._get_project_query.execute(project_id)
+            # Use facade which accepts string ID (Phase 6C)
+            result = self._project_operations_facade.get_project(project_id)
 
             if result.is_success():
                 project_dto = result.value
@@ -235,7 +236,7 @@ class ProjectViewModel(BaseViewModel):
                     return False
 
                 # Store IDs and DTOs
-                self._project_id = str(project_id.value)
+                self._project_id = project_id
                 self._project_dto = project_dto
                 self._entity_definition_dto = entity_definition
                 self._has_unsaved_changes = False
@@ -300,10 +301,10 @@ class ProjectViewModel(BaseViewModel):
             )
 
             if result.is_success():
-                # Reload project DTO to get updated state
-                from doc_helper.domain.project.project_ids import ProjectId
-                project_id = ProjectId(UUID(self._project_id))
-                reload_result = self._get_project_query.execute(project_id)
+                # Reload project DTO to get updated state (Phase 6C: use facade)
+                reload_result = self._project_operations_facade.get_project(
+                    self._project_id
+                )
                 if reload_result.is_success() and reload_result.value:
                     self._project_dto = reload_result.value
 
@@ -324,6 +325,8 @@ class ProjectViewModel(BaseViewModel):
     def save_project(self) -> bool:
         """Save current project.
 
+        PHASE 6C: Uses ProjectOperationsFacade which accepts string ID.
+
         Returns:
             True if saved successfully
         """
@@ -333,11 +336,8 @@ class ProjectViewModel(BaseViewModel):
             return False
 
         try:
-            # Convert string ID to typed ID
-            from doc_helper.domain.project.project_ids import ProjectId
-            project_id = ProjectId(UUID(self._project_id))
-
-            result = self._save_project_command.execute(project_id)
+            # Use facade which accepts string ID (Phase 6C)
+            result = self._project_operations_facade.save_project(self._project_id)
 
             if result.is_success():
                 self._has_unsaved_changes = False
@@ -358,6 +358,8 @@ class ProjectViewModel(BaseViewModel):
     def validate_project(self) -> ValidationResultDTO:
         """Validate current project.
 
+        PHASE 6C: Uses string-accepting service method.
+
         Returns:
             ValidationResultDTO with errors
         """
@@ -371,13 +373,8 @@ class ProjectViewModel(BaseViewModel):
                 ),
             )
 
-        # Convert string ID to typed ID and call service
-        from doc_helper.domain.project.project_ids import ProjectId
-        project_id = ProjectId(UUID(self._project_id))
-
-        # NOTE: validation_service needs method to validate by project_id
-        # For now, the service may need updating
-        result = self._validation_service.validate_by_project_id(project_id)
+        # Use string-accepting service method (Phase 6C)
+        result = self._validation_service.validate_by_project_id_str(self._project_id)
 
         if result.is_failure():
             return ValidationResultDTO(
@@ -397,19 +394,16 @@ class ProjectViewModel(BaseViewModel):
     def evaluate_controls(self) -> Optional[EvaluationResultDTO]:
         """Evaluate control rules for current project.
 
+        PHASE 6C: Uses string-accepting service method.
+
         Returns:
             EvaluationResultDTO if successful, None otherwise
         """
         if not self._project_id or not self._entity_definition_dto:
             return None
 
-        # Convert string ID to typed ID
-        from doc_helper.domain.project.project_ids import ProjectId
-        project_id = ProjectId(UUID(self._project_id))
-
-        # NOTE: control_service needs method to evaluate by project_id
-        # For now, the service may need updating
-        result = self._control_service.evaluate_by_project_id(project_id)
+        # Use string-accepting service method (Phase 6C)
+        result = self._control_service.evaluate_by_project_id_str(self._project_id)
 
         if result.is_success():
             # Map domain result to DTO
@@ -444,6 +438,8 @@ class ProjectViewModel(BaseViewModel):
     def undo(self) -> bool:
         """Undo last operation.
 
+        PHASE 6C: Uses ProjectOperationsFacade for reload.
+
         Returns:
             True if undo succeeded, False otherwise
 
@@ -455,10 +451,10 @@ class ProjectViewModel(BaseViewModel):
         success = self._history_adapter.undo()
 
         if success and self._project_id:
-            # Reload project DTO to reflect undone changes
-            from doc_helper.domain.project.project_ids import ProjectId
-            project_id = ProjectId(UUID(self._project_id))
-            reload_result = self._get_project_query.execute(project_id)
+            # Reload project DTO to reflect undone changes (Phase 6C: use facade)
+            reload_result = self._project_operations_facade.get_project(
+                self._project_id
+            )
             if reload_result.is_success() and reload_result.value:
                 self._project_dto = reload_result.value
                 self.notify_change("current_project")
@@ -467,6 +463,8 @@ class ProjectViewModel(BaseViewModel):
 
     def redo(self) -> bool:
         """Redo previously undone operation.
+
+        PHASE 6C: Uses ProjectOperationsFacade for reload.
 
         Returns:
             True if redo succeeded, False otherwise
@@ -479,10 +477,10 @@ class ProjectViewModel(BaseViewModel):
         success = self._history_adapter.redo()
 
         if success and self._project_id:
-            # Reload project DTO to reflect redone changes
-            from doc_helper.domain.project.project_ids import ProjectId
-            project_id = ProjectId(UUID(self._project_id))
-            reload_result = self._get_project_query.execute(project_id)
+            # Reload project DTO to reflect redone changes (Phase 6C: use facade)
+            reload_result = self._project_operations_facade.get_project(
+                self._project_id
+            )
             if reload_result.is_success() and reload_result.value:
                 self._project_dto = reload_result.value
                 self.notify_change("current_project")
@@ -674,6 +672,7 @@ class ProjectViewModel(BaseViewModel):
         """Export current project to interchange format.
 
         ADR-039: Import/Export Data Format
+        PHASE 6C: Uses ProjectOperationsFacade which accepts string ID.
 
         Args:
             output_file_path: Path where to save the export file
@@ -681,20 +680,6 @@ class ProjectViewModel(BaseViewModel):
         Returns:
             ExportResultDTO with success/failure information
         """
-        if not self._export_project_command:
-            return ExportResultDTO(
-                success=False,
-                file_path=None,
-                project_id=self._project_id or "",
-                project_name=self._project_dto.name if self._project_dto else "",
-                error_message="Export feature not available.",
-                format_version="1.0",
-                exported_at="",
-                entity_count=0,
-                record_count=0,
-                field_value_count=0,
-            )
-
         if not self._project_id:
             return ExportResultDTO(
                 success=False,
@@ -709,28 +694,10 @@ class ProjectViewModel(BaseViewModel):
                 field_value_count=0,
             )
 
-        # Convert string ID to ProjectId
-        from doc_helper.domain.project.project_ids import ProjectId
-        from uuid import UUID
-
-        try:
-            project_id = ProjectId(UUID(self._project_id))
-        except (ValueError, AttributeError) as e:
-            return ExportResultDTO(
-                success=False,
-                file_path=None,
-                project_id=self._project_id,
-                project_name=self._project_dto.name if self._project_dto else "",
-                error_message=f"Invalid project ID: {str(e)}",
-                format_version="1.0",
-                exported_at="",
-                entity_count=0,
-                record_count=0,
-                field_value_count=0,
-            )
-
-        # Execute export command
-        result = self._export_project_command.execute(project_id, output_file_path)
+        # Use facade which accepts string ID (Phase 6C)
+        result = self._project_operations_facade.export_project(
+            self._project_id, output_file_path
+        )
 
         if result.is_success():
             return result.value

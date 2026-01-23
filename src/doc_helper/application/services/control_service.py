@@ -6,6 +6,7 @@ RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md):
 """
 
 from typing import Any, Optional
+from uuid import UUID
 
 from doc_helper.domain.common.result import Failure, Result, Success
 from doc_helper.domain.control.control_effect import ControlEffect
@@ -100,6 +101,31 @@ class ControlService:
 
         # Evaluate controls
         return self.evaluate_controls(project, entity_definition)
+
+    def evaluate_by_project_id_str(
+        self,
+        project_id: str,
+    ) -> Result[EvaluationResult, str]:
+        """Evaluate controls for a project by its string ID.
+
+        PHASE 6C: String-accepting variant for Presentation layer.
+        Converts string to domain ID internally.
+
+        Args:
+            project_id: Project ID as string (UUID format)
+
+        Returns:
+            Success(EvaluationResult) if evaluation completes, Failure(error) otherwise
+        """
+        if not project_id:
+            return Failure("project_id cannot be empty")
+
+        try:
+            domain_project_id = ProjectId(UUID(project_id))
+        except (ValueError, AttributeError) as e:
+            return Failure(f"Invalid project ID format: {str(e)}")
+
+        return self.evaluate_by_project_id(domain_project_id)
 
     def evaluate_controls(
         self,
