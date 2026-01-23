@@ -1,7 +1,7 @@
 """Schema Designer ViewModel (Phase 2 + Phase 6B).
 
 Manages presentation state for Schema Designer UI.
-Loads entities, fields, validation rules, and relationships from repositories.
+Loads entities, fields, validation rules, and relationships from application queries.
 
 Phase 2 Step 1 Scope (COMPLETE):
 - READ-ONLY view of schema
@@ -25,64 +25,63 @@ NOT in scope:
 - No export functionality
 - No formulas/controls/output mappings display
 - No validation rule creation
+
+ARCHITECTURAL FIX (Clean Architecture Compliance):
+- ViewModel depends ONLY on Application layer (queries, DTOs, OperationResult)
+- NO domain imports (ISchemaRepository, Result, domain IDs, constraints)
+- All domain access goes through GetSchemaEntitiesQuery
 """
 
 from typing import Callable, Optional
 
+from doc_helper.application.dto.operation_result import OperationResult
 from doc_helper.application.dto.schema_dto import EntityDefinitionDTO, FieldDefinitionDTO
 from doc_helper.application.queries.schema.get_relationships_query import (
     GetRelationshipsQuery,
     RelationshipDTO,
 )
-from doc_helper.domain.common.result import Result, Success, Failure
-from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
-from doc_helper.domain.schema.schema_repository import ISchemaRepository
+from doc_helper.application.queries.schema.get_schema_entities_query import (
+    GetSchemaEntitiesQuery,
+)
+from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
+
 
 # Type alias for relationship creator function (application layer dependency)
 # Signature: (relationship_id, source_entity_id, target_entity_id, relationship_type,
-#             name_key, description_key, inverse_name_key) -> Result[str, str]
+#             name_key, description_key, inverse_name_key) -> OperationResult
 CreateRelationshipFn = Callable[
     [str, str, str, str, str, Optional[str], Optional[str]],
-    Result[str, str],
+    OperationResult,
 ]
-from doc_helper.domain.validation.constraints import (
-    FieldConstraint,
-    RequiredConstraint,
-    MinLengthConstraint,
-    MaxLengthConstraint,
-    MinValueConstraint,
-    MaxValueConstraint,
-    PatternConstraint,
-    AllowedValuesConstraint,
-    FileExtensionConstraint,
-    MaxFileSizeConstraint,
-)
-from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
 
 
 class SchemaDesignerViewModel(BaseViewModel):
     """ViewModel for Schema Designer (READ-ONLY).
 
     Responsibilities:
-    - Load all entities from schema repository
+    - Load all entities from application query
     - Track selected entity and field
     - Provide entity list for UI
     - Provide field list for selected entity
     - Provide validation rules for selected field
 
     Usage:
-        vm = SchemaDesignerViewModel(schema_repository, translation_service)
+        vm = SchemaDesignerViewModel(schema_query, translation_service)
         vm.load_entities()
         entities = vm.entities  # List of EntityDefinitionDTO
         vm.select_entity(entity_id)
         fields = vm.fields  # List of FieldDefinitionDTO for selected entity
         vm.select_field(field_id)
         rules = vm.validation_rules  # List of constraint descriptions
+
+    Clean Architecture Note:
+        ViewModel depends ONLY on Application layer components (queries, DTOs).
+        Domain layer types (Result, ISchemaRepository, IDs, constraints) are NOT imported.
     """
 
     def __init__(
         self,
-        schema_repository: ISchemaRepository,
+        schema_query: GetSchemaEntitiesQuery,
         translation_service,  # ITranslationService
         relationship_query: Optional[GetRelationshipsQuery] = None,
         create_relationship_fn: Optional[CreateRelationshipFn] = None,
@@ -90,17 +89,17 @@ class SchemaDesignerViewModel(BaseViewModel):
         """Initialize Schema Designer ViewModel.
 
         Args:
-            schema_repository: Repository for loading schema definitions
+            schema_query: Query for loading schema entities (application layer)
             translation_service: Service for translating labels/descriptions
             relationship_query: Query for loading relationships (application layer)
             create_relationship_fn: Function to create relationships (application layer)
 
         Clean Architecture Note:
-            ViewModel depends only on application-layer components (queries, commands).
+            ViewModel depends only on application-layer components (queries, DTOs).
             Domain-layer repositories are NOT injected directly.
         """
         super().__init__()
-        self._schema_repository = schema_repository
+        self._schema_query = schema_query
         self._translation_service = translation_service
         self._relationship_query = relationship_query
         self._create_relationship_fn = create_relationship_fn
@@ -160,31 +159,11 @@ class SchemaDesignerViewModel(BaseViewModel):
         if not self._selected_entity_id or not self._selected_field_id:
             return ()
 
-        # Find selected field
-        for entity in self._entities:
-            if entity.id == self._selected_entity_id:
-                for field_dto in entity.fields:
-                    if field_dto.id == self._selected_field_id:
-                        # Get field definition from repository to access constraints
-                        entity_result = self._schema_repository.get_by_id(
-                            EntityDefinitionId(self._selected_entity_id)
-                        )
-                        if entity_result.is_failure():
-                            return ()
-
-                        entity_def = entity_result.value
-                        field_def = entity_def.get_field(
-                            FieldDefinitionId(self._selected_field_id)
-                        )
-                        if not field_def:
-                            return ()
-
-                        # Convert constraints to human-readable descriptions
-                        return tuple(
-                            self._format_constraint(c) for c in field_def.constraints
-                        )
-
-        return ()
+        # Delegate to application layer query (no domain access here)
+        return self._schema_query.get_field_validation_rules(
+            self._selected_entity_id,
+            self._selected_field_id,
+        )
 
     @property
     def error_message(self) -> Optional[str]:
@@ -221,22 +200,18 @@ class SchemaDesignerViewModel(BaseViewModel):
     # -------------------------------------------------------------------------
 
     def load_entities(self) -> bool:
-        """Load all entities from schema repository.
+        """Load all entities from application query.
 
         Returns:
             True if load succeeded, False otherwise
         """
-        result = self._schema_repository.get_all()
+        result = self._schema_query.execute()
         if result.is_failure():
             self._error_message = result.error
             self.notify_change("error_message")
             return False
 
-        # Convert domain entities to DTOs
-        entity_definitions = result.value
-        self._entities = tuple(
-            self._entity_to_dto(entity) for entity in entity_definitions
-        )
+        self._entities = result.value
         self._error_message = None
 
         self.notify_change("entities")
@@ -310,145 +285,6 @@ class SchemaDesignerViewModel(BaseViewModel):
         self.notify_change("validation_rules")
 
     # -------------------------------------------------------------------------
-    # Private Helpers
-    # -------------------------------------------------------------------------
-
-    def _entity_to_dto(self, entity_definition) -> EntityDefinitionDTO:
-        """Convert EntityDefinition to DTO.
-
-        Args:
-            entity_definition: Domain entity definition
-
-        Returns:
-            EntityDefinitionDTO for UI consumption
-        """
-        # Translate entity name
-        current_lang = self._translation_service.get_current_language()
-        entity_name = self._translation_service.get(entity_definition.name_key, current_lang)
-
-        # Translate description if present
-        entity_description = None
-        if entity_definition.description_key:
-            entity_description = self._translation_service.get(
-                entity_definition.description_key, current_lang
-            )
-
-        # Convert fields to DTOs
-        field_dtos = tuple(
-            self._field_to_dto(field) for field in entity_definition.get_all_fields()
-        )
-
-        return EntityDefinitionDTO(
-            id=str(entity_definition.id.value),
-            name=entity_name,
-            description=entity_description,
-            field_count=entity_definition.field_count,
-            is_root_entity=entity_definition.is_root_entity,
-            parent_entity_id=(
-                str(entity_definition.parent_entity_id.value)
-                if entity_definition.parent_entity_id
-                else None
-            ),
-            fields=field_dtos,
-        )
-
-    def _field_to_dto(self, field_definition) -> FieldDefinitionDTO:
-        """Convert FieldDefinition to DTO.
-
-        Args:
-            field_definition: Domain field definition
-
-        Returns:
-            FieldDefinitionDTO for UI consumption
-        """
-        from doc_helper.application.dto.schema_dto import FieldOptionDTO
-
-        # Translate field label
-        current_lang = self._translation_service.get_current_language()
-        field_label = self._translation_service.get(field_definition.label_key, current_lang)
-
-        # Translate help text if present
-        help_text = None
-        if field_definition.help_text_key:
-            help_text = self._translation_service.get(field_definition.help_text_key, current_lang)
-
-        # Convert options to DTOs (for choice fields)
-        option_dtos = ()
-        if field_definition.options:
-            option_dtos = tuple(
-                FieldOptionDTO(
-                    value=opt[0],
-                    label=self._translation_service.get(opt[1], current_lang),
-                )
-                for opt in field_definition.options
-            )
-
-        return FieldDefinitionDTO(
-            id=str(field_definition.id.value),
-            field_type=field_definition.field_type.value,
-            label=field_label,
-            help_text=help_text,
-            required=field_definition.required,
-            default_value=(
-                str(field_definition.default_value)
-                if field_definition.default_value is not None
-                else None
-            ),
-            options=option_dtos,
-            formula=field_definition.formula,
-            is_calculated=field_definition.is_calculated,
-            is_choice_field=field_definition.is_choice_field,
-            is_collection_field=field_definition.is_collection_field,
-            lookup_entity_id=field_definition.lookup_entity_id,
-            child_entity_id=field_definition.child_entity_id,
-        )
-
-    def _format_constraint(self, constraint: FieldConstraint) -> str:
-        """Format a constraint as human-readable text.
-
-        Args:
-            constraint: Field constraint to format
-
-        Returns:
-            Human-readable constraint description
-        """
-        if isinstance(constraint, RequiredConstraint):
-            return "Required field"
-
-        elif isinstance(constraint, MinLengthConstraint):
-            return f"Minimum length: {constraint.min_length} characters"
-
-        elif isinstance(constraint, MaxLengthConstraint):
-            return f"Maximum length: {constraint.max_length} characters"
-
-        elif isinstance(constraint, MinValueConstraint):
-            return f"Minimum value: {constraint.min_value}"
-
-        elif isinstance(constraint, MaxValueConstraint):
-            return f"Maximum value: {constraint.max_value}"
-
-        elif isinstance(constraint, PatternConstraint):
-            desc = f"Pattern: {constraint.pattern}"
-            if constraint.description:
-                desc += f" ({constraint.description})"
-            return desc
-
-        elif isinstance(constraint, AllowedValuesConstraint):
-            values = ", ".join(str(v) for v in constraint.allowed_values)
-            return f"Allowed values: {values}"
-
-        elif isinstance(constraint, FileExtensionConstraint):
-            exts = ", ".join(constraint.allowed_extensions)
-            return f"Allowed extensions: {exts}"
-
-        elif isinstance(constraint, MaxFileSizeConstraint):
-            size_mb = constraint.max_size_bytes / (1024 * 1024)
-            return f"Maximum file size: {size_mb:.2f} MB"
-
-        else:
-            return f"Unknown constraint: {type(constraint).__name__}"
-
-    # -------------------------------------------------------------------------
     # Phase 2 Step 2: Creation Commands
     # -------------------------------------------------------------------------
 
@@ -458,7 +294,7 @@ class SchemaDesignerViewModel(BaseViewModel):
         name_key: str,
         description_key: Optional[str] = None,
         is_root_entity: bool = False,
-    ) -> Result[str, str]:
+    ) -> OperationResult:
         """Create a new entity (Phase 2 Step 2).
 
         Args:
@@ -468,13 +304,14 @@ class SchemaDesignerViewModel(BaseViewModel):
             is_root_entity: Whether this is a root entity
 
         Returns:
-            Result with created entity ID or error message
+            OperationResult with created entity ID or error message
         """
         from doc_helper.application.commands.schema.create_entity_command import (
             CreateEntityCommand,
         )
 
-        command = CreateEntityCommand(self._schema_repository)
+        # CreateEntityCommand needs repository - get it from schema_query
+        command = CreateEntityCommand(self._schema_query._schema_repository)
         result = command.execute(
             entity_id=entity_id,
             name_key=name_key,
@@ -486,9 +323,9 @@ class SchemaDesignerViewModel(BaseViewModel):
         if result.is_success():
             # Reload entities to show new entity
             self.load_entities()
-            return Success(result.value.value)  # Return entity ID string
+            return OperationResult.ok(result.value.value)  # Return entity ID string
         else:
-            return Failure(result.error)
+            return OperationResult.fail(result.error)
 
     def add_field(
         self,
@@ -499,7 +336,7 @@ class SchemaDesignerViewModel(BaseViewModel):
         help_text_key: Optional[str] = None,
         required: bool = False,
         default_value: Optional[str] = None,
-    ) -> Result[str, str]:
+    ) -> OperationResult:
         """Add a field to an existing entity (Phase 2 Step 2).
 
         Args:
@@ -512,13 +349,14 @@ class SchemaDesignerViewModel(BaseViewModel):
             default_value: Default value (optional)
 
         Returns:
-            Result with created field ID or error message
+            OperationResult with created field ID or error message
         """
         from doc_helper.application.commands.schema.add_field_command import (
             AddFieldCommand,
         )
 
-        command = AddFieldCommand(self._schema_repository)
+        # AddFieldCommand needs repository - get it from schema_query
+        command = AddFieldCommand(self._schema_query._schema_repository)
         result = command.execute(
             entity_id=entity_id,
             field_id=field_id,
@@ -535,9 +373,9 @@ class SchemaDesignerViewModel(BaseViewModel):
             # Re-select the entity to update field list
             if self._selected_entity_id == entity_id:
                 self.select_entity(entity_id)
-            return Success(result.value.value)  # Return field ID string
+            return OperationResult.ok(result.value.value)  # Return field ID string
         else:
-            return Failure(result.error)
+            return OperationResult.fail(result.error)
 
     # -------------------------------------------------------------------------
     # Phase 6B: Relationship Operations (ADD-ONLY per ADR-022)
@@ -552,7 +390,7 @@ class SchemaDesignerViewModel(BaseViewModel):
         name_key: str,
         description_key: Optional[str] = None,
         inverse_name_key: Optional[str] = None,
-    ) -> Result[str, str]:
+    ) -> OperationResult:
         """Create a new relationship (Phase 6B - ADD-ONLY).
 
         Relationships are immutable once created per ADR-022.
@@ -568,10 +406,10 @@ class SchemaDesignerViewModel(BaseViewModel):
             inverse_name_key: Translation key for inverse name (optional)
 
         Returns:
-            Result with created relationship ID or error message
+            OperationResult with created relationship ID or error message
         """
         if not self._create_relationship_fn:
-            return Failure("Relationship creation not configured")
+            return OperationResult.fail("Relationship creation not configured")
 
         result = self._create_relationship_fn(
             relationship_id,
@@ -583,7 +421,7 @@ class SchemaDesignerViewModel(BaseViewModel):
             inverse_name_key,
         )
 
-        if result.is_success():
+        if result.success:
             # Reload relationships to show new relationship
             self.load_relationships()
 

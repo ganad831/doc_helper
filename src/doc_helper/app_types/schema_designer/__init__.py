@@ -164,6 +164,9 @@ class SchemaDesignerAppType(IAppType):
                 "Call initialize(platform_services) first."
             )
 
+        from doc_helper.application.queries.schema.get_schema_entities_query import (
+            GetSchemaEntitiesQuery,
+        )
         from doc_helper.presentation.viewmodels.schema_designer_viewmodel import (
             SchemaDesignerViewModel,
         )
@@ -171,9 +174,15 @@ class SchemaDesignerAppType(IAppType):
             SchemaDesignerView,
         )
 
-        # Create ViewModel with schema repository and translation service
-        viewmodel = SchemaDesignerViewModel(
+        # Create application-layer query (Clean Architecture: ViewModel uses query, not repository)
+        schema_query = GetSchemaEntitiesQuery(
             schema_repository=self.get_schema_repository(),
+            translation_service=self._platform_services.translation_service,
+        )
+
+        # Create ViewModel with query and translation service
+        viewmodel = SchemaDesignerViewModel(
+            schema_query=schema_query,
             translation_service=self._platform_services.translation_service,
         )
 

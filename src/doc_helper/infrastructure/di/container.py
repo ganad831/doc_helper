@@ -230,18 +230,16 @@ def register_undo_services(
     field_service: Any,
     override_service: Any,
 ) -> None:
-    """Register undo/redo infrastructure services.
+    """Register undo/redo application services.
 
     Services registered:
     - UndoManager: Singleton (shared across application)
     - FieldUndoService: Singleton (wraps field operations with undo)
     - OverrideUndoService: Singleton (wraps override operations with undo)
-    - HistoryAdapter: Singleton (Qt signal bridge for UI)
 
     Dependencies:
     - FieldUndoService requires: IFieldService, UndoManager
     - OverrideUndoService requires: IOverrideService, IFieldService, UndoManager
-    - HistoryAdapter requires: UndoManager
 
     Args:
         container: DI container instance
@@ -252,19 +250,27 @@ def register_undo_services(
         IFieldService and IOverrideService are structural protocols.
         Pass concrete implementations that match the protocol interface.
 
+    ARCHITECTURAL NOTE:
+        HistoryAdapter (presentation layer) is NOT registered here.
+        Use register_history_adapter() from presentation.adapters.adapter_registration
+        to register HistoryAdapter after calling this function.
+
     Example:
         container = Container()
         field_svc = MockFieldService()  # implements IFieldService protocol
         override_svc = MockOverrideService()  # implements IOverrideService protocol
         register_undo_services(container, field_svc, override_svc)
-        undo_manager = container.resolve(UndoManager)
+        # Then in presentation layer:
+        from doc_helper.presentation.adapters.adapter_registration import (
+            register_history_adapter,
+        )
+        register_history_adapter(container)
     """
     from doc_helper.application.services.field_undo_service import FieldUndoService
     from doc_helper.application.services.override_undo_service import (
         OverrideUndoService,
     )
     from doc_helper.application.undo.undo_manager import UndoManager
-    from doc_helper.presentation.adapters.history_adapter import HistoryAdapter
 
     # Register UndoManager as singleton (shared across application)
     container.register_singleton(
@@ -293,48 +299,36 @@ def register_undo_services(
         ),
     )
 
-    # Register HistoryAdapter (depends on UndoManager)
-    container.register_singleton(
-        HistoryAdapter,
-        lambda: HistoryAdapter(
-            undo_manager=container.resolve(UndoManager),
-        ),
-    )
-
 
 def register_navigation_services(container: Container) -> None:
-    """Register navigation infrastructure services (U7).
+    """Register navigation application services (U7).
 
     Services registered:
     - NavigationHistory: Singleton (shared navigation state)
-    - NavigationAdapter: Singleton (Qt signal bridge for UI)
-
-    Dependencies:
-    - NavigationAdapter requires: NavigationHistory
 
     Args:
         container: DI container instance
 
+    ARCHITECTURAL NOTE:
+        NavigationAdapter (presentation layer) is NOT registered here.
+        Use register_navigation_adapter() from presentation.adapters.adapter_registration
+        to register NavigationAdapter after calling this function.
+
     Example:
         container = Container()
         register_navigation_services(container)
-        nav_adapter = container.resolve(NavigationAdapter)
+        # Then in presentation layer:
+        from doc_helper.presentation.adapters.adapter_registration import (
+            register_navigation_adapter,
+        )
+        register_navigation_adapter(container)
     """
     from doc_helper.application.navigation.navigation_history import (
         NavigationHistory,
     )
-    from doc_helper.presentation.adapters.navigation_adapter import NavigationAdapter
 
     # Register NavigationHistory as singleton (shared across application)
     container.register_singleton(
         NavigationHistory,
         lambda: NavigationHistory(max_size=50),
-    )
-
-    # Register NavigationAdapter (depends on NavigationHistory)
-    container.register_singleton(
-        NavigationAdapter,
-        lambda: NavigationAdapter(
-            navigation_history=container.resolve(NavigationHistory),
-        ),
     )

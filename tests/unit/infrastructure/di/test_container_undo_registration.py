@@ -6,6 +6,11 @@ RULES (unified_upgrade_plan_FINAL.md U6 Phase 3):
 - Verify OverrideUndoService resolves with correct dependencies
 - Verify HistoryAdapter resolves with correct dependencies
 - Verify singleton lifecycle (same instance on multiple resolves)
+
+ARCHITECTURAL NOTE:
+- HistoryAdapter (presentation layer) is now registered separately via
+  register_history_adapter() from presentation.adapters.adapter_registration
+- This maintains Clean Architecture: Infrastructure does NOT import Presentation
 """
 
 import pytest
@@ -21,6 +26,7 @@ from doc_helper.application.services.override_undo_service import (
     IOverrideService,
 )
 from doc_helper.presentation.adapters.history_adapter import HistoryAdapter
+from doc_helper.presentation.adapters.adapter_registration import register_history_adapter
 from doc_helper.infrastructure.di.container import Container, register_undo_services
 from doc_helper.domain.common.result import Success, Failure, Result
 
@@ -167,8 +173,14 @@ def test_override_undo_service_resolves(
 def test_history_adapter_resolves(
     container, mock_field_service, mock_override_service
 ):
-    """Test: HistoryAdapter can be resolved with correct dependencies."""
+    """Test: HistoryAdapter can be resolved with correct dependencies.
+
+    Note: HistoryAdapter is registered by presentation layer, not infrastructure.
+    This is a Clean Architecture fix - Infrastructure does NOT import Presentation.
+    """
     register_undo_services(container, mock_field_service, mock_override_service)
+    # Register presentation adapter (Clean Architecture: presentation registers its own adapters)
+    register_history_adapter(container)
 
     history_adapter = container.resolve(HistoryAdapter)
 
@@ -221,6 +233,7 @@ def test_history_adapter_is_singleton(
 ):
     """Test: HistoryAdapter is registered as singleton."""
     register_undo_services(container, mock_field_service, mock_override_service)
+    register_history_adapter(container)
 
     adapter_1 = container.resolve(HistoryAdapter)
     adapter_2 = container.resolve(HistoryAdapter)
@@ -234,6 +247,7 @@ def test_shared_undo_manager_across_services(
 ):
     """Test: All services share the same UndoManager instance."""
     register_undo_services(container, mock_field_service, mock_override_service)
+    register_history_adapter(container)
 
     undo_manager = container.resolve(UndoManager)
     field_undo_service = container.resolve(FieldUndoService)
@@ -249,6 +263,7 @@ def test_shared_undo_manager_across_services(
 def test_end_to_end_undo_flow(container, mock_field_service, mock_override_service):
     """Test: End-to-end undo flow through DI-resolved services."""
     register_undo_services(container, mock_field_service, mock_override_service)
+    register_history_adapter(container)
 
     # Resolve services
     field_undo_service = container.resolve(FieldUndoService)
