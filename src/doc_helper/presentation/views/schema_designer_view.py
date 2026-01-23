@@ -23,6 +23,8 @@ Phase 5: UX Polish & Onboarding
 - Step 2: First-launch welcome dialog (permanently dismissible)
 - Step 2: "What is this?" help access point
 - Step 2: Static help dialog
+- Step 3: Unsaved changes indicator (asterisk in title)
+- Step 3: Close warning for unsaved changes
 
 NOT in current scope:
 - No edit/delete buttons
@@ -34,7 +36,7 @@ NOT in current scope:
 
 from typing import Optional
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QEvent, QObject, Qt
 from PyQt6.QtWidgets import (
     QDialog,
     QFrame,
@@ -53,6 +55,39 @@ from doc_helper.presentation.viewmodels.schema_designer_viewmodel import (
     SchemaDesignerViewModel,
 )
 from doc_helper.presentation.views.base_view import BaseView
+
+
+class _CloseEventFilter(QObject):
+    """Event filter to intercept dialog close events.
+
+    Phase 5 Step 3: Used to warn about unsaved changes when closing.
+    """
+
+    def __init__(self, view: "SchemaDesignerView") -> None:
+        """Initialize the event filter.
+
+        Args:
+            view: The SchemaDesignerView to check for unsaved changes
+        """
+        super().__init__()
+        self._view = view
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        """Filter close events to warn about unsaved changes.
+
+        Args:
+            obj: Object that received the event
+            event: The event
+
+        Returns:
+            True to filter the event (stop it), False to let it through
+        """
+        if event.type() == QEvent.Type.Close:
+            if not self._view._confirm_close_if_unsaved():
+                event.ignore()
+                return True  # Block the close
+
+        return False
 
 
 class SchemaDesignerView(BaseView):
@@ -104,6 +139,11 @@ class SchemaDesignerView(BaseView):
         self._subtitle_dismissed: bool = False
         self._entity_empty_label: Optional[QLabel] = None
         self._field_empty_label: Optional[QLabel] = None
+
+        # Phase 5 Step 3: Unsaved changes tracking (view-level only)
+        self._has_unsaved_changes: bool = False
+        self._base_window_title: str = "Schema Designer - Create Entities & Fields"
+        self._close_event_filter: Optional[_CloseEventFilter] = None
 
     def _build_ui(self) -> None:
         """Build the UI components."""
@@ -183,13 +223,17 @@ class SchemaDesignerView(BaseView):
         button_layout.addStretch()
 
         close_button = QPushButton("Close")
-        close_button.clicked.connect(dialog.close)
+        close_button.clicked.connect(self._on_close_requested)
         close_button.setToolTip("Close the Schema Designer")
         button_layout.addWidget(close_button)
 
         main_layout.addLayout(button_layout)
 
         self._root = dialog
+
+        # Phase 5 Step 3: Install event filter to catch window close (X button)
+        self._close_event_filter = _CloseEventFilter(self)
+        dialog.installEventFilter(self._close_event_filter)
 
         # Subscribe to ViewModel changes
         self._viewmodel.subscribe("entities", self._on_entities_changed)
@@ -436,6 +480,23 @@ class SchemaDesignerView(BaseView):
         if self._subtitle_frame:
             self._subtitle_frame.setVisible(False)
 
+    def _set_unsaved_changes(self, has_changes: bool) -> None:
+        """Set the unsaved changes state and update window title.
+
+        Phase 5 Step 3: UX indicator only, no business logic.
+        Shows asterisk (*) in window title when there are unsaved changes.
+
+        Args:
+            has_changes: True if there are unsaved changes
+        """
+        self._has_unsaved_changes = has_changes
+
+        if self._root:
+            if has_changes:
+                self._root.setWindowTitle(f"* {self._base_window_title}")
+            else:
+                self._root.setWindowTitle(self._base_window_title)
+
     def _on_help_clicked(self) -> None:
         """Handle 'What is this?' help link click.
 
@@ -447,6 +508,38 @@ class SchemaDesignerView(BaseView):
         )
 
         SchemaDesignerHelpDialog.show_help(self._root)
+
+    def _on_close_requested(self) -> None:
+        """Handle close button click.
+
+        Phase 5 Step 3: Warn if there are unsaved changes before closing.
+        """
+        if self._confirm_close_if_unsaved():
+            self._root.close()
+
+    def _confirm_close_if_unsaved(self) -> bool:
+        """Check for unsaved changes and confirm close if needed.
+
+        Phase 5 Step 3: UX warning only, does not prevent closing.
+
+        Returns:
+            True if user confirms close or no unsaved changes, False to cancel
+        """
+        if not self._has_unsaved_changes:
+            return True
+
+        result = QMessageBox.warning(
+            self._root,
+            "Unsaved Changes",
+            "You have unsaved changes.\n\n"
+            "Changes made in Schema Designer are not automatically saved. "
+            "If you close now, your changes will be lost.\n\n"
+            "Do you want to close anyway?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        return result == QMessageBox.StandardButton.Yes
 
     # -------------------------------------------------------------------------
     # Event Handlers (User Interactions)
@@ -649,6 +742,9 @@ class SchemaDesignerView(BaseView):
             )
 
             if result.is_success():
+                # Phase 5 Step 3: Mark as having unsaved changes
+                self._set_unsaved_changes(True)
+
                 QMessageBox.information(
                     self._root,
                     "Success",
@@ -699,6 +795,9 @@ class SchemaDesignerView(BaseView):
             )
 
             if result.is_success():
+                # Phase 5 Step 3: Mark as having unsaved changes
+                self._set_unsaved_changes(True)
+
                 QMessageBox.information(
                     self._root,
                     "Success",
