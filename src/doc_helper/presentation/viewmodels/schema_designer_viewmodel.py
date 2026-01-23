@@ -239,13 +239,14 @@ class SchemaDesignerViewModel(BaseViewModel):
             EntityDefinitionDTO for UI consumption
         """
         # Translate entity name
-        entity_name = self._translation_service.get(entity_definition.name_key)
+        current_lang = self._translation_service.get_current_language()
+        entity_name = self._translation_service.get(entity_definition.name_key, current_lang)
 
         # Translate description if present
         entity_description = None
         if entity_definition.description_key:
             entity_description = self._translation_service.get(
-                entity_definition.description_key
+                entity_definition.description_key, current_lang
             )
 
         # Convert fields to DTOs
@@ -279,12 +280,13 @@ class SchemaDesignerViewModel(BaseViewModel):
         from doc_helper.application.dto.schema_dto import FieldOptionDTO
 
         # Translate field label
-        field_label = self._translation_service.get(field_definition.label_key)
+        current_lang = self._translation_service.get_current_language()
+        field_label = self._translation_service.get(field_definition.label_key, current_lang)
 
         # Translate help text if present
         help_text = None
         if field_definition.help_text_key:
-            help_text = self._translation_service.get(field_definition.help_text_key)
+            help_text = self._translation_service.get(field_definition.help_text_key, current_lang)
 
         # Convert options to DTOs (for choice fields)
         option_dtos = ()
@@ -292,7 +294,7 @@ class SchemaDesignerViewModel(BaseViewModel):
             option_dtos = tuple(
                 FieldOptionDTO(
                     value=opt[0],
-                    label=self._translation_service.get(opt[1]),
+                    label=self._translation_service.get(opt[1], current_lang),
                 )
                 for opt in field_definition.options
             )
