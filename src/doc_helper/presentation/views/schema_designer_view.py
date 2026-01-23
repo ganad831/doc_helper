@@ -1,7 +1,7 @@
-"""Schema Designer View (Phase 2, Step 2: CREATE operations).
+"""Schema Designer View (Phase 2 + Phase 6B).
 
 UI component for viewing and creating schema definitions.
-Displays entities, fields, and validation rules in a three-panel layout.
+Displays entities, fields, validation rules, and relationships in a four-panel layout.
 
 Phase 2 Step 1 Scope (COMPLETE):
 - READ-ONLY display
@@ -10,26 +10,31 @@ Phase 2 Step 1 Scope (COMPLETE):
 - Validation rules panel for selected field
 - Selection navigation between panels
 
-Phase 2 Step 2 Scope (CURRENT):
+Phase 2 Step 2 Scope (COMPLETE):
 - "Add Entity" button and dialog
 - "Add Field" button and dialog (when entity selected)
 - Create new entities
 - Add fields to existing entities
 
-Phase 5: UX Polish & Onboarding
-- Step 1: Persistent header subtitle (dismissible per session)
-- Step 1: Empty state messaging for entity and field lists
-- Step 1: Tooltips for toolbar buttons
-- Step 2: First-launch welcome dialog (permanently dismissible)
-- Step 2: "What is this?" help access point
-- Step 2: Static help dialog
-- Step 3: Unsaved changes indicator (asterisk in title)
-- Step 3: Close warning for unsaved changes
+Phase 5: UX Polish & Onboarding (COMPLETE)
+- Persistent header subtitle (dismissible per session)
+- Empty state messaging for entity and field lists
+- Tooltips for toolbar buttons
+- First-launch welcome dialog (permanently dismissible)
+- "What is this?" help access point
+- Static help dialog
+- Unsaved changes indicator (asterisk in title)
+- Close warning for unsaved changes
+
+Phase 6B: Relationship UI (ADR-022)
+- Relationships panel showing entity relationships
+- "Add Relationship" button and dialog
+- ADD-ONLY semantics (no edit/delete)
+- Clear messaging about immutability
 
 NOT in current scope:
-- No edit/delete buttons
+- No edit/delete buttons for entities/fields/relationships
 - No export functionality
-- No relationships display
 - No formulas/controls/output mappings display
 - No validation rule creation
 """
@@ -91,27 +96,29 @@ class _CloseEventFilter(QObject):
 
 
 class SchemaDesignerView(BaseView):
-    """View for Schema Designer (READ-ONLY).
+    """View for Schema Designer.
 
     Layout:
-        ┌────────────────────────────────────────────────┐
-        │  Schema Designer (Read-Only)                   │
-        ├────────────────┬────────────────┬──────────────┤
-        │ Entities       │ Fields         │ Validation   │
-        │                │                │ Rules        │
-        │ [Entity 1]     │ [Field 1]      │ [Rule 1]     │
-        │ [Entity 2]     │ [Field 2]      │ [Rule 2]     │
-        │ [Entity 3]     │ [Field 3]      │              │
-        │                │                │              │
-        └────────────────┴────────────────┴──────────────┘
+        ┌────────────────────────────────────────────────────────────────────┐
+        │  Schema Designer - Create Entities & Fields                        │
+        ├──────────────┬──────────────┬──────────────┬───────────────────────┤
+        │ Entities     │ Fields       │ Validation   │ Relationships         │
+        │              │              │ Rules        │ (ADD-ONLY)            │
+        │ [Entity 1]   │ [Field 1]    │ [Rule 1]     │ [Entity→Entity]       │
+        │ [Entity 2]   │ [Field 2]    │ [Rule 2]     │ [Entity→Entity]       │
+        │ [Entity 3]   │ [Field 3]    │              │                       │
+        │              │              │              │                       │
+        └──────────────┴──────────────┴──────────────┴───────────────────────┘
 
     Interactions:
-    - Click entity → display its fields in middle panel
-    - Click field → display its validation rules in right panel
+    - Click entity → display its fields and relationships
+    - Click field → display its validation rules
+    - Add Relationship → opens dialog (ADD-ONLY per ADR-022)
 
     Design:
-    - Three-panel splitter layout (resizable)
-    - No edit controls (read-only)
+    - Four-panel splitter layout (resizable)
+    - CREATE operations for entities, fields, and relationships
+    - Relationships are immutable once created (ADD-ONLY)
     - Clear visual selection feedback
     """
 
@@ -133,6 +140,12 @@ class SchemaDesignerView(BaseView):
         self._entity_list: Optional[QListWidget] = None
         self._field_list: Optional[QListWidget] = None
         self._validation_list: Optional[QListWidget] = None
+
+        # Phase 6B: Relationship UI components
+        self._relationship_list: Optional[QListWidget] = None
+        self._relationship_info_label: Optional[QLabel] = None
+        self._relationship_empty_label: Optional[QLabel] = None
+        self._add_relationship_button: Optional[QPushButton] = None
 
         # Phase 5: UX Polish
         self._subtitle_frame: Optional[QFrame] = None
@@ -198,23 +211,27 @@ class SchemaDesignerView(BaseView):
         info_label.setStyleSheet("color: gray; padding: 5px;")
         main_layout.addWidget(info_label)
 
-        # Create three-panel splitter
+        # Create four-panel splitter (Phase 6B: added relationships)
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Left panel: Entity list
+        # Panel 1: Entity list
         entity_panel = self._create_entity_panel()
         splitter.addWidget(entity_panel)
 
-        # Middle panel: Field list
+        # Panel 2: Field list
         field_panel = self._create_field_panel()
         splitter.addWidget(field_panel)
 
-        # Right panel: Validation rules
+        # Panel 3: Validation rules
         validation_panel = self._create_validation_panel()
         splitter.addWidget(validation_panel)
 
+        # Panel 4: Relationships (Phase 6B - ADR-022)
+        relationship_panel = self._create_relationship_panel()
+        splitter.addWidget(relationship_panel)
+
         # Set initial splitter sizes (equal distribution)
-        splitter.setSizes([400, 400, 400])
+        splitter.setSizes([300, 300, 300, 300])
 
         main_layout.addWidget(splitter)
 
@@ -240,6 +257,8 @@ class SchemaDesignerView(BaseView):
         self._viewmodel.subscribe("fields", self._on_fields_changed)
         self._viewmodel.subscribe("validation_rules", self._on_validation_rules_changed)
         self._viewmodel.subscribe("error_message", self._on_error_changed)
+        # Phase 6B: Subscribe to relationships
+        self._viewmodel.subscribe("entity_relationships", self._on_relationships_changed)
 
         # Load entities
         self._load_entities()
@@ -405,6 +424,88 @@ class SchemaDesignerView(BaseView):
         self._validation_list = QListWidget()
         self._validation_list.setVisible(False)  # Hidden until field selected
         layout.addWidget(self._validation_list)
+
+        return panel
+
+    def _create_relationship_panel(self) -> QWidget:
+        """Create the relationships panel (Phase 6B - ADR-022).
+
+        Relationships are ADD-ONLY per ADR-022:
+        - Can view relationships for selected entity
+        - Can add new relationships
+        - CANNOT edit or delete relationships
+
+        Returns:
+            Widget containing relationships list and add button
+        """
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(5, 5, 5, 5)
+
+        # Panel title with Add button
+        header_layout = QHBoxLayout()
+        title = QLabel("Relationships")
+        title.setStyleSheet("font-weight: bold; font-size: 11pt; padding: 5px;")
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+
+        # Add Relationship button
+        self._add_relationship_button = QPushButton("+ Add Relationship")
+        self._add_relationship_button.setStyleSheet("font-size: 9pt; padding: 3px 8px;")
+        self._add_relationship_button.clicked.connect(self._on_add_relationship_clicked)
+        self._add_relationship_button.setToolTip(
+            "Define a new relationship between entities.\n"
+            "Relationships describe how entities are connected\n"
+            "(e.g., 'Project contains Boreholes').\n\n"
+            "Note: Relationships are immutable once created."
+        )
+        header_layout.addWidget(self._add_relationship_button)
+
+        layout.addLayout(header_layout)
+
+        # ADD-ONLY notice
+        notice = QLabel("Relationships are immutable (ADD-ONLY)")
+        notice.setStyleSheet(
+            "color: #b45309; "
+            "font-size: 8pt; "
+            "font-style: italic; "
+            "padding: 2px 5px;"
+        )
+        layout.addWidget(notice)
+
+        # Info label (shows when no entity selected)
+        self._relationship_info_label = QLabel(
+            "Select an entity to view its relationships"
+        )
+        self._relationship_info_label.setStyleSheet(
+            "color: gray; font-style: italic; padding: 10px;"
+        )
+        self._relationship_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._relationship_info_label)
+
+        # Empty state label (shown when entity selected but has no relationships)
+        self._relationship_empty_label = QLabel(
+            "No relationships defined for this entity.\n\n"
+            "Click '+ Add Relationship' to define\n"
+            "how this entity connects to others."
+        )
+        self._relationship_empty_label.setStyleSheet(
+            "color: #718096; "
+            "font-style: italic; "
+            "padding: 20px; "
+            "background-color: #f7fafc; "
+            "border: 1px dashed #cbd5e0; "
+            "border-radius: 4px;"
+        )
+        self._relationship_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._relationship_empty_label.setWordWrap(True)
+        self._relationship_empty_label.setVisible(False)
+        layout.addWidget(self._relationship_empty_label)
+
+        # Relationship list
+        self._relationship_list = QListWidget()
+        self._relationship_list.setVisible(False)  # Hidden until entity selected
+        layout.addWidget(self._relationship_list)
 
         return panel
 
@@ -705,6 +806,84 @@ class SchemaDesignerView(BaseView):
         if error:
             QMessageBox.critical(self._root, "Error Loading Schema", error)
 
+    def _on_relationships_changed(self) -> None:
+        """Handle relationships list change (Phase 6B)."""
+        if not self._relationship_list:
+            return
+
+        self._relationship_list.clear()
+
+        relationships = self._viewmodel.entity_relationships
+        entity_selected = self._viewmodel.selected_entity_id is not None
+
+        # Manage visibility of info label, empty state, and list
+        if not entity_selected:
+            # No entity selected - show info label
+            if self._relationship_info_label:
+                self._relationship_info_label.setVisible(True)
+            if self._relationship_empty_label:
+                self._relationship_empty_label.setVisible(False)
+            self._relationship_list.setVisible(False)
+            return
+
+        # Entity is selected - hide info label
+        if self._relationship_info_label:
+            self._relationship_info_label.setVisible(False)
+
+        if not relationships:
+            # Entity selected but no relationships - show empty state
+            if self._relationship_empty_label:
+                self._relationship_empty_label.setVisible(True)
+            self._relationship_list.setVisible(False)
+            return
+
+        # Entity selected and has relationships - show list
+        if self._relationship_empty_label:
+            self._relationship_empty_label.setVisible(False)
+        self._relationship_list.setVisible(True)
+
+        selected_entity = self._viewmodel.selected_entity_id
+
+        for rel_dto in relationships:
+            # Determine direction relative to selected entity
+            if rel_dto.source_entity_id == selected_entity:
+                # Outgoing relationship
+                arrow = "→"
+                other_entity = rel_dto.target_entity_id
+                direction = "outgoing"
+            else:
+                # Incoming relationship
+                arrow = "←"
+                other_entity = rel_dto.source_entity_id
+                direction = "incoming"
+
+            # Create list item text
+            item_text = f"{rel_dto.relationship_type} {arrow} {other_entity}"
+
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.ItemDataRole.UserRole, rel_dto.id)
+
+            # Add tooltip with relationship details
+            tooltip_parts = [
+                f"ID: {rel_dto.id}",
+                f"Type: {rel_dto.relationship_type}",
+                f"Source: {rel_dto.source_entity_id}",
+                f"Target: {rel_dto.target_entity_id}",
+                f"Direction: {direction}",
+                "",
+                "Relationships are immutable (ADD-ONLY)",
+            ]
+
+            if rel_dto.name_key:
+                tooltip_parts.insert(4, f"Name Key: {rel_dto.name_key}")
+
+            if rel_dto.description_key:
+                tooltip_parts.insert(5, f"Description Key: {rel_dto.description_key}")
+
+            item.setToolTip("\n".join(tooltip_parts))
+
+            self._relationship_list.addItem(item)
+
     # -------------------------------------------------------------------------
     # Commands
     # -------------------------------------------------------------------------
@@ -808,6 +987,68 @@ class SchemaDesignerView(BaseView):
                     self._root,
                     "Error Adding Field",
                     f"Failed to add field: {result.error}",
+                )
+
+    # -------------------------------------------------------------------------
+    # Phase 6B: Relationship Operations (ADD-ONLY per ADR-022)
+    # -------------------------------------------------------------------------
+
+    def _on_add_relationship_clicked(self) -> None:
+        """Handle Add Relationship button click (Phase 6B).
+
+        Opens dialog to create a new relationship.
+        Relationships are ADD-ONLY per ADR-022.
+        """
+        # Get list of entities for dropdown
+        entities = self._viewmodel.get_entity_list_for_relationship()
+
+        if len(entities) < 2:
+            QMessageBox.warning(
+                self._root,
+                "Cannot Add Relationship",
+                "At least two entities are required to create a relationship.\n"
+                "Please add more entities first.",
+            )
+            return
+
+        from doc_helper.presentation.dialogs.add_relationship_dialog import (
+            AddRelationshipDialog,
+        )
+
+        dialog = AddRelationshipDialog(entities=entities, parent=self._root)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            rel_data = dialog.get_relationship_data()
+            if not rel_data:
+                return
+
+            # Create relationship via ViewModel
+            result = self._viewmodel.create_relationship(
+                relationship_id=rel_data["relationship_id"],
+                source_entity_id=rel_data["source_entity_id"],
+                target_entity_id=rel_data["target_entity_id"],
+                relationship_type=rel_data["relationship_type"],
+                name_key=rel_data["name_key"],
+                description_key=rel_data["description_key"],
+                inverse_name_key=rel_data["inverse_name_key"],
+            )
+
+            if result.is_success():
+                # Mark as having unsaved changes
+                self._set_unsaved_changes(True)
+
+                QMessageBox.information(
+                    self._root,
+                    "Relationship Created",
+                    f"Relationship '{rel_data['relationship_id']}' created successfully!\n\n"
+                    f"{rel_data['source_entity_id']} {rel_data['relationship_type']} "
+                    f"{rel_data['target_entity_id']}\n\n"
+                    "Note: Relationships are immutable and cannot be edited or deleted.",
+                )
+            else:
+                QMessageBox.critical(
+                    self._root,
+                    "Error Creating Relationship",
+                    f"Failed to create relationship:\n\n{result.error}",
                 )
 
     def dispose(self) -> None:

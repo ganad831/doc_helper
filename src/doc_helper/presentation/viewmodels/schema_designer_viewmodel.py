@@ -1,7 +1,7 @@
-"""Schema Designer ViewModel (Phase 2, Step 2: CREATE operations).
+"""Schema Designer ViewModel (Phase 2 + Phase 6B).
 
 Manages presentation state for Schema Designer UI.
-Loads entities, fields, and validation rules from schema repository.
+Loads entities, fields, validation rules, and relationships from repositories.
 
 Phase 2 Step 1 Scope (COMPLETE):
 - READ-ONLY view of schema
@@ -10,24 +10,41 @@ Phase 2 Step 1 Scope (COMPLETE):
 - Validation rules display for selected field
 - Selection navigation between panels
 
-Phase 2 Step 2 Scope (CURRENT):
+Phase 2 Step 2 Scope (COMPLETE):
 - CREATE new entities
 - ADD fields to existing entities
 
-NOT in Step 2:
+Phase 6B Scope (ADR-022):
+- View relationships (READ-ONLY)
+- Add relationships (ADD-ONLY)
+- Display relationship metadata
+- Validation error display
+
+NOT in scope:
 - No edit/delete operations
 - No export functionality
-- No relationships UI
 - No formulas/controls/output mappings display
 - No validation rule creation
 """
 
-from typing import Optional
+from typing import Callable, Optional
 
 from doc_helper.application.dto.schema_dto import EntityDefinitionDTO, FieldDefinitionDTO
-from doc_helper.domain.common.result import Result
+from doc_helper.application.queries.schema.get_relationships_query import (
+    GetRelationshipsQuery,
+    RelationshipDTO,
+)
+from doc_helper.domain.common.result import Result, Success, Failure
 from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
 from doc_helper.domain.schema.schema_repository import ISchemaRepository
+
+# Type alias for relationship creator function (application layer dependency)
+# Signature: (relationship_id, source_entity_id, target_entity_id, relationship_type,
+#             name_key, description_key, inverse_name_key) -> Result[str, str]
+CreateRelationshipFn = Callable[
+    [str, str, str, str, str, Optional[str], Optional[str]],
+    Result[str, str],
+]
 from doc_helper.domain.validation.constraints import (
     FieldConstraint,
     RequiredConstraint,
@@ -67,22 +84,35 @@ class SchemaDesignerViewModel(BaseViewModel):
         self,
         schema_repository: ISchemaRepository,
         translation_service,  # ITranslationService
+        relationship_query: Optional[GetRelationshipsQuery] = None,
+        create_relationship_fn: Optional[CreateRelationshipFn] = None,
     ) -> None:
         """Initialize Schema Designer ViewModel.
 
         Args:
             schema_repository: Repository for loading schema definitions
             translation_service: Service for translating labels/descriptions
+            relationship_query: Query for loading relationships (application layer)
+            create_relationship_fn: Function to create relationships (application layer)
+
+        Clean Architecture Note:
+            ViewModel depends only on application-layer components (queries, commands).
+            Domain-layer repositories are NOT injected directly.
         """
         super().__init__()
         self._schema_repository = schema_repository
         self._translation_service = translation_service
+        self._relationship_query = relationship_query
+        self._create_relationship_fn = create_relationship_fn
 
         # State
         self._entities: tuple[EntityDefinitionDTO, ...] = ()
         self._selected_entity_id: Optional[str] = None
         self._selected_field_id: Optional[str] = None
         self._error_message: Optional[str] = None
+
+        # Phase 6B: Relationship state
+        self._relationships: tuple[RelationshipDTO, ...] = ()
 
     # -------------------------------------------------------------------------
     # Properties (Observable)
@@ -161,6 +191,31 @@ class SchemaDesignerViewModel(BaseViewModel):
         """Get error message if loading failed."""
         return self._error_message
 
+    @property
+    def relationships(self) -> tuple[RelationshipDTO, ...]:
+        """Get all relationships (Phase 6B).
+
+        Returns:
+            Tuple of relationship DTOs
+        """
+        return self._relationships
+
+    @property
+    def entity_relationships(self) -> tuple[RelationshipDTO, ...]:
+        """Get relationships involving currently selected entity (Phase 6B).
+
+        Returns:
+            Tuple of relationship DTOs where selected entity is source or target
+        """
+        if not self._selected_entity_id:
+            return ()
+
+        return tuple(
+            rel for rel in self._relationships
+            if (rel.source_entity_id == self._selected_entity_id or
+                rel.target_entity_id == self._selected_entity_id)
+        )
+
     # -------------------------------------------------------------------------
     # Commands (User Actions)
     # -------------------------------------------------------------------------
@@ -186,6 +241,33 @@ class SchemaDesignerViewModel(BaseViewModel):
 
         self.notify_change("entities")
         self.notify_change("error_message")
+
+        # Phase 6B: Also load relationships
+        self.load_relationships()
+
+        return True
+
+    def load_relationships(self) -> bool:
+        """Load all relationships using query (Phase 6B).
+
+        Returns:
+            True if load succeeded, False otherwise
+        """
+        if not self._relationship_query:
+            # No query provided, relationships feature disabled
+            self._relationships = ()
+            return True
+
+        result = self._relationship_query.execute()
+
+        if result.is_failure():
+            # Don't fail entirely - just set empty relationships
+            self._relationships = ()
+            return False
+
+        self._relationships = result.value
+        self.notify_change("relationships")
+        self.notify_change("entity_relationships")
         return True
 
     def select_entity(self, entity_id: str) -> None:
@@ -202,6 +284,8 @@ class SchemaDesignerViewModel(BaseViewModel):
             self.notify_change("selected_field_id")
             self.notify_change("fields")
             self.notify_change("validation_rules")
+            # Phase 6B: Also notify about relationships
+            self.notify_change("entity_relationships")
 
     def select_field(self, field_id: str) -> None:
         """Select a field.
@@ -454,3 +538,63 @@ class SchemaDesignerViewModel(BaseViewModel):
             return Success(result.value.value)  # Return field ID string
         else:
             return Failure(result.error)
+
+    # -------------------------------------------------------------------------
+    # Phase 6B: Relationship Operations (ADD-ONLY per ADR-022)
+    # -------------------------------------------------------------------------
+
+    def create_relationship(
+        self,
+        relationship_id: str,
+        source_entity_id: str,
+        target_entity_id: str,
+        relationship_type: str,
+        name_key: str,
+        description_key: Optional[str] = None,
+        inverse_name_key: Optional[str] = None,
+    ) -> Result[str, str]:
+        """Create a new relationship (Phase 6B - ADD-ONLY).
+
+        Relationships are immutable once created per ADR-022.
+        No update or delete operations are provided.
+
+        Args:
+            relationship_id: Unique relationship identifier
+            source_entity_id: Source entity ID
+            target_entity_id: Target entity ID
+            relationship_type: Type (CONTAINS, REFERENCES, ASSOCIATES)
+            name_key: Translation key for relationship name
+            description_key: Translation key for description (optional)
+            inverse_name_key: Translation key for inverse name (optional)
+
+        Returns:
+            Result with created relationship ID or error message
+        """
+        if not self._create_relationship_fn:
+            return Failure("Relationship creation not configured")
+
+        result = self._create_relationship_fn(
+            relationship_id,
+            source_entity_id,
+            target_entity_id,
+            relationship_type,
+            name_key,
+            description_key,
+            inverse_name_key,
+        )
+
+        if result.is_success():
+            # Reload relationships to show new relationship
+            self.load_relationships()
+
+        return result
+
+    def get_entity_list_for_relationship(self) -> tuple[tuple[str, str], ...]:
+        """Get list of entities for relationship source/target selection.
+
+        Returns:
+            Tuple of (entity_id, entity_name) pairs
+        """
+        return tuple(
+            (entity.id, entity.name) for entity in self._entities
+        )
