@@ -16,7 +16,12 @@ Phase 2 Step 2 Scope (CURRENT):
 - Create new entities
 - Add fields to existing entities
 
-NOT in Step 2:
+Phase 5: UX Polish & Onboarding
+- Persistent header subtitle (dismissible per session)
+- Empty state messaging for entity and field lists
+- Tooltips for toolbar buttons
+
+NOT in current scope:
 - No edit/delete buttons
 - No export functionality
 - No relationships display
@@ -29,15 +34,16 @@ from typing import Optional
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog,
-    QVBoxLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
-    QSplitter,
-    QWidget,
-    QPushButton,
     QMessageBox,
+    QPushButton,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
 )
 
 from doc_helper.presentation.viewmodels.schema_designer_viewmodel import (
@@ -90,6 +96,12 @@ class SchemaDesignerView(BaseView):
         self._field_list: Optional[QListWidget] = None
         self._validation_list: Optional[QListWidget] = None
 
+        # Phase 5: UX Polish
+        self._subtitle_frame: Optional[QFrame] = None
+        self._subtitle_dismissed: bool = False
+        self._entity_empty_label: Optional[QLabel] = None
+        self._field_empty_label: Optional[QLabel] = None
+
     def _build_ui(self) -> None:
         """Build the UI components."""
         # Create dialog
@@ -105,9 +117,13 @@ class SchemaDesignerView(BaseView):
         title_label.setStyleSheet("font-size: 14pt; font-weight: bold; padding: 10px;")
         main_layout.addWidget(title_label)
 
+        # Phase 5: Persistent header subtitle (dismissible per session)
+        self._subtitle_frame = self._create_subtitle_frame()
+        main_layout.addWidget(self._subtitle_frame)
+
         # Info label
         info_label = QLabel(
-            "Read-only view of schema. Select an entity to view its fields, "
+            "Select an entity to view its fields, "
             "then select a field to view its validation rules."
         )
         info_label.setStyleSheet("color: gray; padding: 5px;")
@@ -139,6 +155,7 @@ class SchemaDesignerView(BaseView):
 
         close_button = QPushButton("Close")
         close_button.clicked.connect(dialog.close)
+        close_button.setToolTip("Close the Schema Designer")
         button_layout.addWidget(close_button)
 
         main_layout.addLayout(button_layout)
@@ -175,9 +192,33 @@ class SchemaDesignerView(BaseView):
         add_entity_button = QPushButton("+ Add Entity")
         add_entity_button.setStyleSheet("font-size: 9pt; padding: 3px 8px;")
         add_entity_button.clicked.connect(self._on_add_entity_clicked)
+        # Phase 5: Add tooltip
+        add_entity_button.setToolTip(
+            "Create a new entity definition.\n"
+            "Entities are containers for field definitions\n"
+            "(e.g., 'Project Info', 'Boreholes', 'Samples')."
+        )
         header_layout.addWidget(add_entity_button)
 
         layout.addLayout(header_layout)
+
+        # Phase 5: Empty state label (shown when no entities)
+        self._entity_empty_label = QLabel(
+            "No entities defined.\n\n"
+            "Click '+ Add Entity' to create your first entity.\n"
+            "Entities define the structure of your schema."
+        )
+        self._entity_empty_label.setStyleSheet(
+            "color: #718096; "
+            "font-style: italic; "
+            "padding: 20px; "
+            "background-color: #f7fafc; "
+            "border: 1px dashed #cbd5e0; "
+            "border-radius: 4px;"
+        )
+        self._entity_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._entity_empty_label.setWordWrap(True)
+        layout.addWidget(self._entity_empty_label)
 
         # Entity list
         self._entity_list = QListWidget()
@@ -209,15 +250,39 @@ class SchemaDesignerView(BaseView):
         self._add_field_button.setStyleSheet("font-size: 9pt; padding: 3px 8px;")
         self._add_field_button.clicked.connect(self._on_add_field_clicked)
         self._add_field_button.setEnabled(False)  # Disabled until entity selected
+        # Phase 5: Add tooltip
+        self._add_field_button.setToolTip(
+            "Add a new field to the selected entity.\n"
+            "Fields define the data structure\n"
+            "(e.g., 'Project Name', 'Depth', 'Sample Date')."
+        )
         header_layout.addWidget(self._add_field_button)
 
         layout.addLayout(header_layout)
 
         # Info label (shows when no entity selected)
-        info = QLabel("Select an entity to view its fields")
-        info.setStyleSheet("color: gray; font-style: italic; padding: 10px;")
-        info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(info)
+        self._field_info_label = QLabel("Select an entity to view its fields")
+        self._field_info_label.setStyleSheet("color: gray; font-style: italic; padding: 10px;")
+        self._field_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._field_info_label)
+
+        # Phase 5: Empty state label (shown when entity selected but has no fields)
+        self._field_empty_label = QLabel(
+            "This entity has no fields.\n\n"
+            "Click '+ Add Field' to define fields for this entity."
+        )
+        self._field_empty_label.setStyleSheet(
+            "color: #718096; "
+            "font-style: italic; "
+            "padding: 20px; "
+            "background-color: #f7fafc; "
+            "border: 1px dashed #cbd5e0; "
+            "border-radius: 4px;"
+        )
+        self._field_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._field_empty_label.setWordWrap(True)
+        self._field_empty_label.setVisible(False)
+        layout.addWidget(self._field_empty_label)
 
         # Field list
         self._field_list = QListWidget()
@@ -254,6 +319,78 @@ class SchemaDesignerView(BaseView):
         layout.addWidget(self._validation_list)
 
         return panel
+
+    # -------------------------------------------------------------------------
+    # Phase 5: UX Components
+    # -------------------------------------------------------------------------
+
+    def _create_subtitle_frame(self) -> QFrame:
+        """Create the persistent subtitle frame (dismissible per session).
+
+        Explains:
+        - Schema Designer is a TOOL AppType
+        - Edits meta-schema, not project data
+        - Manual export & deployment required
+
+        Returns:
+            QFrame containing subtitle with dismiss button
+        """
+        frame = QFrame()
+        frame.setStyleSheet(
+            "QFrame { "
+            "background-color: #f0f4f8; "
+            "border: 1px solid #d0d8e0; "
+            "border-radius: 4px; "
+            "margin: 5px 10px; "
+            "}"
+        )
+
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(12, 8, 8, 8)
+
+        # Subtitle text explaining the tool
+        subtitle_text = QLabel(
+            "This is a TOOL for editing meta-schema (entity and field definitions), "
+            "not project data. After editing, export your schema and deploy it manually "
+            "to the target app type folder."
+        )
+        subtitle_text.setWordWrap(True)
+        subtitle_text.setStyleSheet(
+            "color: #4a5568; "
+            "font-size: 9pt; "
+            "border: none; "
+            "background: transparent;"
+        )
+        layout.addWidget(subtitle_text, 1)
+
+        # Dismiss button (X)
+        dismiss_button = QPushButton("×")
+        dismiss_button.setFixedSize(20, 20)
+        dismiss_button.setStyleSheet(
+            "QPushButton { "
+            "border: none; "
+            "background: transparent; "
+            "color: #718096; "
+            "font-size: 14pt; "
+            "font-weight: bold; "
+            "} "
+            "QPushButton:hover { "
+            "color: #4a5568; "
+            "background-color: #e2e8f0; "
+            "border-radius: 10px; "
+            "}"
+        )
+        dismiss_button.setToolTip("Dismiss this message for this session")
+        dismiss_button.clicked.connect(self._on_subtitle_dismissed)
+        layout.addWidget(dismiss_button)
+
+        return frame
+
+    def _on_subtitle_dismissed(self) -> None:
+        """Handle subtitle dismiss button click."""
+        self._subtitle_dismissed = True
+        if self._subtitle_frame:
+            self._subtitle_frame.setVisible(False)
 
     # -------------------------------------------------------------------------
     # Event Handlers (User Interactions)
@@ -297,7 +434,15 @@ class SchemaDesignerView(BaseView):
         """Handle entities list change."""
         self._entity_list.clear()
 
-        for entity_dto in self._viewmodel.entities:
+        entities = self._viewmodel.entities
+
+        # Phase 5: Show/hide empty state
+        has_entities = len(entities) > 0
+        if self._entity_empty_label:
+            self._entity_empty_label.setVisible(not has_entities)
+        self._entity_list.setVisible(has_entities)
+
+        for entity_dto in entities:
             # Create list item
             item = QListWidgetItem(entity_dto.name)
             item.setData(Qt.ItemDataRole.UserRole, entity_dto.id)
@@ -320,15 +465,38 @@ class SchemaDesignerView(BaseView):
         self._field_list.clear()
 
         fields = self._viewmodel.fields
-        if not fields:
+        entity_selected = self._viewmodel.selected_entity_id is not None
+
+        # Phase 5: Manage visibility of info label, empty state, and field list
+        if not entity_selected:
+            # No entity selected - show info label
+            if hasattr(self, '_field_info_label'):
+                self._field_info_label.setVisible(True)
+            if self._field_empty_label:
+                self._field_empty_label.setVisible(False)
             self._field_list.setVisible(False)
-            # Disable Add Field button when no entity selected
             if hasattr(self, '_add_field_button'):
                 self._add_field_button.setEnabled(False)
             return
 
+        # Entity is selected - hide info label
+        if hasattr(self, '_field_info_label'):
+            self._field_info_label.setVisible(False)
+
+        if not fields:
+            # Entity selected but no fields - show empty state
+            if self._field_empty_label:
+                self._field_empty_label.setVisible(True)
+            self._field_list.setVisible(False)
+            # Enable Add Field button since entity is selected
+            if hasattr(self, '_add_field_button'):
+                self._add_field_button.setEnabled(True)
+            return
+
+        # Entity selected and has fields - show field list
+        if self._field_empty_label:
+            self._field_empty_label.setVisible(False)
         self._field_list.setVisible(True)
-        # Enable Add Field button when entity is selected
         if hasattr(self, '_add_field_button'):
             self._add_field_button.setEnabled(True)
 

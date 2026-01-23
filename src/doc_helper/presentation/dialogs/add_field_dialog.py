@@ -1,6 +1,9 @@
 """Add Field Dialog (Phase 2 Step 2).
 
 Dialog for adding field definitions to existing entities.
+
+Phase 5: UX Polish
+- Added tooltips to field type selector explaining each type
 """
 
 from typing import Optional
@@ -103,21 +106,32 @@ class AddFieldDialog(QDialog):
         form.addRow("Help Text Key:", self._help_text_key_input)
 
         # Field Type (dropdown with all 12 types)
+        # Phase 5: Added descriptive tooltips for each field type
         self._field_type_combo = QComboBox()
-        self._field_type_combo.addItems([
-            "TEXT",
-            "TEXTAREA",
-            "NUMBER",
-            "DATE",
-            "DROPDOWN",
-            "CHECKBOX",
-            "RADIO",
-            "CALCULATED",
-            "LOOKUP",
-            "FILE",
-            "IMAGE",
-            "TABLE",
-        ])
+
+        # Define field types with their tooltips
+        field_types_with_tooltips = [
+            ("TEXT", "Single-line text input for short strings"),
+            ("TEXTAREA", "Multi-line text input for longer content"),
+            ("NUMBER", "Numeric input with optional decimal support"),
+            ("DATE", "Date picker for selecting dates"),
+            ("DROPDOWN", "Single selection from a predefined list of options"),
+            ("CHECKBOX", "Boolean true/false toggle"),
+            ("RADIO", "Single selection displayed as radio buttons"),
+            ("CALCULATED", "Read-only value computed from other fields"),
+            ("LOOKUP", "Value referenced from another entity"),
+            ("FILE", "File attachment with upload support"),
+            ("IMAGE", "Image attachment with preview support"),
+            ("TABLE", "Nested tabular data with child records"),
+        ]
+
+        for field_type, tooltip in field_types_with_tooltips:
+            self._field_type_combo.addItem(field_type)
+            index = self._field_type_combo.count() - 1
+            self._field_type_combo.setItemData(index, tooltip, Qt.ItemDataRole.ToolTipRole)
+
+        # Set overall tooltip for the combo box
+        self._field_type_combo.setToolTip("Select the data type for this field")
         form.addRow("Field Type*:", self._field_type_combo)
 
         # Required checkbox
