@@ -24,9 +24,14 @@ Phase 7 Scope:
 - Export schema to JSON file
 - Display export warnings
 
+Phase SD-1 Scope:
+- Import schema from JSON file
+- Handle enforcement policy options
+- Handle identical schema actions
+- Reload entities after successful import
+
 NOT in scope:
 - No edit/delete operations
-- No import functionality
 - No formulas/controls/output mappings display
 - No validation rule creation
 
@@ -43,6 +48,11 @@ from pathlib import Path
 from typing import Optional
 
 from doc_helper.application.dto.export_dto import ExportResult
+from doc_helper.application.dto.import_dto import (
+    EnforcementPolicy,
+    IdenticalSchemaAction,
+    ImportResult,
+)
 from doc_helper.application.dto.operation_result import OperationResult
 from doc_helper.application.dto.relationship_dto import RelationshipDTO
 from doc_helper.application.dto.schema_dto import EntityDefinitionDTO, FieldDefinitionDTO
@@ -420,6 +430,43 @@ class SchemaDesignerViewModel(BaseViewModel):
             file_path=file_path,
             version=version,
         )
+
+    # -------------------------------------------------------------------------
+    # Phase SD-1: Import Operations
+    # -------------------------------------------------------------------------
+
+    def import_schema(
+        self,
+        file_path: Path,
+        enforcement_policy: EnforcementPolicy = EnforcementPolicy.STRICT,
+        identical_action: IdenticalSchemaAction = IdenticalSchemaAction.SKIP,
+        force: bool = False,
+    ) -> ImportResult:
+        """Import schema from JSON file (Phase SD-1).
+
+        Delegates to SchemaUseCases which handles command execution.
+
+        Args:
+            file_path: Path to JSON import file
+            enforcement_policy: How to handle compatibility issues
+            identical_action: What to do when schema is identical
+            force: Force import even if incompatible
+
+        Returns:
+            ImportResult with success status, counts, warnings, and errors
+        """
+        result = self._schema_usecases.import_schema(
+            file_path=file_path,
+            enforcement_policy=enforcement_policy,
+            identical_action=identical_action,
+            force=force,
+        )
+
+        if result.success and not result.was_skipped:
+            # Reload entities to show imported schema
+            self.load_entities()
+
+        return result
 
     def dispose(self) -> None:
         """Clean up resources."""

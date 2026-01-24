@@ -37,9 +37,14 @@ Phase 7: Export UI
 - Export dialog with file picker
 - Display export warnings
 
+Phase SD-1: Import UI
+- "Import Schema" button in toolbar
+- Import dialog with file picker and options
+- Display compatibility analysis
+- Display import warnings/errors
+
 NOT in current scope:
 - No edit/delete buttons for entities/fields/relationships
-- No import functionality
 - No formulas/controls/output mappings display
 - No validation rule creation
 """
@@ -181,6 +186,16 @@ class SchemaDesignerView(BaseView):
         title_layout.addWidget(title_label)
 
         title_layout.addStretch()
+
+        # Phase SD-1: Import Schema button
+        import_button = QPushButton("Import Schema")
+        import_button.setStyleSheet("font-size: 9pt; padding: 5px 15px;")
+        import_button.clicked.connect(self._on_import_schema_clicked)
+        import_button.setToolTip(
+            "Import schema from JSON file.\n"
+            "Replaces all entities, fields, constraints, and relationships."
+        )
+        title_layout.addWidget(import_button)
 
         # Phase 7: Export Schema button
         export_button = QPushButton("Export Schema")
@@ -1064,6 +1079,90 @@ class SchemaDesignerView(BaseView):
                     self._root,
                     "Error Creating Relationship",
                     f"Failed to create relationship:\n\n{result.error}",
+                )
+
+    # -------------------------------------------------------------------------
+    # Phase SD-1: Import Operations
+    # -------------------------------------------------------------------------
+
+    def _on_import_schema_clicked(self) -> None:
+        """Handle Import Schema button click (Phase SD-1).
+
+        Opens dialog to import schema from JSON file.
+        Displays warnings and errors returned by ImportSchemaCommand.
+        """
+        from doc_helper.presentation.dialogs.import_schema_dialog import (
+            ImportSchemaDialog,
+        )
+
+        dialog = ImportSchemaDialog(parent=self._root)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            import_params = dialog.get_import_params()
+            if not import_params:
+                return
+
+            # Import schema via ViewModel
+            result = self._viewmodel.import_schema(
+                file_path=import_params["file_path"],
+                enforcement_policy=import_params["enforcement_policy"],
+                identical_action=import_params["identical_action"],
+                force=import_params["force"],
+            )
+
+            if result.success:
+                # Build success message
+                if result.was_skipped:
+                    QMessageBox.information(
+                        self._root,
+                        "Import Skipped",
+                        "Schema was not imported because it is identical to the existing schema.",
+                    )
+                else:
+                    message = "Schema imported successfully!\n\n"
+                    message += f"Entities: {result.entity_count}\n"
+                    message += f"Fields: {result.field_count}\n"
+                    message += f"Relationships: {result.relationship_count}"
+
+                    # Include warning count if any
+                    if result.warnings:
+                        warning_count = len(result.warnings)
+                        message += f"\n\nWarnings: {warning_count}"
+
+                        # Show first few warnings in message
+                        for warning in result.warnings[:5]:
+                            message += f"\n- [{warning.category}] {warning.message}"
+
+                        if warning_count > 5:
+                            message += f"\n... and {warning_count - 5} more warnings"
+
+                    QMessageBox.information(
+                        self._root,
+                        "Import Successful",
+                        message,
+                    )
+
+                    # Mark as having unsaved changes (schema was modified)
+                    self._set_unsaved_changes(True)
+            else:
+                # Build error message
+                message = "Failed to import schema:\n\n"
+
+                if result.error:
+                    message += f"{result.error}\n"
+
+                if result.validation_errors:
+                    message += f"\nValidation Errors ({len(result.validation_errors)}):"
+                    for error in result.validation_errors[:5]:
+                        location = f" at {error.location}" if error.location else ""
+                        message += f"\n- [{error.category}]{location}: {error.message}"
+
+                    if len(result.validation_errors) > 5:
+                        message += f"\n... and {len(result.validation_errors) - 5} more errors"
+
+                QMessageBox.critical(
+                    self._root,
+                    "Import Failed",
+                    message,
                 )
 
     # -------------------------------------------------------------------------

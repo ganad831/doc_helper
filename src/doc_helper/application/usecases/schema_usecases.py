@@ -32,7 +32,15 @@ from doc_helper.application.commands.schema.create_relationship_command import (
 from doc_helper.application.commands.schema.export_schema_command import (
     ExportSchemaCommand,
 )
+from doc_helper.application.commands.schema.import_schema_command import (
+    ImportSchemaCommand,
+)
 from doc_helper.application.dto.export_dto import ExportResult
+from doc_helper.application.dto.import_dto import (
+    EnforcementPolicy,
+    IdenticalSchemaAction,
+    ImportResult,
+)
 from doc_helper.application.dto.operation_result import OperationResult
 from doc_helper.application.dto.relationship_dto import RelationshipDTO
 from doc_helper.application.dto.schema_dto import EntityDefinitionDTO
@@ -108,6 +116,10 @@ class SchemaUseCases:
             )
         self._export_command = ExportSchemaCommand(
             schema_repository, relationship_repository
+        )
+        self._import_command = ImportSchemaCommand(
+            schema_repository=schema_repository,
+            relationship_repository=relationship_repository,
         )
 
     # =========================================================================
@@ -303,6 +315,44 @@ class SchemaUseCases:
             return (True, result.value, None)
         else:
             return (False, None, result.error)
+
+    def import_schema(
+        self,
+        file_path: Path,
+        enforcement_policy: EnforcementPolicy = EnforcementPolicy.STRICT,
+        identical_action: IdenticalSchemaAction = IdenticalSchemaAction.SKIP,
+        force: bool = False,
+    ) -> ImportResult:
+        """Import schema from JSON file.
+
+        Args:
+            file_path: Path to JSON import file
+            enforcement_policy: How to handle compatibility issues
+                - STRICT: Block incompatible schemas (default)
+                - WARN: Allow with warnings
+                - NONE: No compatibility checking
+            identical_action: What to do when schema is identical
+                - SKIP: Do nothing (default)
+                - REPLACE: Replace anyway
+            force: Force import even if incompatible (overrides enforcement_policy)
+
+        Returns:
+            ImportResult with:
+            - success: True if import succeeded
+            - entity_count, field_count, relationship_count: Imported counts
+            - warnings: Tuple of ImportWarning
+            - validation_errors: Tuple of ImportValidationError (on failure)
+            - compatibility_result: CompatibilityResult (if checked)
+            - was_identical: True if schema was identical
+            - was_skipped: True if import was skipped
+            - error: Error message (on failure)
+        """
+        return self._import_command.execute(
+            file_path=file_path,
+            enforcement_policy=enforcement_policy,
+            identical_action=identical_action,
+            force=force,
+        )
 
     def get_entity_list_for_selection(self) -> tuple[tuple[str, str], ...]:
         """Get list of entities for dropdown/selection UI.
