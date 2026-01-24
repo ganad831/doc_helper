@@ -125,8 +125,17 @@ class AddRelationshipDialog(QDialog):
 
         # Relationship Type dropdown
         self._type_combo = QComboBox()
+        type_tooltips = {
+            "CONTAINS": "Parent-child ownership. Deleting parent deletes children.",
+            "REFERENCES": "Non-owning link. Referenced entity exists independently.",
+            "ASSOCIATES": "Peer connection. Both entities are equal partners.",
+        }
         for type_value, type_desc in self.RELATIONSHIP_TYPES:
             self._type_combo.addItem(type_desc, type_value)
+            index = self._type_combo.count() - 1
+            self._type_combo.setItemData(
+                index, type_tooltips.get(type_value, ""), Qt.ItemDataRole.ToolTipRole
+            )
         self._type_combo.currentIndexChanged.connect(self._on_entity_changed)
         form.addRow("Relationship Type*:", self._type_combo)
 

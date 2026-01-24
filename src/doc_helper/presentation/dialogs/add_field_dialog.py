@@ -136,6 +136,10 @@ class AddFieldDialog(QDialog):
 
         # Required checkbox
         self._required_checkbox = QCheckBox("Field is required")
+        self._required_checkbox.setToolTip(
+            "If checked, this field must have a value.\n"
+            "Empty values will trigger a validation error."
+        )
         form.addRow("Required:", self._required_checkbox)
 
         # Default Value
@@ -145,9 +149,10 @@ class AddFieldDialog(QDialog):
 
         layout.addLayout(form)
 
-        # Note about limitations
+        # Note about next steps
         note = QLabel(
-            "Note: Validation rules, formulas, and options can be added in Phase 2 Step 3."
+            "Tip: After adding this field, you can add validation constraints "
+            "(Required, Min/Max, Pattern, etc.) from the main Schema Designer view."
         )
         note.setWordWrap(True)
         note.setStyleSheet("color: gray; font-style: italic; padding: 10px;")

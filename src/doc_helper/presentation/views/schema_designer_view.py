@@ -258,8 +258,8 @@ class SchemaDesignerView(BaseView):
 
         # Info label
         info_label = QLabel(
-            "Select an entity to view its fields, "
-            "then select a field to view its validation rules."
+            "Start by selecting an entity on the left to view its fields. "
+            "Then select a field to view or add validation constraints."
         )
         info_label.setStyleSheet("color: gray; padding: 5px;")
         main_layout.addWidget(info_label)
@@ -349,7 +349,7 @@ class SchemaDesignerView(BaseView):
         header_layout.addStretch()
 
         # Add Entity button (Phase 2 Step 2)
-        add_entity_button = QPushButton("+ Add")
+        add_entity_button = QPushButton("+ Add Entity")
         add_entity_button.setStyleSheet("font-size: 9pt; padding: 3px 8px;")
         add_entity_button.clicked.connect(self._on_add_entity_clicked)
         add_entity_button.setToolTip(
@@ -520,12 +520,14 @@ class SchemaDesignerView(BaseView):
         self._add_constraint_button.clicked.connect(self._on_add_constraint_clicked)
         self._add_constraint_button.setToolTip(
             "Add a validation constraint to the selected field.\n\n"
-            "Supported constraints:\n"
+            "Available constraints (vary by field type):\n"
             "- Required: Field must not be empty\n"
-            "- Minimum Value: Numeric minimum\n"
-            "- Maximum Value: Numeric maximum\n"
-            "- Minimum Length: Text length minimum\n"
-            "- Maximum Length: Text length maximum"
+            "- Min/Max Value: Numeric or date range\n"
+            "- Min/Max Length: Text length limits\n"
+            "- Pattern: Regex validation\n"
+            "- Allowed Values: Restrict to specific values\n"
+            "- File Extension: Allowed file types\n"
+            "- Max File Size: File size limit"
         )
         self._add_constraint_button.setEnabled(False)  # Disabled until field selected
         header_layout.addWidget(self._add_constraint_button)
@@ -533,7 +535,10 @@ class SchemaDesignerView(BaseView):
         layout.addLayout(header_layout)
 
         # Info label (shows when no field selected)
-        self._validation_info_label = QLabel("Select a field to view its validation rules")
+        self._validation_info_label = QLabel(
+            "Select a field to view its validation rules.\n"
+            "You can add constraints like Required, Min/Max, Pattern, etc."
+        )
         self._validation_info_label.setStyleSheet(
             "color: gray; font-style: italic; padding: 10px;"
         )
@@ -584,7 +589,7 @@ class SchemaDesignerView(BaseView):
         layout.addLayout(header_layout)
 
         # ADD-ONLY notice
-        notice = QLabel("Relationships are immutable (ADD-ONLY)")
+        notice = QLabel("\u26a0\ufe0f Relationships are immutable (ADD-ONLY)")
         notice.setStyleSheet(
             "color: #b45309; "
             "font-size: 8pt; "

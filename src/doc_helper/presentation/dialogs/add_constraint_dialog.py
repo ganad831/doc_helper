@@ -296,9 +296,19 @@ class AddConstraintDialog(QDialog):
         else:
             # No constraints available for this field type
             self._hide_all_value_inputs()
-            self._description_label.setText(
-                "No constraints available for this field type."
-            )
+            no_constraints_msg = "No constraints available for this field type."
+            # Add explanatory message for specific field types
+            if self._field_type == "checkbox":
+                no_constraints_msg += (
+                    "\n\nCheckbox fields are boolean (true/false) "
+                    "and do not support validation constraints."
+                )
+            elif self._field_type == "calculated":
+                no_constraints_msg += (
+                    "\n\nCalculated fields are read-only and derive their value "
+                    "from formulas, so constraints are not applicable."
+                )
+            self._description_label.setText(no_constraints_msg)
             self._add_button.setEnabled(False)
 
     def _hide_all_value_inputs(self) -> None:
