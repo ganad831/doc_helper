@@ -1,33 +1,52 @@
-"""Formula Use Cases (Phase F-1: Formula Editor - Read-Only, Design-Time).
+"""Formula Use Cases (Phase F-1 + F-2 + F-3: Validation, Execution, Dependency Discovery).
 
-Application layer use-case class for formula validation operations.
+Application layer use-case class for formula operations.
 Presentation layer MUST use this class instead of directly accessing
-the domain formula parser.
+the domain formula parser or evaluator.
 
-PHASE F-1 CONSTRAINTS:
+PHASE F-1 CONSTRAINTS (Design-Time Validation):
 - Read-only with respect to schema
 - Validates expressions against schema snapshot (DTOs only)
 - Infers result type (BOOLEAN / NUMBER / TEXT / UNKNOWN)
 - Returns FormulaValidationResultDTO
-- NO formula execution
 - NO schema mutation
 - NO persistence
 
+PHASE F-2 CONSTRAINTS (Runtime Execution - ADR-040):
+- Pure execution (no side effects)
+- No persistence of computed values
+- No schema mutation
+- No dependency tracking
+- Execution is pull-based, not push-based
+- Returns FormulaExecutionResultDTO
+
+PHASE F-3 CONSTRAINTS (Dependency Discovery - ADR-040):
+- Analysis only (no execution)
+- No persistence of dependencies
+- No DAG/graph construction
+- No cycle detection
+- Read-only schema access
+- Returns FormulaDependencyAnalysisResultDTO
+
 ARCHITECTURE COMPLIANCE:
-- FormulaUseCases is the composition root for formula validation
+- FormulaUseCases is the composition root for formula operations
 - ViewModel calls ONLY use-case methods
-- All domain parser access happens HERE
+- All domain parser/evaluator access happens HERE
 - Schema snapshot passed as DTOs (read-only)
 - Returns DTOs to Presentation
 """
 
-from typing import Any
+from typing import Any, Callable
 
 from doc_helper.application.dto.formula_dto import (
+    FormulaDependencyAnalysisResultDTO,
+    FormulaDependencyDTO,
+    FormulaExecutionResultDTO,
     FormulaResultType,
     FormulaValidationResultDTO,
     SchemaFieldInfoDTO,
 )
+from doc_helper.domain.common.result import Failure, Success
 from doc_helper.domain.formula.ast_nodes import (
     ASTNode,
     BinaryOp,
@@ -36,6 +55,7 @@ from doc_helper.domain.formula.ast_nodes import (
     Literal,
     UnaryOp,
 )
+from doc_helper.domain.formula.evaluator import EvaluationContext, FormulaEvaluator
 from doc_helper.domain.formula.parser import FormulaParser
 
 
@@ -90,28 +110,170 @@ FIELD_TYPE_TO_RESULT_TYPE: dict[str, FormulaResultType] = {
 }
 
 
+# =========================================================================
+# PHASE F-2: Built-in function implementations for formula execution
+# =========================================================================
+
+
+def _builtin_abs(x: Any) -> Any:
+    """Absolute value."""
+    if x is None:
+        return None
+    return abs(x)
+
+
+def _builtin_min(*args: Any) -> Any:
+    """Minimum of values (null-safe)."""
+    non_null = [a for a in args if a is not None]
+    if not non_null:
+        return None
+    return min(non_null)
+
+
+def _builtin_max(*args: Any) -> Any:
+    """Maximum of values (null-safe)."""
+    non_null = [a for a in args if a is not None]
+    if not non_null:
+        return None
+    return max(non_null)
+
+
+def _builtin_round(x: Any, digits: int = 0) -> Any:
+    """Round to specified digits."""
+    if x is None:
+        return None
+    return round(x, digits)
+
+
+def _builtin_sum(*args: Any) -> Any:
+    """Sum of values (null-safe)."""
+    non_null = [a for a in args if a is not None]
+    if not non_null:
+        return 0
+    return sum(non_null)
+
+
+def _builtin_pow(base: Any, exp: Any) -> Any:
+    """Power function."""
+    if base is None or exp is None:
+        return None
+    return base ** exp
+
+
+def _builtin_upper(s: Any) -> Any:
+    """Convert to uppercase."""
+    if s is None:
+        return None
+    return str(s).upper()
+
+
+def _builtin_lower(s: Any) -> Any:
+    """Convert to lowercase."""
+    if s is None:
+        return None
+    return str(s).lower()
+
+
+def _builtin_strip(s: Any) -> Any:
+    """Strip whitespace."""
+    if s is None:
+        return None
+    return str(s).strip()
+
+
+def _builtin_concat(*args: Any) -> str:
+    """Concatenate values as strings."""
+    return "".join(str(a) if a is not None else "" for a in args)
+
+
+def _builtin_if_else(condition: Any, true_val: Any, false_val: Any) -> Any:
+    """Conditional expression."""
+    return true_val if condition else false_val
+
+
+def _builtin_is_empty(x: Any) -> bool:
+    """Check if value is empty/null."""
+    if x is None:
+        return True
+    if isinstance(x, str) and x.strip() == "":
+        return True
+    return False
+
+
+def _builtin_coalesce(*args: Any) -> Any:
+    """Return first non-null value."""
+    for a in args:
+        if a is not None:
+            return a
+    return None
+
+
+# Dictionary of built-in functions for formula execution
+BUILTIN_FUNCTIONS: dict[str, Callable[..., Any]] = {
+    "abs": _builtin_abs,
+    "min": _builtin_min,
+    "max": _builtin_max,
+    "round": _builtin_round,
+    "sum": _builtin_sum,
+    "pow": _builtin_pow,
+    "upper": _builtin_upper,
+    "lower": _builtin_lower,
+    "strip": _builtin_strip,
+    "concat": _builtin_concat,
+    "if_else": _builtin_if_else,
+    "is_empty": _builtin_is_empty,
+    "coalesce": _builtin_coalesce,
+}
+
+
 class FormulaUseCases:
-    """Use-case class for formula validation operations.
+    """Use-case class for formula validation, execution, and dependency discovery.
 
-    Provides formula parsing, validation, and type inference
-    for the Formula Editor UI (Phase F-1).
+    Provides formula parsing, validation, type inference (Phase F-1),
+    runtime execution (Phase F-2), and dependency discovery (Phase F-3).
 
-    PHASE F-1 SCOPE:
+    PHASE F-1 SCOPE (Design-Time):
     - parse_formula(): Parse formula text into AST (internal)
     - validate_formula(): Validate formula against schema snapshot
     - infer_result_type(): Infer result type from AST
 
+    PHASE F-2 SCOPE (Runtime Execution - ADR-040):
+    - execute_formula(): Execute formula with runtime field values
+
+    PHASE F-3 SCOPE (Dependency Discovery - ADR-040):
+    - analyze_dependencies(): Discover field dependencies (analysis only)
+
     FORBIDDEN OPERATIONS:
     - Schema mutation
-    - Formula execution
-    - Persistence
+    - Persistence of computed values
+    - Dependency tracking / auto-recompute
     - Domain object exposure to Presentation
+    - DAG/graph construction
+    - Cycle detection
 
-    Usage in ViewModel:
+    Usage in ViewModel (Validation):
         usecases = FormulaUseCases()
         schema_fields = [...list of SchemaFieldInfoDTO...]
         result = usecases.validate_formula(formula_text, schema_fields)
         # result is FormulaValidationResultDTO
+
+    Usage in ViewModel (Execution):
+        usecases = FormulaUseCases()
+        result = usecases.execute_formula(
+            formula_text="value1 + value2",
+            field_values={"value1": 10, "value2": 20}
+        )
+        # result is FormulaExecutionResultDTO
+        # result.value == 30
+
+    Usage in ViewModel (Dependency Analysis):
+        usecases = FormulaUseCases()
+        result = usecases.analyze_dependencies(
+            formula_text="price * quantity + tax",
+            schema_fields=[...list of SchemaFieldInfoDTO...]
+        )
+        # result is FormulaDependencyAnalysisResultDTO
+        # result.dependencies == (price_dep, quantity_dep, tax_dep)
     """
 
     def validate_formula(
@@ -264,6 +426,226 @@ class FormulaUseCases:
             Tuple of allowed function names
         """
         return tuple(sorted(ALLOWED_FUNCTIONS))
+
+    # =========================================================================
+    # PHASE F-2: Runtime Execution
+    # =========================================================================
+
+    def execute_formula(
+        self,
+        formula_text: str,
+        field_values: dict[str, Any],
+    ) -> FormulaExecutionResultDTO:
+        """Execute a formula expression with runtime field values.
+
+        PHASE F-2 (ADR-040) - Pure, deterministic execution:
+        - No persistence of computed values
+        - No schema mutation
+        - No dependency tracking
+        - No caching
+        - Execution is pull-based
+
+        Args:
+            formula_text: Formula expression to execute
+            field_values: Runtime field values as primitives (field_id -> value)
+
+        Returns:
+            FormulaExecutionResultDTO with:
+            - success: True if execution succeeded
+            - value: Computed primitive value (int, float, str, bool, None)
+            - error: Error message if execution failed
+
+        Example:
+            result = usecases.execute_formula(
+                formula_text="value1 + value2 * 2",
+                field_values={"value1": 10, "value2": 5}
+            )
+            # result.success == True
+            # result.value == 20
+
+        Null Handling:
+            - Arithmetic with null → null
+            - is_empty(null) → True
+            - coalesce(null, x) → x
+        """
+        # Validate inputs
+        if not isinstance(formula_text, str):
+            return FormulaExecutionResultDTO(
+                success=False,
+                value=None,
+                error="formula_text must be a string",
+            )
+
+        if not isinstance(field_values, dict):
+            return FormulaExecutionResultDTO(
+                success=False,
+                value=None,
+                error="field_values must be a dictionary",
+            )
+
+        # Handle empty formula
+        if not formula_text or not formula_text.strip():
+            return FormulaExecutionResultDTO(
+                success=False,
+                value=None,
+                error="Formula cannot be empty",
+            )
+
+        # Step 1: Parse formula
+        try:
+            parser = FormulaParser(formula_text)
+            ast = parser.parse()
+        except ValueError as e:
+            return FormulaExecutionResultDTO(
+                success=False,
+                value=None,
+                error=f"Syntax error: {str(e)}",
+            )
+        except Exception as e:
+            return FormulaExecutionResultDTO(
+                success=False,
+                value=None,
+                error=f"Parse error: {str(e)}",
+            )
+
+        # Step 2: Create evaluation context with field values and built-in functions
+        context = EvaluationContext(
+            field_values=field_values,
+            functions=BUILTIN_FUNCTIONS,
+        )
+
+        # Step 3: Evaluate formula
+        evaluator = FormulaEvaluator(context)
+        result = evaluator.evaluate(ast)
+
+        # Step 4: Convert Result to DTO
+        if isinstance(result, Success):
+            return FormulaExecutionResultDTO(
+                success=True,
+                value=result.value,
+                error=None,
+            )
+        else:
+            # result is Failure
+            return FormulaExecutionResultDTO(
+                success=False,
+                value=None,
+                error=str(result.error),
+            )
+
+    # =========================================================================
+    # PHASE F-3: Dependency Discovery (Analysis-Only)
+    # =========================================================================
+
+    def analyze_dependencies(
+        self,
+        formula_text: str,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> FormulaDependencyAnalysisResultDTO:
+        """Analyze formula dependencies (field references).
+
+        PHASE F-3 (ADR-040) - Pure, deterministic analysis:
+        - No execution
+        - No persistence of dependencies
+        - No DAG/graph construction
+        - No cycle detection
+        - Read-only schema access
+
+        This method extracts all field references from a formula expression
+        and validates them against the provided schema context.
+
+        Args:
+            formula_text: Formula expression to analyze
+            schema_fields: Read-only schema field snapshot (DTOs)
+
+        Returns:
+            FormulaDependencyAnalysisResultDTO with:
+            - dependencies: All discovered field dependencies
+            - unknown_fields: Fields not found in schema
+            - has_parse_error: Whether formula failed to parse
+            - parse_error: Parse error message if any
+
+        Example:
+            result = usecases.analyze_dependencies(
+                formula_text="price * quantity + tax",
+                schema_fields=[price_field, quantity_field, tax_field]
+            )
+            # result.dependencies contains 3 FormulaDependencyDTO objects
+            # result.unknown_fields == ()
+            # result.has_parse_error == False
+
+        Phase F-3 Compliance:
+            - Read-only schema access (DTOs)
+            - No schema mutation
+            - No formula execution
+            - No persistence
+            - No graph construction
+            - Returns DTO only
+        """
+        # Handle empty formula
+        if not formula_text or not formula_text.strip():
+            return FormulaDependencyAnalysisResultDTO(
+                dependencies=(),
+                unknown_fields=(),
+                has_parse_error=True,
+                parse_error="Formula cannot be empty",
+            )
+
+        # Step 1: Parse formula (syntax validation)
+        try:
+            parser = FormulaParser(formula_text)
+            ast = parser.parse()
+        except ValueError as e:
+            return FormulaDependencyAnalysisResultDTO(
+                dependencies=(),
+                unknown_fields=(),
+                has_parse_error=True,
+                parse_error=f"Syntax error: {str(e)}",
+            )
+        except Exception as e:
+            return FormulaDependencyAnalysisResultDTO(
+                dependencies=(),
+                unknown_fields=(),
+                has_parse_error=True,
+                parse_error=f"Parse error: {str(e)}",
+            )
+
+        # Step 2: Build field lookup dictionary
+        field_lookup = {f.field_id: f for f in schema_fields}
+
+        # Step 3: Extract field references from AST
+        field_refs = self._extract_field_references(ast)
+
+        # Step 4: Build dependency DTOs and track unknown fields
+        dependencies: list[FormulaDependencyDTO] = []
+        unknown_fields: list[str] = []
+
+        for field_id in sorted(field_refs):  # Sort for deterministic order
+            if field_id in field_lookup:
+                field_info = field_lookup[field_id]
+                dependencies.append(
+                    FormulaDependencyDTO(
+                        field_id=field_id,
+                        is_known=True,
+                        field_type=field_info.field_type,
+                    )
+                )
+            else:
+                dependencies.append(
+                    FormulaDependencyDTO(
+                        field_id=field_id,
+                        is_known=False,
+                        field_type=None,
+                    )
+                )
+                unknown_fields.append(field_id)
+
+        return FormulaDependencyAnalysisResultDTO(
+            dependencies=tuple(dependencies),
+            unknown_fields=tuple(unknown_fields),
+            has_parse_error=False,
+            parse_error=None,
+        )
 
     # =========================================================================
     # Internal Methods (Domain Logic Coordination)
