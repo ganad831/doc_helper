@@ -1,4 +1,4 @@
-"""Runtime Evaluation DTOs (Phase R-1, R-2, R-3, R-4, R-4.5, R-5).
+"""Runtime Evaluation DTOs (Phase R-1, R-2, R-3, R-4, R-4.5, R-5, R-6).
 
 Data Transfer Objects for runtime evaluation:
 - Control rule evaluation (Phase R-1)
@@ -8,6 +8,7 @@ Data Transfer Objects for runtime evaluation:
 - Entity-level control rules aggregation (Phase R-4)
 - Form runtime state adapter (Phase R-4.5)
 - Entity-level output mappings aggregation (Phase R-5)
+- Document runtime context builder (Phase R-6)
 
 ADR-050 Compliance:
 - Pull-based evaluation (caller provides all inputs)
@@ -844,4 +845,167 @@ class EntityOutputMappingsEvaluationDTO:
         return EntityOutputMappingsEvaluationDTO(
             entity_id=entity_id,
             result=EntityOutputMappingResultDTO.empty(),
+        )
+
+
+# ============================================================================
+# Document Runtime Context DTOs (Phase R-6)
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class DocumentFieldStateDTO:
+    """Document-ready field state for document generation (Phase R-6).
+
+    Combines runtime evaluation state with field values for document generation.
+
+    ADR-050 Compliance:
+        - Immutable field state snapshot
+        - Pull-based (derived from runtime results)
+        - No domain object leakage
+        - No rendering or formatting logic
+
+    Phase R-6: Final field state for document generation context.
+    """
+
+    field_id: str
+    """Field identifier."""
+
+    visible: bool
+    """Whether the field is visible (from control rules)."""
+
+    enabled: bool
+    """Whether the field is enabled (from control rules)."""
+
+    required: bool
+    """Whether the field is required (from control rules)."""
+
+    value: Any | None
+    """Field value (raw value from field_values dict, None if not present)."""
+
+    validation_errors: tuple[str, ...]
+    """Validation error messages (ERROR severity - blocking)."""
+
+    validation_warnings: tuple[str, ...]
+    """Validation warning messages (WARNING severity - non-blocking)."""
+
+    validation_info: tuple[str, ...]
+    """Validation info messages (INFO severity - informational)."""
+
+
+@dataclass(frozen=True)
+class DocumentRuntimeContextDTO:
+    """Document-ready runtime context for document generation (Phase R-6).
+
+    Final aggregation of all runtime evaluation results into document-ready context.
+    This is the authoritative payload for document generators (PDF, DOCX, HTML, etc).
+
+    ADR-050 Compliance:
+        - Immutable document context
+        - Pull-based (derived from R-3, R-4.5, R-5 results)
+        - Deterministic (same inputs → same outputs)
+        - Read-only (no persistence)
+        - Single-entity scope only
+        - No rendering or formatting logic
+
+    Phase R-6: Bridges runtime evaluation with document generation.
+    """
+
+    entity_id: str
+    """Entity whose document context is represented."""
+
+    fields: tuple[DocumentFieldStateDTO, ...]
+    """Per-field document-ready state (ordered by field evaluation order).
+    Includes visibility, enabled, required, value, and validation messages."""
+
+    output_values: dict[str, Any]
+    """Aggregated output values from Phase R-5: {target → value}.
+    Example: {"TEXT": "5.0 - 10.0", "NUMBER": 7.5, "BOOLEAN": True}
+    Empty dict if no output mappings or if output mapping evaluation failed."""
+
+    has_blocking_errors: bool
+    """Whether any blocking errors exist that prevent document generation.
+    True if:
+        - Validation has ERROR severity issues, OR
+        - Output mapping evaluation failed
+    False otherwise (warnings/info are non-blocking)."""
+
+    @staticmethod
+    def from_runtime_results(
+        entity_id: str,
+        field_values: dict[str, Any],
+        form_state: FormRuntimeStateDTO,
+        output_mappings: EntityOutputMappingsEvaluationDTO,
+    ) -> "DocumentRuntimeContextDTO":
+        """Create document runtime context from runtime evaluation results.
+
+        Merges:
+        - Field visibility/enabled/required (from form_state / R-4.5)
+        - Field values (from field_values dict)
+        - Validation messages (from form_state / R-2)
+        - Output mapping values (from output_mappings / R-5)
+
+        Args:
+            entity_id: Entity identifier
+            field_values: Current field values snapshot {field_id → value}
+            form_state: FormRuntimeStateDTO from Phase R-4.5
+            output_mappings: EntityOutputMappingsEvaluationDTO from Phase R-5
+
+        Returns:
+            DocumentRuntimeContextDTO with complete document-ready context
+        """
+        # Build per-field document state
+        field_states: list[DocumentFieldStateDTO] = []
+
+        for field_state in form_state.fields:
+            # Get field value from field_values dict (None if not present)
+            field_value = field_values.get(field_state.field_id, None)
+
+            # Create document field state
+            doc_field_state = DocumentFieldStateDTO(
+                field_id=field_state.field_id,
+                visible=field_state.visible,
+                enabled=field_state.enabled,
+                required=field_state.required,
+                value=field_value,
+                validation_errors=field_state.validation_errors,
+                validation_warnings=field_state.validation_warnings,
+                validation_info=field_state.validation_info,
+            )
+            field_states.append(doc_field_state)
+
+        # Extract output values from R-5
+        # If output mapping evaluation failed, use empty dict
+        output_values = (
+            output_mappings.result.values if output_mappings.result.success else {}
+        )
+
+        # Determine blocking status
+        # Blocked if: form has validation errors OR output mapping failed
+        has_blocking_errors = (
+            form_state.has_blocking_errors or not output_mappings.result.success
+        )
+
+        return DocumentRuntimeContextDTO(
+            entity_id=entity_id,
+            fields=tuple(field_states),
+            output_values=output_values,
+            has_blocking_errors=has_blocking_errors,
+        )
+
+    @staticmethod
+    def default(entity_id: str) -> "DocumentRuntimeContextDTO":
+        """Create default document context (no fields, no errors).
+
+        Args:
+            entity_id: Entity identifier
+
+        Returns:
+            DocumentRuntimeContextDTO with empty state
+        """
+        return DocumentRuntimeContextDTO(
+            entity_id=entity_id,
+            fields=(),
+            output_values={},
+            has_blocking_errors=False,
         )
