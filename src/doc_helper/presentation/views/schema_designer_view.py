@@ -1,4 +1,4 @@
-"""Schema Designer View (Phase 2 + Phase 6B + Phase 7 + Phase F-1 + Phase F-9).
+"""Schema Designer View (Phase 2 + Phase 6B + Phase 7 + Phase F-1 + Phase F-9 + Phase F-12).
 
 UI component for viewing and creating schema definitions.
 Displays entities, fields, validation rules, relationships, formula editor,
@@ -79,6 +79,16 @@ Phase F-9: Control Rules Preview UI (UI-Only, In-Memory)
 - Display blocked rules with reasons
 - NO schema mutation
 - NO persistence
+
+Phase F-12: Control Rules UI (Persisted, Design-Time)
+- Control Rules section in validation panel
+- Add/Edit/Delete persisted control rules
+- Display rule type, target field, formula
+- Route all operations through SchemaDesignerViewModel
+- Design-time only (no runtime enforcement)
+- NO business logic in UI
+- NO validation logic in UI
+- NO formula execution in UI
 
 NOT in current scope:
 - No edit/delete buttons for relationships
@@ -204,6 +214,11 @@ class SchemaDesignerView(BaseView):
         # Phase SD-2: Add Constraint UI
         self._add_constraint_button: Optional[QPushButton] = None
         self._validation_info_label: Optional[QLabel] = None
+
+        # Phase F-12: Control Rules UI (Persisted)
+        self._control_rules_list: Optional[QListWidget] = None
+        self._control_rules_info_label: Optional[QLabel] = None
+        self._add_control_rule_button: Optional[QPushButton] = None
 
         # Phase SD-3: Entity Edit/Delete UI
         self._edit_entity_button: Optional[QPushButton] = None
@@ -365,6 +380,8 @@ class SchemaDesignerView(BaseView):
         # Phase F-9: Subscribe to preview mode changes
         self._viewmodel.subscribe("preview_mode_state", self._on_preview_mode_state_changed)
         self._viewmodel.subscribe("preview_results", self._on_preview_results_changed)
+        # Phase F-12: Subscribe to control rules changes
+        self._viewmodel.subscribe("control_rules", self._on_control_rules_changed)
 
         # Load entities
         self._load_entities()
@@ -602,6 +619,57 @@ class SchemaDesignerView(BaseView):
         self._validation_list = QListWidget()
         self._validation_list.setVisible(False)  # Hidden until field selected
         layout.addWidget(self._validation_list)
+
+        # Phase F-12: Control Rules Section (Persisted)
+        # Separator line
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setStyleSheet("color: #d0d8e0; margin: 10px 0px;")
+        layout.addWidget(separator)
+
+        # Control Rules header with Add button
+        control_rules_header = QHBoxLayout()
+        control_rules_title = QLabel("Control Rules (Persisted)")
+        control_rules_title.setStyleSheet("font-weight: bold; font-size: 11pt; padding: 5px;")
+        control_rules_header.addWidget(control_rules_title)
+        control_rules_header.addStretch()
+
+        # Add Control Rule button (Phase F-12)
+        self._add_control_rule_button = QPushButton("+ Add Control Rule")
+        self._add_control_rule_button.setStyleSheet("font-size: 9pt; padding: 3px 8px;")
+        self._add_control_rule_button.clicked.connect(self._on_add_control_rule_clicked)
+        self._add_control_rule_button.setToolTip(
+            "Add a persisted control rule to the selected field.\n\n"
+            "Control rules define inter-field dependencies:\n"
+            "- VISIBILITY: Controls whether a field is visible\n"
+            "- ENABLED: Controls whether a field is enabled/disabled\n"
+            "- REQUIRED: Controls whether a field is required\n\n"
+            "Rules are saved in the schema and enforced at design-time."
+        )
+        self._add_control_rule_button.setEnabled(False)  # Disabled until field selected
+        control_rules_header.addWidget(self._add_control_rule_button)
+
+        layout.addLayout(control_rules_header)
+
+        # Info label (shows when no field selected)
+        self._control_rules_info_label = QLabel(
+            "Select a field to view its control rules.\n"
+            "Control rules define inter-field dependencies (VISIBILITY, ENABLED, REQUIRED)."
+        )
+        self._control_rules_info_label.setStyleSheet(
+            "color: gray; font-style: italic; padding: 10px;"
+        )
+        self._control_rules_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._control_rules_info_label)
+
+        # Control rules list
+        self._control_rules_list = QListWidget()
+        self._control_rules_list.setVisible(False)  # Hidden until field selected
+        self._control_rules_list.itemDoubleClicked.connect(self._on_control_rule_double_clicked)
+        self._control_rules_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._control_rules_list.customContextMenuRequested.connect(self._on_control_rule_context_menu)
+        layout.addWidget(self._control_rules_list)
 
         return panel
 
@@ -1241,6 +1309,58 @@ class SchemaDesignerView(BaseView):
             item.setForeground(Qt.GlobalColor.gray)
             self._validation_list.addItem(item)
 
+    def _on_control_rules_changed(self) -> None:
+        """Handle control rules list change (Phase F-12).
+
+        Updates the control rules list when a field is selected or when rules change.
+        Manages Add Control Rule button state based on field selection.
+        """
+        if not self._control_rules_list:
+            return
+
+        self._control_rules_list.clear()
+
+        rules = self._viewmodel.control_rules
+        field_selected = self._viewmodel.selected_field_id is not None
+
+        # Manage visibility of info label and list
+        if self._control_rules_info_label:
+            self._control_rules_info_label.setVisible(not field_selected)
+
+        # Manage Add Control Rule button state
+        if self._add_control_rule_button:
+            self._add_control_rule_button.setEnabled(field_selected)
+
+        if not field_selected:
+            self._control_rules_list.setVisible(False)
+            return
+
+        # Field is selected - show the list
+        self._control_rules_list.setVisible(True)
+
+        if rules:
+            for rule_dto in rules:
+                # Format: "VISIBILITY → field2: {{status}} == 'active'"
+                rule_display = f"{rule_dto.rule_type} → {rule_dto.target_field_id}: {rule_dto.formula_text}"
+                item = QListWidgetItem(rule_display)
+                # Store the full DTO in UserRole for Edit/Delete operations
+                item.setData(Qt.ItemDataRole.UserRole, rule_dto)
+
+                # Add governance status indicator if available
+                tooltip = (
+                    f"Type: {rule_dto.rule_type}\n"
+                    f"Target Field: {rule_dto.target_field_id}\n"
+                    f"Formula: {rule_dto.formula_text}"
+                )
+                item.setToolTip(tooltip)
+
+                self._control_rules_list.addItem(item)
+        else:
+            # Show message if no rules defined
+            item = QListWidgetItem("No control rules defined")
+            item.setForeground(Qt.GlobalColor.gray)
+            self._control_rules_list.addItem(item)
+
     def _on_error_changed(self) -> None:
         """Handle error message change."""
         error = self._viewmodel.error_message
@@ -1837,6 +1957,230 @@ class SchemaDesignerView(BaseView):
                     self._root,
                     "Error Adding Constraint",
                     f"Failed to add constraint:\n\n{result.error}",
+                )
+
+    # -------------------------------------------------------------------------
+    # Phase F-12: Control Rules Operations
+    # -------------------------------------------------------------------------
+
+    def _on_add_control_rule_clicked(self) -> None:
+        """Handle Add Control Rule button click (Phase F-12).
+
+        Opens dialog to add a persisted control rule to the selected field.
+        """
+        # Verify field is selected
+        if not self._viewmodel.selected_field_id:
+            QMessageBox.warning(
+                self._root,
+                "No Field Selected",
+                "Please select a field first before adding a control rule.",
+            )
+            return
+
+        if not self._viewmodel.selected_entity_id:
+            QMessageBox.warning(
+                self._root,
+                "No Entity Selected",
+                "Please select an entity and field first.",
+            )
+            return
+
+        # Get available fields from current entity for target field selection
+        available_fields = ()
+        for entity_dto in self._viewmodel.entities:
+            if entity_dto.id == self._viewmodel.selected_entity_id:
+                available_fields = entity_dto.fields
+                break
+
+        if not available_fields:
+            QMessageBox.warning(
+                self._root,
+                "No Fields Available",
+                "The current entity has no fields available as control targets.",
+            )
+            return
+
+        from doc_helper.presentation.dialogs.control_rule_dialog import (
+            ControlRuleDialog,
+        )
+
+        dialog = ControlRuleDialog(
+            available_fields=available_fields,
+            parent=self._root,
+            existing_rule=None,  # Add mode
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            rule_type = dialog.get_rule_type()
+            target_field_id = dialog.get_target_field_id()
+            formula_text = dialog.get_formula_text()
+
+            if not formula_text.strip():
+                QMessageBox.warning(
+                    self._root,
+                    "Invalid Formula",
+                    "Formula text cannot be empty.",
+                )
+                return
+
+            # Add control rule via ViewModel
+            result = self._viewmodel.add_control_rule(
+                rule_type=rule_type,
+                target_field_id=target_field_id,
+                formula_text=formula_text,
+            )
+
+            if result.success:
+                # Mark as having unsaved changes
+                self._set_unsaved_changes(True)
+
+                QMessageBox.information(
+                    self._root,
+                    "Control Rule Added",
+                    f"Control rule '{rule_type}' added successfully!",
+                )
+            else:
+                QMessageBox.critical(
+                    self._root,
+                    "Error Adding Control Rule",
+                    f"Failed to add control rule:\n\n{result.error}",
+                )
+
+    def _on_control_rule_double_clicked(self, item: QListWidgetItem) -> None:
+        """Handle control rule list item double-click (Phase F-12).
+
+        Opens edit dialog for the selected control rule.
+
+        Args:
+            item: The list item that was double-clicked
+        """
+        # Get the rule DTO from the item
+        rule_dto = item.data(Qt.ItemDataRole.UserRole)
+        if not rule_dto:
+            return  # Empty state item
+
+        # Get available fields from current entity
+        available_fields = ()
+        for entity_dto in self._viewmodel.entities:
+            if entity_dto.id == self._viewmodel.selected_entity_id:
+                available_fields = entity_dto.fields
+                break
+
+        from doc_helper.presentation.dialogs.control_rule_dialog import (
+            ControlRuleDialog,
+        )
+
+        dialog = ControlRuleDialog(
+            available_fields=available_fields,
+            parent=self._root,
+            existing_rule=rule_dto,  # Edit mode
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            formula_text = dialog.get_formula_text()
+
+            if not formula_text.strip():
+                QMessageBox.warning(
+                    self._root,
+                    "Invalid Formula",
+                    "Formula text cannot be empty.",
+                )
+                return
+
+            # Update control rule via ViewModel (rule_type identifies the rule)
+            result = self._viewmodel.update_control_rule(
+                rule_type=rule_dto.rule_type,
+                formula_text=formula_text,
+            )
+
+            if result.success:
+                # Mark as having unsaved changes
+                self._set_unsaved_changes(True)
+
+                QMessageBox.information(
+                    self._root,
+                    "Control Rule Updated",
+                    f"Control rule '{rule_dto.rule_type}' updated successfully!",
+                )
+            else:
+                QMessageBox.critical(
+                    self._root,
+                    "Error Updating Control Rule",
+                    f"Failed to update control rule:\n\n{result.error}",
+                )
+
+    def _on_control_rule_context_menu(self, position) -> None:
+        """Handle control rule list context menu request (Phase F-12).
+
+        Shows Edit and Delete options for the selected control rule.
+
+        Args:
+            position: The position where the context menu was requested
+        """
+        from PyQt6.QtWidgets import QMenu
+
+        # Get the item at the position
+        item = self._control_rules_list.itemAt(position)
+        if not item:
+            return
+
+        rule_dto = item.data(Qt.ItemDataRole.UserRole)
+        if not rule_dto:
+            return  # Empty state item
+
+        # Create context menu
+        menu = QMenu(self._control_rules_list)
+
+        # Edit action
+        edit_action = menu.addAction("Edit...")
+        edit_action.triggered.connect(lambda: self._on_control_rule_double_clicked(item))
+
+        # Delete action
+        delete_action = menu.addAction("Delete")
+        delete_action.triggered.connect(lambda: self._on_delete_control_rule(rule_dto))
+
+        # Show menu
+        menu.exec(self._control_rules_list.mapToGlobal(position))
+
+    def _on_delete_control_rule(self, rule_dto) -> None:
+        """Handle control rule deletion (Phase F-12).
+
+        Shows confirmation dialog and deletes the control rule if confirmed.
+
+        Args:
+            rule_dto: The ControlRuleExportDTO to delete
+        """
+        # Confirmation dialog
+        result = QMessageBox.question(
+            self._root,
+            "Delete Control Rule",
+            f"Are you sure you want to delete the control rule '{rule_dto.rule_type}' → {rule_dto.target_field_id}?\n\n"
+            f"Formula: {rule_dto.formula_text}\n\n"
+            "This action cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if result == QMessageBox.StandardButton.Yes:
+            # Delete control rule via ViewModel
+            delete_result = self._viewmodel.delete_control_rule(
+                rule_type=rule_dto.rule_type
+            )
+
+            if delete_result.success:
+                # Mark as having unsaved changes
+                self._set_unsaved_changes(True)
+
+                QMessageBox.information(
+                    self._root,
+                    "Control Rule Deleted",
+                    f"Control rule '{rule_dto.rule_type}' deleted successfully!",
+                )
+            else:
+                QMessageBox.critical(
+                    self._root,
+                    "Error Deleting Control Rule",
+                    f"Failed to delete control rule:\n\n{delete_result.error}",
                 )
 
     # -------------------------------------------------------------------------
