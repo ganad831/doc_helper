@@ -12,18 +12,21 @@ RULE 0 ENFORCEMENT (MANDATORY):
 
 Available Use Cases:
 - DocumentUseCases: Document generation operations (generate Word/Excel/PDF)
+- FormulaUseCases: Formula validation operations (parse, validate, type inference)
 - ProjectUseCases: ALL project operations (get, save, export, import, search, history)
 - SchemaUseCases: All schema designer operations (create entity, add field, export, etc.)
 - WelcomeUseCases: Welcome screen operations (create project, recent projects)
 """
 
 from doc_helper.application.usecases.document_usecases import DocumentUseCases
+from doc_helper.application.usecases.formula_usecases import FormulaUseCases
 from doc_helper.application.usecases.project_usecases import ProjectUseCases
 from doc_helper.application.usecases.schema_usecases import SchemaUseCases
 from doc_helper.application.usecases.welcome_usecases import WelcomeUseCases
 
 __all__ = [
     "DocumentUseCases",
+    "FormulaUseCases",
     "ProjectUseCases",
     "SchemaUseCases",
     "WelcomeUseCases",

@@ -1,7 +1,8 @@
-"""Schema Designer View (Phase 2 + Phase 6B + Phase 7).
+"""Schema Designer View (Phase 2 + Phase 6B + Phase 7 + Phase F-1).
 
 UI component for viewing and creating schema definitions.
-Displays entities, fields, validation rules, and relationships in a four-panel layout.
+Displays entities, fields, validation rules, relationships, and formula editor
+in a five-panel layout.
 
 Phase 2 Step 1 Scope (COMPLETE):
 - READ-ONLY display
@@ -59,9 +60,17 @@ Phase SD-4: Field Edit/Delete UI
 - Delete button with confirmation dialog
 - Dependency warning before delete (formulas, controls, lookup references)
 
+Phase F-1: Formula Editor UI (Read-Only, Design-Time)
+- Formula Editor panel (5th panel)
+- Live syntax validation
+- Field reference validation against schema
+- Inferred result type display
+- Error/warning display
+- NO formula execution
+- NO schema mutation from formula editor
+
 NOT in current scope:
 - No edit/delete buttons for relationships
-- No formulas/controls/output mappings display
 """
 
 from typing import Optional
@@ -85,6 +94,7 @@ from doc_helper.presentation.viewmodels.schema_designer_viewmodel import (
     SchemaDesignerViewModel,
 )
 from doc_helper.presentation.views.base_view import BaseView
+from doc_helper.presentation.widgets.formula_editor_widget import FormulaEditorWidget
 
 
 class _CloseEventFilter(QObject):
@@ -124,26 +134,27 @@ class SchemaDesignerView(BaseView):
     """View for Schema Designer.
 
     Layout:
-        ┌────────────────────────────────────────────────────────────────────┐
-        │  Schema Designer - Create Entities & Fields                        │
-        ├──────────────┬──────────────┬──────────────┬───────────────────────┤
-        │ Entities     │ Fields       │ Validation   │ Relationships         │
-        │              │              │ Rules        │ (ADD-ONLY)            │
-        │ [Entity 1]   │ [Field 1]    │ [Rule 1]     │ [Entity→Entity]       │
-        │ [Entity 2]   │ [Field 2]    │ [Rule 2]     │ [Entity→Entity]       │
-        │ [Entity 3]   │ [Field 3]    │              │                       │
-        │              │              │              │                       │
-        └──────────────┴──────────────┴──────────────┴───────────────────────┘
+        ┌──────────────────────────────────────────────────────────────────────────────┐
+        │  Schema Designer - Create Entities & Fields                                   │
+        ├─────────────┬─────────────┬─────────────┬─────────────┬──────────────────────┤
+        │ Entities    │ Fields      │ Validation  │ Relation-   │ Formula Editor       │
+        │             │             │ Rules       │ ships       │ (Phase F-1)          │
+        │ [Entity 1]  │ [Field 1]   │ [Rule 1]    │ [Rel 1]     │ [Formula Input]      │
+        │ [Entity 2]  │ [Field 2]   │ [Rule 2]    │ [Rel 2]     │ [Type: NUMBER]       │
+        │ [Entity 3]  │ [Field 3]   │             │             │ [Errors/Warnings]    │
+        └─────────────┴─────────────┴─────────────┴─────────────┴──────────────────────┘
 
     Interactions:
     - Click entity → display its fields and relationships
-    - Click field → display its validation rules
+    - Click field → display its validation rules and formula editor
     - Add Relationship → opens dialog (ADD-ONLY per ADR-022)
+    - Formula Editor → validates formula, shows type inference (READ-ONLY)
 
     Design:
-    - Four-panel splitter layout (resizable)
+    - Five-panel splitter layout (resizable)
     - CREATE operations for entities, fields, and relationships
     - Relationships are immutable once created (ADD-ONLY)
+    - Formula Editor is READ-ONLY with respect to schema
     - Clear visual selection feedback
     """
 
@@ -190,6 +201,10 @@ class SchemaDesignerView(BaseView):
         self._has_unsaved_changes: bool = False
         self._base_window_title: str = "Schema Designer - Create Entities & Fields"
         self._close_event_filter: Optional[_CloseEventFilter] = None
+
+        # Phase F-1: Formula Editor UI
+        self._formula_editor_widget: Optional[FormulaEditorWidget] = None
+        self._formula_panel_info_label: Optional[QLabel] = None
 
     def _build_ui(self) -> None:
         """Build the UI components."""
@@ -264,7 +279,7 @@ class SchemaDesignerView(BaseView):
         info_label.setStyleSheet("color: gray; padding: 5px;")
         main_layout.addWidget(info_label)
 
-        # Create four-panel splitter (Phase 6B: added relationships)
+        # Create five-panel splitter (Phase 6B: relationships, Phase F-1: formula editor)
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # Panel 1: Entity list
@@ -283,8 +298,12 @@ class SchemaDesignerView(BaseView):
         relationship_panel = self._create_relationship_panel()
         splitter.addWidget(relationship_panel)
 
+        # Panel 5: Formula Editor (Phase F-1)
+        formula_panel = self._create_formula_panel()
+        splitter.addWidget(formula_panel)
+
         # Set initial splitter sizes (equal distribution)
-        splitter.setSizes([300, 300, 300, 300])
+        splitter.setSizes([240, 240, 240, 240, 240])
 
         main_layout.addWidget(splitter)
 
@@ -634,6 +653,83 @@ class SchemaDesignerView(BaseView):
 
         return panel
 
+    def _create_formula_panel(self) -> QWidget:
+        """Create the formula editor panel (Phase F-1).
+
+        The Formula Editor provides:
+        - Live syntax validation
+        - Field reference validation against schema
+        - Inferred result type display
+        - Error/warning display
+
+        Phase F-1 Constraints:
+        - READ-ONLY with respect to schema
+        - NO formula execution
+        - NO schema mutation
+
+        Returns:
+            Widget containing formula editor or placeholder
+        """
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(5, 5, 5, 5)
+
+        # Panel title
+        title = QLabel("Formula Editor")
+        title.setStyleSheet("font-weight: bold; font-size: 11pt; padding: 5px;")
+        layout.addWidget(title)
+
+        # Phase F-1 notice
+        notice = QLabel("Read-only validation (no execution)")
+        notice.setStyleSheet(
+            "color: #718096; "
+            "font-size: 8pt; "
+            "font-style: italic; "
+            "padding: 2px 5px;"
+        )
+        layout.addWidget(notice)
+
+        # Info label (shows when no field selected or formula editor not available)
+        self._formula_panel_info_label = QLabel(
+            "Select a field to validate formulas.\n\n"
+            "The formula editor validates syntax and\n"
+            "field references against the schema."
+        )
+        self._formula_panel_info_label.setStyleSheet(
+            "color: gray; font-style: italic; padding: 10px;"
+        )
+        self._formula_panel_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._formula_panel_info_label)
+
+        # Create Formula Editor Widget if ViewModel has formula support
+        formula_editor_vm = self._viewmodel.formula_editor_viewmodel
+        if formula_editor_vm is not None:
+            self._formula_editor_widget = FormulaEditorWidget(
+                viewmodel=formula_editor_vm,
+                parent=panel,
+            )
+            self._formula_editor_widget.setVisible(False)  # Hidden until field selected
+            layout.addWidget(self._formula_editor_widget)
+        else:
+            # Show message if formula support not available
+            no_support_label = QLabel(
+                "Formula validation not available.\n\n"
+                "FormulaUseCases not configured."
+            )
+            no_support_label.setStyleSheet(
+                "color: #b45309; "
+                "font-style: italic; "
+                "padding: 20px; "
+                "background-color: #fffff0; "
+                "border: 1px dashed #f6e05e; "
+                "border-radius: 4px;"
+            )
+            no_support_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(no_support_label)
+
+        layout.addStretch()
+        return panel
+
     # -------------------------------------------------------------------------
     # Phase 5: UX Components
     # -------------------------------------------------------------------------
@@ -813,9 +909,27 @@ class SchemaDesignerView(BaseView):
         if self._delete_field_button:
             self._delete_field_button.setEnabled(field_selected)
 
+        # Phase F-1: Update formula editor visibility
+        self._update_formula_editor_visibility(field_selected)
+
         if current:
             field_id = current.data(Qt.ItemDataRole.UserRole)
             self._viewmodel.select_field(field_id)
+
+    def _update_formula_editor_visibility(self, field_selected: bool) -> None:
+        """Update formula editor panel visibility based on field selection.
+
+        Phase F-1: Formula Editor appears when a field is selected.
+        Shows info label when no field selected.
+
+        Args:
+            field_selected: True if a field is currently selected
+        """
+        if self._formula_panel_info_label:
+            self._formula_panel_info_label.setVisible(not field_selected)
+
+        if self._formula_editor_widget:
+            self._formula_editor_widget.setVisible(field_selected)
 
     # -------------------------------------------------------------------------
     # ViewModel Change Handlers
@@ -1702,6 +1816,11 @@ class SchemaDesignerView(BaseView):
 
     def dispose(self) -> None:
         """Clean up resources."""
+        # Phase F-1: Clean up formula editor widget
+        if self._formula_editor_widget:
+            self._formula_editor_widget.dispose()
+            self._formula_editor_widget = None
+
         # Unsubscribe from ViewModel
         if self._viewmodel:
             self._viewmodel.dispose()

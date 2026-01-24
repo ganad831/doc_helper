@@ -1,4 +1,4 @@
-"""Schema Designer ViewModel (Phase 2 + Phase 6B + Phase 7).
+"""Schema Designer ViewModel (Phase 2 + Phase 6B + Phase 7 + Phase F-1).
 
 Manages presentation state for Schema Designer UI.
 Loads entities, fields, validation rules, and relationships from application use-cases.
@@ -43,8 +43,13 @@ Phase SD-4 Scope:
 - Update field metadata
 - Delete field (with dependency check)
 
-NOT in scope:
-- No formulas/controls/output mappings display
+Phase F-1 Scope (Formula Editor - Read-Only, Design-Time):
+- Formula Editor panel for CALCULATED fields
+- Live validation of formula syntax
+- Field reference validation against schema
+- Type inference display
+- NO formula execution
+- NO schema mutation from formula editor
 
 ARCHITECTURE ENFORCEMENT (Rule 0 Compliance):
 - ViewModel depends ONLY on SchemaUseCases (Application layer use-case)
@@ -59,6 +64,7 @@ from pathlib import Path
 from typing import Optional
 
 from doc_helper.application.dto.export_dto import ExportResult
+from doc_helper.application.dto.formula_dto import SchemaFieldInfoDTO
 from doc_helper.application.dto.import_dto import (
     EnforcementPolicy,
     IdenticalSchemaAction,
@@ -67,8 +73,12 @@ from doc_helper.application.dto.import_dto import (
 from doc_helper.application.dto.operation_result import OperationResult
 from doc_helper.application.dto.relationship_dto import RelationshipDTO
 from doc_helper.application.dto.schema_dto import EntityDefinitionDTO, FieldDefinitionDTO
+from doc_helper.application.usecases.formula_usecases import FormulaUseCases
 from doc_helper.application.usecases.schema_usecases import SchemaUseCases
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
+from doc_helper.presentation.viewmodels.formula_editor_viewmodel import (
+    FormulaEditorViewModel,
+)
 
 
 class SchemaDesignerViewModel(BaseViewModel):
@@ -98,14 +108,17 @@ class SchemaDesignerViewModel(BaseViewModel):
     def __init__(
         self,
         schema_usecases: SchemaUseCases,
+        formula_usecases: Optional[FormulaUseCases] = None,
     ) -> None:
         """Initialize Schema Designer ViewModel.
 
         Args:
             schema_usecases: Use-case class for all schema operations
+            formula_usecases: Use-case class for formula validation (Phase F-1)
+                             Optional for backward compatibility
 
         Architecture Compliance (Rule 0):
-            ViewModel receives ONLY use-case class via DI.
+            ViewModel receives ONLY use-case classes via DI.
             NO commands, queries, or repositories are injected.
         """
         super().__init__()
@@ -119,6 +132,12 @@ class SchemaDesignerViewModel(BaseViewModel):
 
         # Phase 6B: Relationship state
         self._relationships: tuple[RelationshipDTO, ...] = ()
+
+        # Phase F-1: Formula Editor ViewModel
+        self._formula_usecases = formula_usecases
+        self._formula_editor_viewmodel: Optional[FormulaEditorViewModel] = None
+        if formula_usecases is not None:
+            self._formula_editor_viewmodel = FormulaEditorViewModel(formula_usecases)
 
     # -------------------------------------------------------------------------
     # Properties (Observable)
@@ -202,6 +221,49 @@ class SchemaDesignerViewModel(BaseViewModel):
                 rel.target_entity_id == self._selected_entity_id)
         )
 
+    @property
+    def formula_editor_viewmodel(self) -> Optional[FormulaEditorViewModel]:
+        """Get the Formula Editor ViewModel (Phase F-1).
+
+        Returns:
+            FormulaEditorViewModel instance, or None if formula_usecases not provided
+        """
+        return self._formula_editor_viewmodel
+
+    @property
+    def selected_field_type(self) -> Optional[str]:
+        """Get the field type of the currently selected field.
+
+        Returns:
+            Field type string (e.g., 'TEXT', 'CALCULATED'), or None if no field selected
+        """
+        if not self._selected_entity_id or not self._selected_field_id:
+            return None
+
+        for entity in self._entities:
+            if entity.id == self._selected_entity_id:
+                for field in entity.fields:
+                    if field.id == self._selected_field_id:
+                        return field.field_type
+        return None
+
+    @property
+    def selected_field_formula(self) -> Optional[str]:
+        """Get the formula of the currently selected field.
+
+        Returns:
+            Formula string, or None if no field selected or field has no formula
+        """
+        if not self._selected_entity_id or not self._selected_field_id:
+            return None
+
+        for entity in self._entities:
+            if entity.id == self._selected_entity_id:
+                for field in entity.fields:
+                    if field.id == self._selected_field_id:
+                        return field.formula
+        return None
+
     # -------------------------------------------------------------------------
     # Commands (User Actions)
     # -------------------------------------------------------------------------
@@ -268,6 +330,9 @@ class SchemaDesignerViewModel(BaseViewModel):
             self.notify_change("selected_field_id")
             self.notify_change("validation_rules")
 
+            # Phase F-1: Update formula editor context
+            self._update_formula_editor_context()
+
     def clear_selection(self) -> None:
         """Clear entity and field selection."""
         self._selected_entity_id = None
@@ -277,6 +342,48 @@ class SchemaDesignerViewModel(BaseViewModel):
         self.notify_change("selected_field_id")
         self.notify_change("fields")
         self.notify_change("validation_rules")
+
+        # Phase F-1: Clear formula editor
+        if self._formula_editor_viewmodel:
+            self._formula_editor_viewmodel.clear_formula()
+
+    def _update_formula_editor_context(self) -> None:
+        """Update formula editor with current schema context (Phase F-1).
+
+        Called when field selection changes. Sets up the formula editor
+        with available fields from the current entity for validation.
+        """
+        if not self._formula_editor_viewmodel:
+            return
+
+        # Build schema field info from current entity's fields
+        schema_fields: list[SchemaFieldInfoDTO] = []
+
+        if self._selected_entity_id:
+            for entity in self._entities:
+                if entity.id == self._selected_entity_id:
+                    for field in entity.fields:
+                        # Don't include the currently selected field (can't reference itself)
+                        if field.id != self._selected_field_id:
+                            schema_fields.append(
+                                SchemaFieldInfoDTO(
+                                    field_id=field.id,
+                                    field_type=field.field_type,
+                                    label=field.label,
+                                )
+                            )
+                    break
+
+        # Set schema context on formula editor viewmodel
+        self._formula_editor_viewmodel.set_schema_context(tuple(schema_fields))
+
+        # If selected field is CALCULATED and has a formula, load it
+        if self._selected_field_id:
+            formula = self.selected_field_formula
+            if formula:
+                self._formula_editor_viewmodel.set_formula(formula)
+            else:
+                self._formula_editor_viewmodel.clear_formula()
 
     # -------------------------------------------------------------------------
     # Phase 2 Step 2: Creation Commands
@@ -676,6 +783,11 @@ class SchemaDesignerViewModel(BaseViewModel):
 
     def dispose(self) -> None:
         """Clean up resources."""
+        # Phase F-1: Dispose formula editor viewmodel
+        if self._formula_editor_viewmodel:
+            self._formula_editor_viewmodel.dispose()
+            self._formula_editor_viewmodel = None
+
         super().dispose()
         self._entities = ()
         self._relationships = ()
