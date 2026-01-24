@@ -604,6 +604,271 @@ class TestSchemaImportValidationService:
         assert status_field.options[0][0] == "active"
 
     # =========================================================================
+    # Output Mapping Validation Tests (Phase F-12.5)
+    # =========================================================================
+
+    def test_valid_output_mappings_pass(
+        self,
+        service: SchemaImportValidationService,
+    ) -> None:
+        """Should accept valid output mappings."""
+        data = {
+            "schema_id": "test_schema",
+            "version": "1.0.0",
+            "entities": [
+                {
+                    "id": "project",
+                    "name_key": "entity.project",
+                    "is_root_entity": True,
+                    "fields": [
+                        {
+                            "id": "mapped_field",
+                            "field_type": "TEXT",
+                            "label_key": "field.mapped",
+                            "required": False,
+                            "output_mappings": [
+                                {
+                                    "target": "TEXT",
+                                    "formula_text": "{{depth_from}} - {{depth_to}}",
+                                },
+                                {
+                                    "target": "NUMBER",
+                                    "formula_text": "{{area}} * {{density}}",
+                                },
+                                {
+                                    "target": "BOOLEAN",
+                                    "formula_text": "{{status}} == 'completed'",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+
+        result = service.validate_json_data(data)
+        assert result.is_success()
+
+        # Verify output mappings are present
+        entities = result.value["entities"]
+        project = entities[0]
+        mapped_field = project.get_all_fields()[0]
+        assert len(mapped_field.output_mappings) == 3
+        assert mapped_field.output_mappings[0].target == "TEXT"
+        assert mapped_field.output_mappings[0].formula_text == "{{depth_from}} - {{depth_to}}"
+
+    def test_output_mapping_missing_target_fails(
+        self,
+        service: SchemaImportValidationService,
+    ) -> None:
+        """Should reject output mapping without target."""
+        data = {
+            "schema_id": "test_schema",
+            "version": "1.0.0",
+            "entities": [
+                {
+                    "id": "project",
+                    "name_key": "entity.project",
+                    "is_root_entity": True,
+                    "fields": [
+                        {
+                            "id": "mapped_field",
+                            "field_type": "TEXT",
+                            "label_key": "field.mapped",
+                            "required": False,
+                            "output_mappings": [
+                                {
+                                    # Missing target
+                                    "formula_text": "{{field1}}",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+
+        result = service.validate_json_data(data)
+        assert result.is_failure()
+        errors = result.error
+        assert any("target" in err.message.lower() for err in errors)
+
+    def test_output_mapping_empty_target_fails(
+        self,
+        service: SchemaImportValidationService,
+    ) -> None:
+        """Should reject output mapping with empty target."""
+        data = {
+            "schema_id": "test_schema",
+            "version": "1.0.0",
+            "entities": [
+                {
+                    "id": "project",
+                    "name_key": "entity.project",
+                    "is_root_entity": True,
+                    "fields": [
+                        {
+                            "id": "mapped_field",
+                            "field_type": "TEXT",
+                            "label_key": "field.mapped",
+                            "required": False,
+                            "output_mappings": [
+                                {
+                                    "target": "",  # Empty
+                                    "formula_text": "{{field1}}",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+
+        result = service.validate_json_data(data)
+        assert result.is_failure()
+        errors = result.error
+        assert any("target" in err.message.lower() and "empty" in err.message.lower() for err in errors)
+
+    def test_output_mapping_missing_formula_text_fails(
+        self,
+        service: SchemaImportValidationService,
+    ) -> None:
+        """Should reject output mapping without formula_text."""
+        data = {
+            "schema_id": "test_schema",
+            "version": "1.0.0",
+            "entities": [
+                {
+                    "id": "project",
+                    "name_key": "entity.project",
+                    "is_root_entity": True,
+                    "fields": [
+                        {
+                            "id": "mapped_field",
+                            "field_type": "TEXT",
+                            "label_key": "field.mapped",
+                            "required": False,
+                            "output_mappings": [
+                                {
+                                    "target": "TEXT",
+                                    # Missing formula_text
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+
+        result = service.validate_json_data(data)
+        assert result.is_failure()
+        errors = result.error
+        assert any("formula_text" in err.message.lower() for err in errors)
+
+    def test_output_mapping_empty_formula_text_fails(
+        self,
+        service: SchemaImportValidationService,
+    ) -> None:
+        """Should reject output mapping with empty formula_text."""
+        data = {
+            "schema_id": "test_schema",
+            "version": "1.0.0",
+            "entities": [
+                {
+                    "id": "project",
+                    "name_key": "entity.project",
+                    "is_root_entity": True,
+                    "fields": [
+                        {
+                            "id": "mapped_field",
+                            "field_type": "TEXT",
+                            "label_key": "field.mapped",
+                            "required": False,
+                            "output_mappings": [
+                                {
+                                    "target": "TEXT",
+                                    "formula_text": "",  # Empty
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+
+        result = service.validate_json_data(data)
+        assert result.is_failure()
+        errors = result.error
+        assert any("formula_text" in err.message.lower() and "empty" in err.message.lower() for err in errors)
+
+    def test_output_mapping_unknown_target_fails(
+        self,
+        service: SchemaImportValidationService,
+    ) -> None:
+        """Should reject output mapping with unknown target type."""
+        data = {
+            "schema_id": "test_schema",
+            "version": "1.0.0",
+            "entities": [
+                {
+                    "id": "project",
+                    "name_key": "entity.project",
+                    "is_root_entity": True,
+                    "fields": [
+                        {
+                            "id": "mapped_field",
+                            "field_type": "TEXT",
+                            "label_key": "field.mapped",
+                            "required": False,
+                            "output_mappings": [
+                                {
+                                    "target": "UNKNOWN_TYPE",  # Invalid
+                                    "formula_text": "{{field1}}",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+
+        result = service.validate_json_data(data)
+        assert result.is_failure()
+        errors = result.error
+        assert any("unknown" in err.message.lower() and "target" in err.message.lower() for err in errors)
+
+    def test_output_mapping_not_array_fails(
+        self,
+        service: SchemaImportValidationService,
+    ) -> None:
+        """Should reject output_mappings that is not an array."""
+        data = {
+            "schema_id": "test_schema",
+            "version": "1.0.0",
+            "entities": [
+                {
+                    "id": "project",
+                    "name_key": "entity.project",
+                    "is_root_entity": True,
+                    "fields": [
+                        {
+                            "id": "mapped_field",
+                            "field_type": "TEXT",
+                            "label_key": "field.mapped",
+                            "required": False,
+                            "output_mappings": "not_an_array",  # Should be array
+                        }
+                    ],
+                }
+            ],
+        }
+
+        result = service.validate_json_data(data)
+        assert result.is_failure()
+        errors = result.error
+        assert any("output_mappings" in err.location.lower() and "array" in err.message.lower() for err in errors)
+
+    # =========================================================================
     # Known Constraint Types Registry
     # =========================================================================
 

@@ -167,6 +167,13 @@ class ImportSchemaCommand:
             for field in entity.get_all_fields()
         )
 
+        # Phase F-12.5: Count output mappings across all entities
+        output_mapping_count = sum(
+            len(field.output_mappings)
+            for entity in import_entities
+            for field in entity.get_all_fields()
+        )
+
         # Step 4: Handle identical schema (Decision 1)
         if compatibility_result and compatibility_result.is_identical:
             if identical_action == IdenticalSchemaAction.SKIP:
@@ -181,6 +188,7 @@ class ImportSchemaCommand:
                     field_count=sum(e.field_count for e in import_entities),
                     relationship_count=len(import_relationships),
                     control_rule_count=control_rule_count,
+                    output_mapping_count=output_mapping_count,
                     was_identical=True,
                     was_skipped=True,
                 )
@@ -244,6 +252,7 @@ class ImportSchemaCommand:
             field_count=sum(e.field_count for e in import_entities),
             relationship_count=len(import_relationships),
             control_rule_count=control_rule_count,
+            output_mapping_count=output_mapping_count,
             was_identical=compatibility_result.is_identical if compatibility_result else False,
             was_skipped=False,
         )
@@ -379,6 +388,13 @@ class ImportSchemaCommand:
             for field in entity.get_all_fields()
         )
 
+        # Phase F-12.5: Count output mappings across all entities
+        output_mapping_count = sum(
+            len(field.output_mappings)
+            for entity in import_entities
+            for field in entity.get_all_fields()
+        )
+
         # Step 4: Handle identical schema
         if compatibility_result and compatibility_result.is_identical:
             if identical_action == IdenticalSchemaAction.SKIP:
@@ -393,6 +409,7 @@ class ImportSchemaCommand:
                     field_count=sum(e.field_count for e in import_entities),
                     relationship_count=len(import_relationships),
                     control_rule_count=control_rule_count,
+                    output_mapping_count=output_mapping_count,
                     was_identical=True,
                     was_skipped=True,
                 )

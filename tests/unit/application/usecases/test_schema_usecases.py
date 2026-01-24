@@ -806,3 +806,443 @@ class TestSchemaUseCasesConstraintOperations:
 
         assert result.success is False
         assert "size" in result.error.lower()
+
+
+class TestSchemaUseCasesOutputMappingOperations:
+    """Tests for output mapping CRUD operations in SchemaUseCases (Phase F-12.5)."""
+
+    @pytest.fixture
+    def mock_schema_repository(self) -> Mock:
+        """Create mock schema repository."""
+        return Mock()
+
+    @pytest.fixture
+    def mock_relationship_repository(self) -> Mock:
+        """Create mock relationship repository."""
+        return Mock()
+
+    @pytest.fixture
+    def mock_translation_service(self) -> Mock:
+        """Create mock translation service."""
+        service = Mock()
+        service.translate.side_effect = lambda key: key  # Return key as translation
+        return service
+
+    @pytest.fixture
+    def usecases(
+        self,
+        mock_schema_repository: Mock,
+        mock_relationship_repository: Mock,
+        mock_translation_service: Mock,
+    ) -> SchemaUseCases:
+        """Create SchemaUseCases with mock dependencies."""
+        return SchemaUseCases(
+            schema_repository=mock_schema_repository,
+            relationship_repository=mock_relationship_repository,
+            translation_service=mock_translation_service,
+        )
+
+    @pytest.fixture
+    def mock_entity_with_field(self) -> Mock:
+        """Create a mock entity with a field."""
+        from doc_helper.domain.schema.entity_definition import EntityDefinition
+        from doc_helper.domain.schema.field_definition import FieldDefinition
+        from doc_helper.domain.schema.field_type import FieldType
+        from doc_helper.domain.common.i18n import TranslationKey
+
+        field = FieldDefinition(
+            id=FieldDefinitionId("test_field"),
+            field_type=FieldType.TEXT,
+            label_key=TranslationKey("field.test"),
+            required=False,
+            output_mappings=(),  # Start with no output mappings
+        )
+
+        entity = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            description_key=None,
+            fields={field.id: field},
+            is_root_entity=False,
+            parent_entity_id=None,
+        )
+        return entity
+
+    @pytest.fixture
+    def mock_entity_with_output_mapping(self) -> Mock:
+        """Create a mock entity with a field that has output mappings."""
+        from doc_helper.domain.schema.entity_definition import EntityDefinition
+        from doc_helper.domain.schema.field_definition import FieldDefinition
+        from doc_helper.domain.schema.field_type import FieldType
+        from doc_helper.domain.common.i18n import TranslationKey
+        from doc_helper.application.dto.export_dto import OutputMappingExportDTO
+
+        mapping = OutputMappingExportDTO(
+            target="TEXT",
+            formula_text="{{depth_from}} - {{depth_to}}",
+        )
+
+        field = FieldDefinition(
+            id=FieldDefinitionId("test_field"),
+            field_type=FieldType.TEXT,
+            label_key=TranslationKey("field.test"),
+            required=False,
+            output_mappings=(mapping,),
+        )
+
+        entity = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            description_key=None,
+            fields={field.id: field},
+            is_root_entity=False,
+            parent_entity_id=None,
+        )
+        return entity
+
+    # =========================================================================
+    # ADD OUTPUT MAPPING
+    # =========================================================================
+
+    def test_add_output_mapping_success(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_field: Mock,
+    ) -> None:
+        """Should return OperationResult.ok with field ID on success."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_field)
+        mock_schema_repository.save.return_value = Success(None)
+
+        result = usecases.add_output_mapping(
+            entity_id="test_entity",
+            field_id="test_field",
+            target="TEXT",
+            formula_text="{{field1}} + {{field2}}",
+        )
+
+        assert result.success is True
+        assert result.value == "test_field"
+
+    def test_add_output_mapping_failure_entity_not_found(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when entity not found."""
+        mock_schema_repository.get_by_id.return_value = Failure("Entity not found")
+
+        result = usecases.add_output_mapping(
+            entity_id="nonexistent",
+            field_id="test_field",
+            target="TEXT",
+            formula_text="{{field1}}",
+        )
+
+        assert result.success is False
+        assert "not found" in result.error.lower()
+
+    def test_add_output_mapping_failure_field_not_found(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_field: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when field not found."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_field)
+
+        result = usecases.add_output_mapping(
+            entity_id="test_entity",
+            field_id="nonexistent_field",
+            target="TEXT",
+            formula_text="{{field1}}",
+        )
+
+        assert result.success is False
+        assert "not found" in result.error.lower()
+
+    def test_add_output_mapping_failure_empty_target(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_field: Mock,
+    ) -> None:
+        """Should return OperationResult.fail for empty target."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_field)
+
+        result = usecases.add_output_mapping(
+            entity_id="test_entity",
+            field_id="test_field",
+            target="",
+            formula_text="{{field1}}",
+        )
+
+        assert result.success is False
+        assert "target" in result.error.lower()
+
+    def test_add_output_mapping_failure_empty_formula(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_field: Mock,
+    ) -> None:
+        """Should return OperationResult.fail for empty formula_text."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_field)
+
+        result = usecases.add_output_mapping(
+            entity_id="test_entity",
+            field_id="test_field",
+            target="TEXT",
+            formula_text="",
+        )
+
+        assert result.success is False
+        assert "formula" in result.error.lower()
+
+    def test_add_output_mapping_failure_duplicate_target(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_output_mapping: Mock,
+    ) -> None:
+        """Should return OperationResult.fail for duplicate target type."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_output_mapping)
+
+        result = usecases.add_output_mapping(
+            entity_id="test_entity",
+            field_id="test_field",
+            target="TEXT",  # Already exists
+            formula_text="{{field1}}",
+        )
+
+        assert result.success is False
+        assert "already has" in result.error.lower() or "already exists" in result.error.lower()
+
+    # =========================================================================
+    # UPDATE OUTPUT MAPPING
+    # =========================================================================
+
+    def test_update_output_mapping_success(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_output_mapping: Mock,
+    ) -> None:
+        """Should return OperationResult.ok with field ID on success."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_output_mapping)
+        mock_schema_repository.save.return_value = Success(None)
+
+        result = usecases.update_output_mapping(
+            entity_id="test_entity",
+            field_id="test_field",
+            target="TEXT",  # Update existing TEXT mapping
+            formula_text="{{new_formula}}",
+        )
+
+        assert result.success is True
+        assert result.value == "test_field"
+
+    def test_update_output_mapping_failure_entity_not_found(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when entity not found."""
+        mock_schema_repository.get_by_id.return_value = Failure("Entity not found")
+
+        result = usecases.update_output_mapping(
+            entity_id="nonexistent",
+            field_id="test_field",
+            target="TEXT",
+            formula_text="{{field1}}",
+        )
+
+        assert result.success is False
+        assert "not found" in result.error.lower()
+
+    def test_update_output_mapping_failure_field_not_found(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_output_mapping: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when field not found."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_output_mapping)
+
+        result = usecases.update_output_mapping(
+            entity_id="test_entity",
+            field_id="nonexistent_field",
+            target="TEXT",
+            formula_text="{{field1}}",
+        )
+
+        assert result.success is False
+        assert "not found" in result.error.lower()
+
+    def test_update_output_mapping_failure_mapping_not_found(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_field: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when output mapping not found."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_field)
+
+        result = usecases.update_output_mapping(
+            entity_id="test_entity",
+            field_id="test_field",
+            target="NUMBER",  # Does not exist
+            formula_text="{{field1}}",
+        )
+
+        assert result.success is False
+        assert "no output mapping" in result.error.lower() or "not found" in result.error.lower()
+
+    # =========================================================================
+    # DELETE OUTPUT MAPPING
+    # =========================================================================
+
+    def test_delete_output_mapping_success(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_output_mapping: Mock,
+    ) -> None:
+        """Should return OperationResult.ok with field ID on success."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_output_mapping)
+        mock_schema_repository.save.return_value = Success(None)
+
+        result = usecases.delete_output_mapping(
+            entity_id="test_entity",
+            field_id="test_field",
+            target="TEXT",
+        )
+
+        assert result.success is True
+        assert result.value == "test_field"
+
+    def test_delete_output_mapping_failure_entity_not_found(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when entity not found."""
+        mock_schema_repository.get_by_id.return_value = Failure("Entity not found")
+
+        result = usecases.delete_output_mapping(
+            entity_id="nonexistent",
+            field_id="test_field",
+            target="TEXT",
+        )
+
+        assert result.success is False
+        assert "not found" in result.error.lower()
+
+    def test_delete_output_mapping_failure_field_not_found(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_output_mapping: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when field not found."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_output_mapping)
+
+        result = usecases.delete_output_mapping(
+            entity_id="test_entity",
+            field_id="nonexistent_field",
+            target="TEXT",
+        )
+
+        assert result.success is False
+        assert "not found" in result.error.lower()
+
+    def test_delete_output_mapping_failure_mapping_not_found(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_field: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when output mapping not found."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_field)
+
+        result = usecases.delete_output_mapping(
+            entity_id="test_entity",
+            field_id="test_field",
+            target="NUMBER",  # Does not exist
+        )
+
+        assert result.success is False
+        assert "no output mapping" in result.error.lower() or "not found" in result.error.lower()
+
+    # =========================================================================
+    # LIST OUTPUT MAPPINGS
+    # =========================================================================
+
+    def test_list_output_mappings_success_with_mappings(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_output_mapping: Mock,
+    ) -> None:
+        """Should return tuple of OutputMappingExportDTO when mappings exist."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_output_mapping)
+
+        result = usecases.list_output_mappings_for_field(
+            entity_id="test_entity",
+            field_id="test_field",
+        )
+
+        assert isinstance(result, tuple)
+        assert len(result) == 1
+        assert result[0].target == "TEXT"
+        assert result[0].formula_text == "{{depth_from}} - {{depth_to}}"
+
+    def test_list_output_mappings_success_empty(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_field: Mock,
+    ) -> None:
+        """Should return empty tuple when no mappings exist."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_field)
+
+        result = usecases.list_output_mappings_for_field(
+            entity_id="test_entity",
+            field_id="test_field",
+        )
+
+        assert isinstance(result, tuple)
+        assert len(result) == 0
+
+    def test_list_output_mappings_failure_entity_not_found(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+    ) -> None:
+        """Should return empty tuple when entity not found."""
+        mock_schema_repository.get_by_id.return_value = Failure("Entity not found")
+
+        result = usecases.list_output_mappings_for_field(
+            entity_id="nonexistent",
+            field_id="test_field",
+        )
+
+        assert isinstance(result, tuple)
+        assert len(result) == 0
+
+    def test_list_output_mappings_failure_field_not_found(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_field: Mock,
+    ) -> None:
+        """Should return empty tuple when field not found."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_field)
+
+        result = usecases.list_output_mappings_for_field(
+            entity_id="test_entity",
+            field_id="nonexistent_field",
+        )
+
+        assert isinstance(result, tuple)
+        assert len(result) == 0

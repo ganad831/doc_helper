@@ -11,6 +11,7 @@ from doc_helper.domain.common.value_object import ValueObject
 from doc_helper.domain.schema.field_type import FieldType
 from doc_helper.domain.schema.schema_ids import FieldDefinitionId
 from doc_helper.domain.validation.constraints import FieldConstraint
+from doc_helper.domain.schema.output_mapping import OutputMapping
 
 
 @dataclass(frozen=True)
@@ -79,6 +80,7 @@ class FieldDefinition(ValueObject):
     lookup_display_field: Optional[str] = None  # Field to display for lookups
     child_entity_id: Optional[str] = None  # Entity ID for table fields
     control_rules: tuple = ()  # Tuple of ControlRule that target this field
+    output_mappings: tuple = ()  # Tuple of OutputMapping for document output (Phase F-12.5)
 
     def __post_init__(self) -> None:
         """Validate field definition."""

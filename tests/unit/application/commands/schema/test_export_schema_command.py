@@ -596,6 +596,81 @@ class TestExportSchemaCommand:
         assert exported_field["control_rules"][1]["rule_type"] == "ENABLED"
         assert exported_field["control_rules"][1]["formula_text"] == "{{mode}} == 'edit'"
 
+    def test_export_output_mappings(
+        self,
+        command: ExportSchemaCommand,
+        mock_repository: Mock,
+        tmp_path: Path,
+    ) -> None:
+        """Should export output mappings (Phase F-12.5)."""
+        # Import OutputMappingExportDTO
+        from doc_helper.application.dto.export_dto import OutputMappingExportDTO
+
+        # Setup - field with output mappings
+        field = Mock()
+        field.id.value = "mapped_field"
+        field.field_type.value = "TEXT"
+        field.label_key.key = "field.mapped"
+        field.help_text_key = Mock()
+        field.help_text_key.key = "field.mapped.help"
+        field.required = False
+        field.default_value = None
+        field.is_choice_field = False
+        field.options = ()
+        field.constraints = ()
+        field.formula = None
+        field.control_rules = ()
+        # Phase F-12.5: Output mappings are OutputMappingExportDTO objects
+        field.output_mappings = (
+            OutputMappingExportDTO(
+                target="TEXT",
+                formula_text="{{depth_from}} - {{depth_to}}",
+            ),
+            OutputMappingExportDTO(
+                target="NUMBER",
+                formula_text="{{area}} * {{density}}",
+            ),
+            OutputMappingExportDTO(
+                target="BOOLEAN",
+                formula_text="{{status}} == 'completed'",
+            ),
+        )
+        field.lookup_entity_id = None
+        field.child_entity_id = None
+
+        entity = Mock()
+        entity.id.value = "test"
+        entity.name_key.key = "entity.test"
+        entity.description_key = None
+        entity.is_root_entity = True
+        entity.field_count = 1
+        entity.get_all_fields.return_value = [field]
+
+        mock_repository.get_all.return_value = Success((entity,))
+        export_path = tmp_path / "export.json"
+
+        # Execute
+        result = command.execute(schema_id="test_schema", file_path=export_path)
+
+        # Assert
+        assert result.is_success()
+
+        # Verify output mappings are in the export file
+        import json
+        with open(export_path, 'r', encoding='utf-8') as f:
+            exported_data = json.load(f)
+
+        # Check that output_mappings are present in the exported field
+        exported_field = exported_data["entities"][0]["fields"][0]
+        assert "output_mappings" in exported_field
+        assert len(exported_field["output_mappings"]) == 3
+        assert exported_field["output_mappings"][0]["target"] == "TEXT"
+        assert exported_field["output_mappings"][0]["formula_text"] == "{{depth_from}} - {{depth_to}}"
+        assert exported_field["output_mappings"][1]["target"] == "NUMBER"
+        assert exported_field["output_mappings"][1]["formula_text"] == "{{area}} * {{density}}"
+        assert exported_field["output_mappings"][2]["target"] == "BOOLEAN"
+        assert exported_field["output_mappings"][2]["formula_text"] == "{{status}} == 'completed'"
+
     # =========================================================================
     # EXCLUSION Verification
     # =========================================================================

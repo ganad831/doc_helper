@@ -1,4 +1,4 @@
-"""Schema Use Cases (Architecture Enforcement Phase, updated Phase F-10).
+"""Schema Use Cases (Architecture Enforcement Phase, updated Phase F-10, Phase F-12.5).
 
 Application layer use-case class that encapsulates all schema operations.
 Presentation layer MUST use this class instead of directly accessing
@@ -29,6 +29,12 @@ Phase F-10 Control Rule Methods:
 - update_control_rule(): Update control rule with re-validation
 - delete_control_rule(): Delete control rule
 - list_control_rules_for_field(): List all control rules for a field
+
+Phase F-12.5 Output Mapping Methods:
+- add_output_mapping(): Add output mapping to a field
+- update_output_mapping(): Update existing output mapping
+- delete_output_mapping(): Delete output mapping
+- list_output_mappings_for_field(): List all output mappings for a field
 """
 
 from pathlib import Path
@@ -67,7 +73,11 @@ from doc_helper.application.dto.control_rule_dto import (
     ControlRuleStatus,
     ControlRuleType,
 )
-from doc_helper.application.dto.export_dto import ControlRuleExportDTO, ExportResult
+from doc_helper.application.dto.export_dto import (
+    ControlRuleExportDTO,
+    ExportResult,
+    OutputMappingExportDTO,
+)
 from doc_helper.application.dto.formula_dto import SchemaFieldInfoDTO
 from doc_helper.application.dto.import_dto import (
     EnforcementPolicy,
@@ -1062,6 +1072,331 @@ class SchemaUseCases:
                 rules.append(rule)
 
         return tuple(rules)
+
+    # =========================================================================
+    # Output Mapping Methods (Phase F-12.5)
+    # =========================================================================
+
+    def add_output_mapping(
+        self,
+        entity_id: str,
+        field_id: str,
+        target: str,
+        formula_text: str,
+    ) -> OperationResult:
+        """Add an output mapping to a field (Phase F-12.5).
+
+        Args:
+            entity_id: Entity containing the field
+            field_id: Field to add output mapping to
+            target: Output target type (TEXT, NUMBER, BOOLEAN)
+            formula_text: Formula expression for output transformation
+
+        Returns:
+            OperationResult with field ID on success, error message on failure.
+            Failure reasons:
+            - Entity or field not found
+            - Empty target or formula
+            - Duplicate target type already exists
+
+        Phase F-12.5 Compliance:
+            - Design-time only (NO runtime execution)
+            - NO validation logic (validation in import/export layer)
+            - NO observers, listeners, signals
+            - Schema persistence via repository
+        """
+        from dataclasses import replace
+        from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
+
+        # Validate target and formula are not empty
+        if not target or not target.strip():
+            return OperationResult.fail("Output mapping target cannot be empty")
+
+        if not formula_text or not formula_text.strip():
+            return OperationResult.fail("Output mapping formula_text cannot be empty")
+
+        target = target.strip().upper()
+
+        # Get entity
+        entity_id_obj = EntityDefinitionId(entity_id.strip())
+        if not self._schema_repository.exists(entity_id_obj):
+            return OperationResult.fail(f"Entity not found: {entity_id}")
+
+        load_result = self._schema_repository.get_by_id(entity_id_obj)
+        if load_result.is_failure():
+            return OperationResult.fail(f"Failed to load entity: {load_result.error}")
+
+        entity = load_result.value
+
+        # Get field
+        field_id_obj = FieldDefinitionId(field_id.strip())
+        if field_id_obj not in entity.fields:
+            return OperationResult.fail(
+                f"Field not found: {field_id} in entity {entity_id}"
+            )
+
+        field = entity.fields[field_id_obj]
+
+        # Check for duplicate target type on field
+        for existing_mapping in field.output_mappings:
+            if isinstance(existing_mapping, OutputMappingExportDTO):
+                if existing_mapping.target == target:
+                    return OperationResult.fail(
+                        f"Field already has an output mapping for target {target}. "
+                        "Use update_output_mapping() to modify it."
+                    )
+
+        # Create output mapping DTO
+        output_mapping_dto = OutputMappingExportDTO(
+            target=target,
+            formula_text=formula_text.strip(),
+        )
+
+        # Update field with new output mapping
+        new_output_mappings = field.output_mappings + (output_mapping_dto,)
+        updated_field = replace(field, output_mappings=new_output_mappings)
+
+        # Update entity's fields dict
+        entity.fields[field_id_obj] = updated_field
+
+        # Save updated entity
+        save_result = self._schema_repository.save(entity)
+        if save_result.is_failure():
+            return OperationResult.fail(f"Failed to add output mapping: {save_result.error}")
+
+        return OperationResult.ok(field_id)
+
+    def update_output_mapping(
+        self,
+        entity_id: str,
+        field_id: str,
+        target: str,
+        formula_text: str,
+    ) -> OperationResult:
+        """Update an existing output mapping (Phase F-12.5).
+
+        Args:
+            entity_id: Entity containing the field
+            field_id: Field with the output mapping
+            target: Output target type to update (TEXT, NUMBER, BOOLEAN)
+            formula_text: New formula expression for output transformation
+
+        Returns:
+            OperationResult with field ID on success, error message on failure.
+            Failure reasons:
+            - Entity or field not found
+            - Output mapping of specified target not found
+            - Empty formula (use delete_output_mapping instead)
+
+        Phase F-12.5 Compliance:
+            - Design-time only (NO runtime execution)
+            - NO validation logic (validation in import/export layer)
+            - NO observers, listeners, signals
+            - Schema persistence via repository
+        """
+        from dataclasses import replace
+        from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
+
+        # Validate target and formula are not empty
+        if not target or not target.strip():
+            return OperationResult.fail("Output mapping target cannot be empty")
+
+        if not formula_text or not formula_text.strip():
+            return OperationResult.fail(
+                "Output mapping formula_text cannot be empty. "
+                "Use delete_output_mapping() to remove the mapping."
+            )
+
+        target = target.strip().upper()
+
+        # Get entity
+        entity_id_obj = EntityDefinitionId(entity_id.strip())
+        if not self._schema_repository.exists(entity_id_obj):
+            return OperationResult.fail(f"Entity not found: {entity_id}")
+
+        load_result = self._schema_repository.get_by_id(entity_id_obj)
+        if load_result.is_failure():
+            return OperationResult.fail(f"Failed to load entity: {load_result.error}")
+
+        entity = load_result.value
+
+        # Get field
+        field_id_obj = FieldDefinitionId(field_id.strip())
+        if field_id_obj not in entity.fields:
+            return OperationResult.fail(
+                f"Field not found: {field_id} in entity {entity_id}"
+            )
+
+        field = entity.fields[field_id_obj]
+
+        # Find existing mapping to update
+        mapping_found = False
+        mapping_index = -1
+        for i, existing_mapping in enumerate(field.output_mappings):
+            if isinstance(existing_mapping, OutputMappingExportDTO):
+                if existing_mapping.target == target:
+                    mapping_found = True
+                    mapping_index = i
+                    break
+
+        if not mapping_found:
+            return OperationResult.fail(
+                f"No output mapping for target {target} found on field {field_id}. "
+                "Use add_output_mapping() to create one."
+            )
+
+        # Create updated output mapping DTO
+        updated_mapping_dto = OutputMappingExportDTO(
+            target=target,
+            formula_text=formula_text.strip(),
+        )
+
+        # Replace the mapping in the tuple
+        mappings_list = list(field.output_mappings)
+        mappings_list[mapping_index] = updated_mapping_dto
+        new_output_mappings = tuple(mappings_list)
+
+        # Update field with modified output mappings
+        updated_field = replace(field, output_mappings=new_output_mappings)
+
+        # Update entity's fields dict
+        entity.fields[field_id_obj] = updated_field
+
+        # Save updated entity
+        save_result = self._schema_repository.save(entity)
+        if save_result.is_failure():
+            return OperationResult.fail(f"Failed to update output mapping: {save_result.error}")
+
+        return OperationResult.ok(field_id)
+
+    def delete_output_mapping(
+        self,
+        entity_id: str,
+        field_id: str,
+        target: str,
+    ) -> OperationResult:
+        """Delete an output mapping from a field (Phase F-12.5).
+
+        Args:
+            entity_id: Entity containing the field
+            field_id: Field with the output mapping
+            target: Output target type to delete (TEXT, NUMBER, BOOLEAN)
+
+        Returns:
+            OperationResult with field ID on success, error message on failure.
+            Failure reasons:
+            - Entity or field not found
+            - Output mapping of specified target not found
+
+        Phase F-12.5 Compliance:
+            - Design-time only (NO runtime execution)
+            - NO observers, listeners, signals
+            - Schema persistence via repository
+        """
+        from dataclasses import replace
+        from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
+
+        # Validate target is not empty
+        if not target or not target.strip():
+            return OperationResult.fail("Output mapping target cannot be empty")
+
+        target = target.strip().upper()
+
+        # Get entity
+        entity_id_obj = EntityDefinitionId(entity_id.strip())
+        if not self._schema_repository.exists(entity_id_obj):
+            return OperationResult.fail(f"Entity not found: {entity_id}")
+
+        load_result = self._schema_repository.get_by_id(entity_id_obj)
+        if load_result.is_failure():
+            return OperationResult.fail(f"Failed to load entity: {load_result.error}")
+
+        entity = load_result.value
+
+        # Get field
+        field_id_obj = FieldDefinitionId(field_id.strip())
+        if field_id_obj not in entity.fields:
+            return OperationResult.fail(
+                f"Field not found: {field_id} in entity {entity_id}"
+            )
+
+        field = entity.fields[field_id_obj]
+
+        # Find and remove the mapping
+        mapping_found = False
+        new_mappings = []
+        for existing_mapping in field.output_mappings:
+            if isinstance(existing_mapping, OutputMappingExportDTO):
+                if existing_mapping.target == target:
+                    mapping_found = True
+                    continue  # Skip this mapping (delete it)
+            new_mappings.append(existing_mapping)
+
+        if not mapping_found:
+            return OperationResult.fail(
+                f"No output mapping for target {target} found on field {field_id}"
+            )
+
+        # Update field with modified output mappings
+        updated_field = replace(field, output_mappings=tuple(new_mappings))
+
+        # Update entity's fields dict
+        entity.fields[field_id_obj] = updated_field
+
+        # Save updated entity
+        save_result = self._schema_repository.save(entity)
+        if save_result.is_failure():
+            return OperationResult.fail(f"Failed to delete output mapping: {save_result.error}")
+
+        return OperationResult.ok(field_id)
+
+    def list_output_mappings_for_field(
+        self,
+        entity_id: str,
+        field_id: str,
+    ) -> tuple[OutputMappingExportDTO, ...]:
+        """List all output mappings for a field (Phase F-12.5).
+
+        Args:
+            entity_id: Entity containing the field
+            field_id: Field to list output mappings for
+
+        Returns:
+            Tuple of OutputMappingExportDTO for the field.
+            Empty tuple if entity/field not found or has no mappings.
+
+        Phase F-12.5 Compliance:
+            - Read-only query
+            - Returns DTOs only
+            - No execution
+        """
+        from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
+
+        # Get entity
+        entity_id_obj = EntityDefinitionId(entity_id.strip())
+        if not self._schema_repository.exists(entity_id_obj):
+            return ()
+
+        load_result = self._schema_repository.get_by_id(entity_id_obj)
+        if load_result.is_failure():
+            return ()
+
+        entity = load_result.value
+
+        # Get field
+        field_id_obj = FieldDefinitionId(field_id.strip())
+        if field_id_obj not in entity.fields:
+            return ()
+
+        field = entity.fields[field_id_obj]
+
+        # Filter to OutputMappingExportDTO only
+        mappings = []
+        for mapping in field.output_mappings:
+            if isinstance(mapping, OutputMappingExportDTO):
+                mappings.append(mapping)
+
+        return tuple(mappings)
 
     def _build_schema_fields_for_entity(
         self,

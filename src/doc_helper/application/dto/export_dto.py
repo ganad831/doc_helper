@@ -1,4 +1,4 @@
-"""Schema Export DTOs (Phase 2 Step 4, updated Phase 3, Phase 6A, Phase F-10).
+"""Schema Export DTOs (Phase 2 Step 4, updated Phase 3, Phase 6A, Phase F-10, Phase F-12.5).
 
 DTOs for schema export data structure.
 These are the data structures that will be serialized to the export file.
@@ -20,6 +20,11 @@ Phase F-10 Updates:
 - Added ControlRuleExportDTO for control rule definitions
 - Added control_rules field to FieldExportDTO
 - Control rules are DESIGN-TIME metadata only (no runtime execution)
+
+Phase F-12.5 Updates:
+- Added OutputMappingExportDTO for output mapping definitions
+- Added output_mappings field to FieldExportDTO
+- Output mappings are DESIGN-TIME metadata only (no runtime execution)
 """
 
 from dataclasses import dataclass, field
@@ -57,6 +62,7 @@ class FieldExportDTO:
     EXCLUDES: formula, lookup_entity_id, child_entity_id
 
     Phase F-10: Added control_rules field for design-time control rule metadata.
+    Phase F-12.5: Added output_mappings field for design-time output mapping metadata.
     """
 
     id: str  # Field identifier
@@ -68,6 +74,7 @@ class FieldExportDTO:
     options: tuple = ()  # Tuple of FieldOptionExportDTO for choice fields
     constraints: tuple = ()  # Tuple of ConstraintExportDTO
     control_rules: tuple = ()  # Tuple of ControlRuleExportDTO (Phase F-10)
+    output_mappings: tuple = ()  # Tuple of OutputMappingExportDTO (Phase F-12.5)
 
 
 @dataclass(frozen=True)
@@ -119,6 +126,25 @@ class ControlRuleExportDTO:
     rule_type: str  # Control rule type (VISIBILITY, ENABLED, REQUIRED)
     target_field_id: str  # Field this rule applies to
     formula_text: str  # Boolean formula expression
+
+
+@dataclass(frozen=True)
+class OutputMappingExportDTO:
+    """Export DTO for an output mapping definition (Phase F-12.5).
+
+    Contains output mapping metadata for schema export.
+    Output mappings are DESIGN-TIME metadata only - NO runtime execution.
+
+    Phase F-12.5 Constraints:
+    - Associated with a specific field
+    - Target type determines output format (TEXT, NUMBER, BOOLEAN)
+    - Formula transforms field value for document output
+    - No runtime observers, listeners, or auto-recompute
+    - Design-time schema metadata only
+    """
+
+    target: str  # Output target type (TEXT, NUMBER, BOOLEAN)
+    formula_text: str  # Formula expression for output transformation
 
 
 @dataclass(frozen=True)

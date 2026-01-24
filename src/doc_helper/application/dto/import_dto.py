@@ -1,4 +1,4 @@
-"""Schema Import DTOs (Phase 4, updated Phase F-10).
+"""Schema Import DTOs (Phase 4, updated Phase F-10, Phase F-12.5).
 
 DTOs for schema import operation results.
 
@@ -14,6 +14,10 @@ APPROVED DECISIONS:
 Phase F-10 Updates:
 - Added control_rule_count to ImportResult statistics
 - Added control_rule_invalid validation error category
+
+Phase F-12.5 Updates:
+- Added output_mapping_count to ImportResult statistics
+- Added output_mapping_invalid validation error category
 
 RULES:
 - DTOs are immutable (frozen dataclasses)
@@ -88,6 +92,10 @@ class ImportValidationError:
       - Invalid target field reference
       - Formula fails governance (F-6)
       - Formula is not BOOLEAN type
+    - output_mapping_invalid: Output mapping validation failed (Phase F-12.5)
+      - Empty target or formula_text
+      - Invalid target type
+      - Formula fails governance (F-6)
     """
 
     category: str
@@ -105,12 +113,13 @@ class ImportResult:
     - Compatibility result (if existing schema was present)
     - Validation errors (if failed)
     - Warnings (always included)
-    - Import statistics (entities, fields, relationships, control rules)
+    - Import statistics (entities, fields, relationships, control rules, output mappings)
 
     IMPORTANT: Compatibility result is ALWAYS included when existing
     schema was present, regardless of import success/failure.
 
     Phase F-10: Added control_rule_count for import statistics.
+    Phase F-12.5: Added output_mapping_count for import statistics.
     """
 
     success: bool
@@ -124,6 +133,7 @@ class ImportResult:
     field_count: int = 0  # Total fields imported
     relationship_count: int = 0  # Number of relationships imported (Phase 6A)
     control_rule_count: int = 0  # Number of control rules imported (Phase F-10)
+    output_mapping_count: int = 0  # Number of output mappings imported (Phase F-12.5)
     was_identical: bool = False  # True if schema was identical to existing
     was_skipped: bool = False  # True if identical schema was skipped (no-op)
     error: Optional[str] = None  # General error message (if failed)

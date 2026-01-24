@@ -1,4 +1,4 @@
-"""Export Schema Command (Phase 2 Step 4, updated Phase 3, Phase 6A, Phase F-10).
+"""Export Schema Command (Phase 2 Step 4, updated Phase 3, Phase 6A, Phase F-10, Phase F-12.5).
 
 Command for exporting schema definitions to file.
 Follows approved guardrails and decisions.
@@ -26,6 +26,10 @@ PHASE F-10 UPDATE:
 - Control rules are design-time metadata only (no runtime execution)
 - Formulas, lookups, child entities still excluded
 
+PHASE F-12.5 UPDATE:
+- Output mappings are now exported (OutputMappingExportDTO)
+- Output mappings are design-time metadata only (no runtime execution)
+
 FORBIDDEN:
 - No import functionality
 - No formulas (still excluded)
@@ -44,6 +48,7 @@ from doc_helper.application.dto.export_dto import (
     ExportWarning,
     FieldExportDTO,
     FieldOptionExportDTO,
+    OutputMappingExportDTO,
     RelationshipExportDTO,
     SchemaExportDTO,
 )
@@ -324,6 +329,19 @@ class ExportSchemaCommand:
                     formula_text=str(rule.formula_text),
                 ))
 
+        # Phase F-12.5: Convert output mappings
+        output_mappings: list[OutputMappingExportDTO] = []
+        for mapping in field_def.output_mappings:
+            if isinstance(mapping, OutputMappingExportDTO):
+                # Already in export format, use directly
+                output_mappings.append(mapping)
+            elif hasattr(mapping, 'target') and hasattr(mapping, 'formula_text'):
+                # Convert from other format if needed
+                output_mappings.append(OutputMappingExportDTO(
+                    target=str(mapping.target),
+                    formula_text=str(mapping.formula_text),
+                ))
+
         field_export = FieldExportDTO(
             id=field_def.id.value,
             field_type=field_def.field_type.value,
@@ -334,6 +352,7 @@ class ExportSchemaCommand:
             options=tuple(options),
             constraints=tuple(constraints),
             control_rules=tuple(control_rules),
+            output_mappings=tuple(output_mappings),
         )
 
         return field_export, warnings
@@ -552,6 +571,14 @@ class ExportSchemaCommand:
                                     "formula_text": cr.formula_text,
                                 }
                                 for cr in field.control_rules
+                            ],
+                            # Phase F-12.5: Include output mappings
+                            "output_mappings": [
+                                {
+                                    "target": om.target,
+                                    "formula_text": om.formula_text,
+                                }
+                                for om in field.output_mappings
                             ],
                         }
                         for field in entity.fields
