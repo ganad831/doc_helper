@@ -562,7 +562,8 @@ def test_control_rules_result_always_present():
 
     # Assert
     assert result.control_rules_result is not None
-    assert result.control_rules_result.success is True
+    # Phase R-4: control_rules_result is now EntityControlRulesEvaluationResultDTO
+    assert result.control_rules_result.entity_id == "project"
 
 
 def test_validation_result_always_present():

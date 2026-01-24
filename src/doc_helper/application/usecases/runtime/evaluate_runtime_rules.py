@@ -1,4 +1,4 @@
-"""Evaluate Runtime Rules Use Case (Phase R-3).
+"""Evaluate Runtime Rules Use Case (Phase R-3, updated in R-4).
 
 Orchestrates runtime evaluation of all runtime rules in deterministic order.
 
@@ -10,17 +10,17 @@ ADR-050 Compliance:
 - Orchestration only (reuses existing use cases)
 
 Phase R-3: Authoritative runtime entry point.
+Phase R-4 Update: Now uses entity-level control rules aggregation.
 """
 
 from doc_helper.application.dto.runtime_dto import (
-    ControlRuleEvaluationRequestDTO,
     OutputMappingEvaluationRequestDTO,
     RuntimeEvaluationRequestDTO,
     RuntimeEvaluationResultDTO,
     ValidationEvaluationRequestDTO,
 )
-from doc_helper.application.usecases.runtime.evaluate_control_rules import (
-    EvaluateControlRulesUseCase,
+from doc_helper.application.usecases.runtime.evaluate_entity_control_rules import (
+    EvaluateEntityControlRulesUseCase,
 )
 from doc_helper.application.usecases.runtime.evaluate_output_mappings import (
     EvaluateOutputMappingsUseCase,
@@ -32,13 +32,13 @@ from doc_helper.application.usecases.schema_usecases import SchemaUseCases
 
 
 class EvaluateRuntimeRulesUseCase:
-    """Use case for orchestrated runtime rule evaluation (Phase R-3).
+    """Use case for orchestrated runtime rule evaluation (Phase R-3, updated in R-4).
 
     This is the ONLY supported runtime entry point after Phase R-3.
     Evaluates all runtime rules in deterministic order and returns aggregated result.
 
     Evaluation Order (MANDATORY):
-        1. Control Rules (Phase R-1) - Never blocking
+        1. Control Rules (Phase R-4 Entity-Level) - Never blocking
         2. Validation Rules (Phase R-2) - Blocks if ERROR severity
         3. Output Mappings (Phase R-1) - Always blocking on failure
 
@@ -86,7 +86,8 @@ class EvaluateRuntimeRulesUseCase:
         self._formula_usecases = formula_usecases
 
         # Initialize component use cases
-        self._control_rules_use_case = EvaluateControlRulesUseCase(
+        # Phase R-4: Use entity-level control rules aggregation
+        self._entity_control_rules_use_case = EvaluateEntityControlRulesUseCase(
             schema_usecases=schema_usecases,
             formula_usecases=formula_usecases,
         )
@@ -146,21 +147,13 @@ class EvaluateRuntimeRulesUseCase:
                 for error in result.validation_result.errors:
                     print(error.message)
         """
-        # STEP 1: Evaluate Control Rules (R-1) - Never blocking
-        # Control rules always execute regardless of other results
-        # Note: We need to evaluate control rules for ALL fields in the entity
-        # For now, we evaluate per field as in R-1 spec (requires field_id)
-        # Phase R-3 orchestrates at entity level, so we create a placeholder result
-        # Since control rules are field-specific in R-1, we return default state
-        # This is a simplification; full implementation would aggregate all field control rules
-
-        # For Phase R-3, we use a default control rules result
-        # Full implementation would require iterating all fields
-        from doc_helper.application.dto.runtime_dto import (
-            ControlRuleEvaluationResultDTO,
+        # STEP 1: Evaluate Control Rules (R-4 Entity-Level Aggregation) - Never blocking
+        # Phase R-4: Use entity-level control rules aggregation
+        # Aggregates control rule evaluation across all fields in the entity
+        entity_control_rules_result = self._entity_control_rules_use_case.execute(
+            entity_id=request.entity_id,
+            field_values=request.field_values,
         )
-
-        control_rules_result = ControlRuleEvaluationResultDTO.default()
 
         # STEP 2: Evaluate Validation Rules (R-2) - May block
         validation_request = ValidationEvaluationRequestDTO(
@@ -177,7 +170,7 @@ class EvaluateRuntimeRulesUseCase:
                 f"Validation failed with {error_count} ERROR severity issue(s)"
             )
             return RuntimeEvaluationResultDTO.success(
-                control_rules_result=control_rules_result,
+                control_rules_result=entity_control_rules_result,
                 validation_result=validation_result,
                 output_mappings_result=None,  # Not evaluated
                 is_blocked=True,
@@ -195,7 +188,7 @@ class EvaluateRuntimeRulesUseCase:
 
         # Return aggregated result
         return RuntimeEvaluationResultDTO.success(
-            control_rules_result=control_rules_result,
+            control_rules_result=entity_control_rules_result,
             validation_result=validation_result,
             output_mappings_result=output_mappings_result,
             is_blocked=is_blocked,

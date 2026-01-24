@@ -1,10 +1,11 @@
-"""Runtime Evaluation DTOs (Phase R-1, R-2, R-3).
+"""Runtime Evaluation DTOs (Phase R-1, R-2, R-3, R-4).
 
 Data Transfer Objects for runtime evaluation:
 - Control rule evaluation (Phase R-1)
 - Output mapping evaluation (Phase R-1)
 - Validation constraint evaluation (Phase R-2)
 - Orchestrated runtime evaluation (Phase R-3)
+- Entity-level control rules aggregation (Phase R-4)
 
 ADR-050 Compliance:
 - Pull-based evaluation (caller provides all inputs)
@@ -363,7 +364,7 @@ class RuntimeEvaluationRequestDTO:
 
 @dataclass(frozen=True)
 class RuntimeEvaluationResultDTO:
-    """Result DTO for orchestrated runtime evaluation (Phase R-3).
+    """Result DTO for orchestrated runtime evaluation (Phase R-3, updated in R-4).
 
     ADR-050 Compliance:
         - Explicit success/failure
@@ -376,10 +377,14 @@ class RuntimeEvaluationResultDTO:
         - Validation Rules: Blocks if any ERROR severity issues
         - Output Mappings: Always blocking on failure
         - Overall blocking: True if ANY component blocks
+
+    Phase R-4 Update:
+        - control_rules_result now uses entity-level aggregation (EntityControlRulesEvaluationResultDTO)
     """
 
-    control_rules_result: ControlRuleEvaluationResultDTO
-    """Result from control rule evaluation (R-1)."""
+    control_rules_result: "EntityControlRulesEvaluationResultDTO"
+    """Result from entity-level control rule evaluation (R-4).
+    Updated in Phase R-4 from field-level (R-1) to entity-level aggregation."""
 
     validation_result: ValidationEvaluationResultDTO
     """Result from validation constraint evaluation (R-2)."""
@@ -397,7 +402,7 @@ class RuntimeEvaluationResultDTO:
 
     @staticmethod
     def success(
-        control_rules_result: ControlRuleEvaluationResultDTO,
+        control_rules_result: "EntityControlRulesEvaluationResultDTO",
         validation_result: ValidationEvaluationResultDTO,
         output_mappings_result: Optional[OutputMappingEvaluationResultDTO],
         is_blocked: bool,
@@ -406,8 +411,8 @@ class RuntimeEvaluationResultDTO:
         """Create successful runtime evaluation result.
 
         Args:
-            control_rules_result: Control rule evaluation result
-            validation_result: Validation evaluation result
+            control_rules_result: Entity-level control rule evaluation result (R-4)
+            validation_result: Validation evaluation result (R-2)
             output_mappings_result: Output mapping evaluation result (may be None if blocked)
             is_blocked: Whether evaluation is blocked
             blocking_reason: Reason for blocking (if blocked)
@@ -421,4 +426,100 @@ class RuntimeEvaluationResultDTO:
             output_mappings_result=output_mappings_result,
             is_blocked=is_blocked,
             blocking_reason=blocking_reason,
+        )
+
+
+# ============================================================================
+# Entity-Level Control Rules Aggregation DTOs (Phase R-4)
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class EntityControlRuleEvaluationDTO:
+    """Per-field control rule evaluation result for entity aggregation (Phase R-4).
+
+    ADR-050 Compliance:
+        - Immutable field-level control state
+        - Single-entity scope only
+        - No domain object leakage
+    """
+
+    field_id: str
+    """Field identifier."""
+
+    visibility: bool
+    """Whether the field should be visible (True) or hidden (False)."""
+
+    enabled: bool
+    """Whether the field should be enabled (True) or disabled (False)."""
+
+    required: bool
+    """Whether the field is required (True) or optional (False)."""
+
+
+@dataclass(frozen=True)
+class EntityControlRulesEvaluationResultDTO:
+    """Aggregated control rule evaluation result for an entire entity (Phase R-4).
+
+    ADR-050 Compliance:
+        - Immutable entity-level aggregation
+        - Pull-based evaluation (caller provides all inputs)
+        - Deterministic (same inputs → same outputs)
+        - Read-only (no mutations)
+        - Single-entity scope only
+
+    Phase R-4: Bridges field-level control rules (R-1) with entity-level orchestration (R-3).
+    """
+
+    entity_id: str
+    """Entity whose control rules were evaluated."""
+
+    field_results: tuple[EntityControlRuleEvaluationDTO, ...]
+    """Per-field control rule evaluation results.
+    Tuple ordered by field evaluation order."""
+
+    has_any_rule: bool
+    """Whether any control rules exist for fields in this entity.
+    False if all fields use default states."""
+
+    @staticmethod
+    def from_field_results(
+        entity_id: str,
+        field_results: tuple[EntityControlRuleEvaluationDTO, ...],
+    ) -> "EntityControlRulesEvaluationResultDTO":
+        """Create entity-level result from field-level results.
+
+        Args:
+            entity_id: Entity identifier
+            field_results: Tuple of per-field control rule results
+
+        Returns:
+            EntityControlRulesEvaluationResultDTO with aggregated results
+        """
+        # Determine if any rules exist (not all defaults)
+        has_any_rule = any(
+            not (result.visibility and result.enabled and not result.required)
+            for result in field_results
+        )
+
+        return EntityControlRulesEvaluationResultDTO(
+            entity_id=entity_id,
+            field_results=field_results,
+            has_any_rule=has_any_rule,
+        )
+
+    @staticmethod
+    def default(entity_id: str) -> "EntityControlRulesEvaluationResultDTO":
+        """Create default result (no fields, no rules).
+
+        Args:
+            entity_id: Entity identifier
+
+        Returns:
+            EntityControlRulesEvaluationResultDTO with empty results
+        """
+        return EntityControlRulesEvaluationResultDTO(
+            entity_id=entity_id,
+            field_results=(),
+            has_any_rule=False,
         )
