@@ -1,4 +1,4 @@
-"""Schema Import DTOs (Phase 4).
+"""Schema Import DTOs (Phase 4, updated Phase F-10).
 
 DTOs for schema import operation results.
 
@@ -10,6 +10,10 @@ APPROVED DECISIONS:
 - Decision 5: Version field handling → Warn if version goes backward
 - Decision 6: Empty entity handling → Warn but allow
 - Decision 7: Unknown constraint type → Fail import (strict validation)
+
+Phase F-10 Updates:
+- Added control_rule_count to ImportResult statistics
+- Added control_rule_invalid validation error category
 
 RULES:
 - DTOs are immutable (frozen dataclasses)
@@ -79,6 +83,11 @@ class ImportValidationError:
     - invalid_type: Wrong data type
     - invalid_value: Invalid value (e.g., unknown field type)
     - unknown_constraint: Unrecognized constraint type
+    - control_rule_invalid: Control rule validation failed (Phase F-10)
+      - Invalid rule type
+      - Invalid target field reference
+      - Formula fails governance (F-6)
+      - Formula is not BOOLEAN type
     """
 
     category: str
@@ -96,10 +105,12 @@ class ImportResult:
     - Compatibility result (if existing schema was present)
     - Validation errors (if failed)
     - Warnings (always included)
-    - Import statistics
+    - Import statistics (entities, fields, relationships, control rules)
 
     IMPORTANT: Compatibility result is ALWAYS included when existing
     schema was present, regardless of import success/failure.
+
+    Phase F-10: Added control_rule_count for import statistics.
     """
 
     success: bool
@@ -112,6 +123,7 @@ class ImportResult:
     entity_count: int = 0  # Number of entities imported
     field_count: int = 0  # Total fields imported
     relationship_count: int = 0  # Number of relationships imported (Phase 6A)
+    control_rule_count: int = 0  # Number of control rules imported (Phase F-10)
     was_identical: bool = False  # True if schema was identical to existing
     was_skipped: bool = False  # True if identical schema was skipped (no-op)
     error: Optional[str] = None  # General error message (if failed)

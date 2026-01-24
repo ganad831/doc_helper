@@ -1,4 +1,4 @@
-"""Export Schema Command (Phase 2 Step 4, updated Phase 3, Phase 6A).
+"""Export Schema Command (Phase 2 Step 4, updated Phase 3, Phase 6A, Phase F-10).
 
 Command for exporting schema definitions to file.
 Follows approved guardrails and decisions.
@@ -21,9 +21,14 @@ PHASE 6A UPDATE (ADR-022):
 - Relationships are now exported (RelationshipDefinition)
 - Relationships serialized after entities (dependency order)
 
+PHASE F-10 UPDATE:
+- Control rules are now exported (ControlRuleExportDTO)
+- Control rules are design-time metadata only (no runtime execution)
+- Formulas, lookups, child entities still excluded
+
 FORBIDDEN:
 - No import functionality
-- No formulas, controls, output mappings
+- No formulas (still excluded)
 - No runtime semantics
 """
 
@@ -33,6 +38,7 @@ from typing import Optional
 
 from doc_helper.application.dto.export_dto import (
     ConstraintExportDTO,
+    ControlRuleExportDTO,
     EntityExportDTO,
     ExportResult,
     ExportWarning,
@@ -304,6 +310,20 @@ class ExportSchemaCommand:
             constraint_export = self._convert_constraint(constraint)
             constraints.append(constraint_export)
 
+        # Phase F-10: Convert control rules
+        control_rules: list[ControlRuleExportDTO] = []
+        for rule in field_def.control_rules:
+            if isinstance(rule, ControlRuleExportDTO):
+                # Already in export format, use directly
+                control_rules.append(rule)
+            elif hasattr(rule, 'rule_type') and hasattr(rule, 'formula_text'):
+                # Convert from other format if needed
+                control_rules.append(ControlRuleExportDTO(
+                    rule_type=str(rule.rule_type),
+                    target_field_id=str(getattr(rule, 'target_field_id', field_def.id.value)),
+                    formula_text=str(rule.formula_text),
+                ))
+
         field_export = FieldExportDTO(
             id=field_def.id.value,
             field_type=field_def.field_type.value,
@@ -313,6 +333,7 @@ class ExportSchemaCommand:
             default_value=str(field_def.default_value) if field_def.default_value is not None else None,
             options=tuple(options),
             constraints=tuple(constraints),
+            control_rules=tuple(control_rules),
         )
 
         return field_export, warnings
@@ -364,11 +385,12 @@ class ExportSchemaCommand:
 
         Returns:
             List of warnings for excluded data categories
+
+        Phase F-10: Control rules are now exported, so no warning is generated for them.
         """
         warnings: list[ExportWarning] = []
 
         formula_count = 0
-        control_count = 0
         lookup_count = 0
         table_count = 0
 
@@ -378,9 +400,7 @@ class ExportSchemaCommand:
                 if field_def.formula:
                     formula_count += 1
 
-                # Count control rules (excluded from export)
-                if field_def.control_rules:
-                    control_count += len(field_def.control_rules)
+                # Phase F-10: Control rules are now exported (no warning needed)
 
                 # Count lookup references (behavioral - excluded)
                 if field_def.lookup_entity_id:
@@ -397,11 +417,7 @@ class ExportSchemaCommand:
                 message=f"{formula_count} formula(s) not exported (Phase 2.2 feature)"
             ))
 
-        if control_count > 0:
-            warnings.append(ExportWarning(
-                category="excluded_data",
-                message=f"{control_count} control rule(s) not exported (Phase 2.2 feature)"
-            ))
+        # Phase F-10: Control rules are now exported, no warning needed
 
         if lookup_count > 0:
             warnings.append(ExportWarning(
@@ -495,6 +511,8 @@ class ExportSchemaCommand:
 
         Returns:
             Dict representation for JSON
+
+        Phase F-10: Includes control_rules in field serialization.
         """
         result = {
             "schema_id": export_data.schema_id,
@@ -525,6 +543,15 @@ class ExportSchemaCommand:
                                     "parameters": c.parameters,
                                 }
                                 for c in field.constraints
+                            ],
+                            # Phase F-10: Include control rules
+                            "control_rules": [
+                                {
+                                    "rule_type": cr.rule_type,
+                                    "target_field_id": cr.target_field_id,
+                                    "formula_text": cr.formula_text,
+                                }
+                                for cr in field.control_rules
                             ],
                         }
                         for field in entity.fields

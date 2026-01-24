@@ -1,4 +1,4 @@
-"""Schema Use Cases (Architecture Enforcement Phase).
+"""Schema Use Cases (Architecture Enforcement Phase, updated Phase F-10).
 
 Application layer use-case class that encapsulates all schema operations.
 Presentation layer MUST use this class instead of directly accessing
@@ -23,6 +23,12 @@ This class wraps:
 - CreateRelationshipCommand (create relationship)
 - ExportSchemaCommand (export schema)
 - ImportSchemaCommand (import schema)
+
+Phase F-10 Control Rule Methods:
+- add_control_rule(): Add control rule with governance validation
+- update_control_rule(): Update control rule with re-validation
+- delete_control_rule(): Delete control rule
+- list_control_rules_for_field(): List all control rules for a field
 """
 
 from pathlib import Path
@@ -56,7 +62,13 @@ from doc_helper.application.commands.schema.import_schema_command import (
 from doc_helper.application.commands.schema.update_entity_command import (
     UpdateEntityCommand,
 )
-from doc_helper.application.dto.export_dto import ExportResult
+from doc_helper.application.dto.control_rule_dto import (
+    ControlRuleResultDTO,
+    ControlRuleStatus,
+    ControlRuleType,
+)
+from doc_helper.application.dto.export_dto import ControlRuleExportDTO, ExportResult
+from doc_helper.application.dto.formula_dto import SchemaFieldInfoDTO
 from doc_helper.application.dto.import_dto import (
     EnforcementPolicy,
     IdenticalSchemaAction,
@@ -65,6 +77,7 @@ from doc_helper.application.dto.import_dto import (
 from doc_helper.application.dto.operation_result import OperationResult
 from doc_helper.application.dto.relationship_dto import RelationshipDTO
 from doc_helper.application.dto.schema_dto import EntityDefinitionDTO
+from doc_helper.application.usecases.control_rule_usecases import ControlRuleUseCases
 from doc_helper.application.queries.schema.get_relationships_query import (
     GetRelationshipsQuery,
 )
@@ -159,6 +172,9 @@ class SchemaUseCases:
         self._delete_entity_command = DeleteEntityCommand(schema_repository)
         self._update_field_command = UpdateFieldCommand(schema_repository)
         self._delete_field_command = DeleteFieldCommand(schema_repository)
+
+        # Phase F-10: Control Rule UseCases for validation
+        self._control_rule_usecases = ControlRuleUseCases()
 
     # =========================================================================
     # Query Operations (READ)
@@ -667,3 +683,404 @@ class SchemaUseCases:
         """
         entities = self.get_all_entities()
         return tuple((entity.id, entity.name) for entity in entities)
+
+    # =========================================================================
+    # Control Rule Operations (Phase F-10)
+    # =========================================================================
+
+    def add_control_rule(
+        self,
+        entity_id: str,
+        field_id: str,
+        rule_type: str,
+        formula_text: str,
+    ) -> OperationResult:
+        """Add a control rule to a field (Phase F-10).
+
+        Validates the control rule using Formula Governance (F-6) and
+        Boolean enforcement (F-8) before adding.
+
+        Args:
+            entity_id: Entity containing the field
+            field_id: Field to add control rule to (this is the target field)
+            rule_type: Type of control rule (VISIBILITY, ENABLED, REQUIRED)
+            formula_text: Boolean formula expression
+
+        Returns:
+            OperationResult with field ID on success, error message on failure.
+            Failure reasons:
+            - Entity or field not found
+            - Invalid rule type
+            - Formula governance failed (F-6)
+            - Formula is not BOOLEAN type (F-8)
+
+        Phase F-10 Compliance:
+            - Design-time only (NO runtime execution)
+            - NO observers, listeners, signals
+            - NO field mutation
+            - Schema persistence via repository
+        """
+        from dataclasses import replace
+        from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
+
+        # Validate rule_type
+        try:
+            control_rule_type = ControlRuleType(rule_type.upper())
+        except ValueError:
+            return OperationResult.fail(
+                f"Invalid rule type: {rule_type}. "
+                "Must be VISIBILITY, ENABLED, or REQUIRED."
+            )
+
+        # Get entity
+        entity_id_obj = EntityDefinitionId(entity_id.strip())
+        if not self._schema_repository.exists(entity_id_obj):
+            return OperationResult.fail(f"Entity not found: {entity_id}")
+
+        load_result = self._schema_repository.get_by_id(entity_id_obj)
+        if load_result.is_failure():
+            return OperationResult.fail(f"Failed to load entity: {load_result.error}")
+
+        entity = load_result.value
+
+        # Get field
+        field_id_obj = FieldDefinitionId(field_id.strip())
+        if field_id_obj not in entity.fields:
+            return OperationResult.fail(
+                f"Field not found: {field_id} in entity {entity_id}"
+            )
+
+        field = entity.fields[field_id_obj]
+
+        # Build schema fields for validation
+        schema_fields = self._build_schema_fields_for_entity(entity)
+
+        # Validate control rule using ControlRuleUseCases (F-6, F-8)
+        validation_result = self._control_rule_usecases.validate_control_rule(
+            rule_type=control_rule_type,
+            target_field_id=field_id,
+            formula_text=formula_text,
+            schema_fields=schema_fields,
+        )
+
+        # Check validation result
+        if validation_result.status == ControlRuleStatus.BLOCKED:
+            return OperationResult.fail(
+                f"Control rule blocked: {validation_result.block_reason}"
+            )
+
+        if validation_result.status == ControlRuleStatus.CLEARED:
+            return OperationResult.fail(
+                "Cannot add control rule with empty formula"
+            )
+
+        # Check for duplicate rule type on field
+        for existing_rule in field.control_rules:
+            if isinstance(existing_rule, ControlRuleExportDTO):
+                if existing_rule.rule_type == rule_type.upper():
+                    return OperationResult.fail(
+                        f"Field already has a {rule_type} control rule. "
+                        "Use update_control_rule() to modify it."
+                    )
+
+        # Create control rule DTO
+        control_rule_dto = ControlRuleExportDTO(
+            rule_type=rule_type.upper(),
+            target_field_id=field_id,
+            formula_text=formula_text,
+        )
+
+        # Update field with new control rule
+        new_control_rules = field.control_rules + (control_rule_dto,)
+        updated_field = replace(field, control_rules=new_control_rules)
+
+        # Update entity's fields dict
+        entity.fields[field_id_obj] = updated_field
+
+        # Save updated entity
+        save_result = self._schema_repository.save(entity)
+        if save_result.is_failure():
+            return OperationResult.fail(f"Failed to add control rule: {save_result.error}")
+
+        return OperationResult.ok(field_id)
+
+    def update_control_rule(
+        self,
+        entity_id: str,
+        field_id: str,
+        rule_type: str,
+        formula_text: str,
+    ) -> OperationResult:
+        """Update an existing control rule (Phase F-10).
+
+        Re-validates the control rule using Formula Governance (F-6) and
+        Boolean enforcement (F-8) before updating.
+
+        Args:
+            entity_id: Entity containing the field
+            field_id: Field with the control rule
+            rule_type: Type of control rule to update (VISIBILITY, ENABLED, REQUIRED)
+            formula_text: New boolean formula expression
+
+        Returns:
+            OperationResult with field ID on success, error message on failure.
+            Failure reasons:
+            - Entity or field not found
+            - Control rule of specified type not found
+            - Formula governance failed (F-6)
+            - Formula is not BOOLEAN type (F-8)
+
+        Phase F-10 Compliance:
+            - Design-time only (NO runtime execution)
+            - NO observers, listeners, signals
+            - NO field mutation
+            - Schema persistence via repository
+        """
+        from dataclasses import replace
+        from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
+
+        # Validate rule_type
+        try:
+            control_rule_type = ControlRuleType(rule_type.upper())
+        except ValueError:
+            return OperationResult.fail(
+                f"Invalid rule type: {rule_type}. "
+                "Must be VISIBILITY, ENABLED, or REQUIRED."
+            )
+
+        # Get entity
+        entity_id_obj = EntityDefinitionId(entity_id.strip())
+        if not self._schema_repository.exists(entity_id_obj):
+            return OperationResult.fail(f"Entity not found: {entity_id}")
+
+        load_result = self._schema_repository.get_by_id(entity_id_obj)
+        if load_result.is_failure():
+            return OperationResult.fail(f"Failed to load entity: {load_result.error}")
+
+        entity = load_result.value
+
+        # Get field
+        field_id_obj = FieldDefinitionId(field_id.strip())
+        if field_id_obj not in entity.fields:
+            return OperationResult.fail(
+                f"Field not found: {field_id} in entity {entity_id}"
+            )
+
+        field = entity.fields[field_id_obj]
+
+        # Find existing rule to update
+        rule_found = False
+        rule_index = -1
+        for i, existing_rule in enumerate(field.control_rules):
+            if isinstance(existing_rule, ControlRuleExportDTO):
+                if existing_rule.rule_type == rule_type.upper():
+                    rule_found = True
+                    rule_index = i
+                    break
+
+        if not rule_found:
+            return OperationResult.fail(
+                f"No {rule_type} control rule found on field {field_id}. "
+                "Use add_control_rule() to create one."
+            )
+
+        # Build schema fields for validation
+        schema_fields = self._build_schema_fields_for_entity(entity)
+
+        # Validate updated control rule using ControlRuleUseCases (F-6, F-8)
+        validation_result = self._control_rule_usecases.validate_control_rule(
+            rule_type=control_rule_type,
+            target_field_id=field_id,
+            formula_text=formula_text,
+            schema_fields=schema_fields,
+        )
+
+        # Check validation result
+        if validation_result.status == ControlRuleStatus.BLOCKED:
+            return OperationResult.fail(
+                f"Control rule blocked: {validation_result.block_reason}"
+            )
+
+        if validation_result.status == ControlRuleStatus.CLEARED:
+            # Empty formula means delete the rule
+            return self.delete_control_rule(entity_id, field_id, rule_type)
+
+        # Create updated control rule DTO
+        updated_rule_dto = ControlRuleExportDTO(
+            rule_type=rule_type.upper(),
+            target_field_id=field_id,
+            formula_text=formula_text,
+        )
+
+        # Replace the rule in the tuple
+        rules_list = list(field.control_rules)
+        rules_list[rule_index] = updated_rule_dto
+        new_control_rules = tuple(rules_list)
+
+        # Update field with modified control rules
+        updated_field = replace(field, control_rules=new_control_rules)
+
+        # Update entity's fields dict
+        entity.fields[field_id_obj] = updated_field
+
+        # Save updated entity
+        save_result = self._schema_repository.save(entity)
+        if save_result.is_failure():
+            return OperationResult.fail(f"Failed to update control rule: {save_result.error}")
+
+        return OperationResult.ok(field_id)
+
+    def delete_control_rule(
+        self,
+        entity_id: str,
+        field_id: str,
+        rule_type: str,
+    ) -> OperationResult:
+        """Delete a control rule from a field (Phase F-10).
+
+        Args:
+            entity_id: Entity containing the field
+            field_id: Field with the control rule
+            rule_type: Type of control rule to delete (VISIBILITY, ENABLED, REQUIRED)
+
+        Returns:
+            OperationResult with field ID on success, error message on failure.
+            Failure reasons:
+            - Entity or field not found
+            - Control rule of specified type not found
+
+        Phase F-10 Compliance:
+            - Design-time only (NO runtime execution)
+            - NO observers, listeners, signals
+            - NO field mutation
+            - Schema persistence via repository
+        """
+        from dataclasses import replace
+        from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
+
+        # Validate rule_type
+        try:
+            ControlRuleType(rule_type.upper())
+        except ValueError:
+            return OperationResult.fail(
+                f"Invalid rule type: {rule_type}. "
+                "Must be VISIBILITY, ENABLED, or REQUIRED."
+            )
+
+        # Get entity
+        entity_id_obj = EntityDefinitionId(entity_id.strip())
+        if not self._schema_repository.exists(entity_id_obj):
+            return OperationResult.fail(f"Entity not found: {entity_id}")
+
+        load_result = self._schema_repository.get_by_id(entity_id_obj)
+        if load_result.is_failure():
+            return OperationResult.fail(f"Failed to load entity: {load_result.error}")
+
+        entity = load_result.value
+
+        # Get field
+        field_id_obj = FieldDefinitionId(field_id.strip())
+        if field_id_obj not in entity.fields:
+            return OperationResult.fail(
+                f"Field not found: {field_id} in entity {entity_id}"
+            )
+
+        field = entity.fields[field_id_obj]
+
+        # Find and remove the rule
+        rule_found = False
+        new_rules = []
+        for existing_rule in field.control_rules:
+            if isinstance(existing_rule, ControlRuleExportDTO):
+                if existing_rule.rule_type == rule_type.upper():
+                    rule_found = True
+                    continue  # Skip this rule (delete it)
+            new_rules.append(existing_rule)
+
+        if not rule_found:
+            return OperationResult.fail(
+                f"No {rule_type} control rule found on field {field_id}"
+            )
+
+        # Update field with modified control rules
+        updated_field = replace(field, control_rules=tuple(new_rules))
+
+        # Update entity's fields dict
+        entity.fields[field_id_obj] = updated_field
+
+        # Save updated entity
+        save_result = self._schema_repository.save(entity)
+        if save_result.is_failure():
+            return OperationResult.fail(f"Failed to delete control rule: {save_result.error}")
+
+        return OperationResult.ok(field_id)
+
+    def list_control_rules_for_field(
+        self,
+        entity_id: str,
+        field_id: str,
+    ) -> tuple[ControlRuleExportDTO, ...]:
+        """List all control rules for a field (Phase F-10).
+
+        Args:
+            entity_id: Entity containing the field
+            field_id: Field to list control rules for
+
+        Returns:
+            Tuple of ControlRuleExportDTO for the field.
+            Empty tuple if entity/field not found or has no rules.
+
+        Phase F-10 Compliance:
+            - Read-only query
+            - Returns DTOs only
+            - No execution
+        """
+        from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
+
+        # Get entity
+        entity_id_obj = EntityDefinitionId(entity_id.strip())
+        if not self._schema_repository.exists(entity_id_obj):
+            return ()
+
+        load_result = self._schema_repository.get_by_id(entity_id_obj)
+        if load_result.is_failure():
+            return ()
+
+        entity = load_result.value
+
+        # Get field
+        field_id_obj = FieldDefinitionId(field_id.strip())
+        if field_id_obj not in entity.fields:
+            return ()
+
+        field = entity.fields[field_id_obj]
+
+        # Filter to ControlRuleExportDTO only
+        rules = []
+        for rule in field.control_rules:
+            if isinstance(rule, ControlRuleExportDTO):
+                rules.append(rule)
+
+        return tuple(rules)
+
+    def _build_schema_fields_for_entity(
+        self,
+        entity,
+    ) -> tuple[SchemaFieldInfoDTO, ...]:
+        """Build SchemaFieldInfoDTO tuple for validation.
+
+        Args:
+            entity: EntityDefinition to extract fields from
+
+        Returns:
+            Tuple of SchemaFieldInfoDTO for all fields in the entity
+        """
+        schema_fields = []
+        for field_def in entity.fields.values():
+            field_info = SchemaFieldInfoDTO(
+                field_id=field_def.id.value,
+                field_type=field_def.field_type.value,
+                is_required=field_def.required,
+            )
+            schema_fields.append(field_info)
+        return tuple(schema_fields)

@@ -1,4 +1,4 @@
-"""Schema Export DTOs (Phase 2 Step 4, updated Phase 3, Phase 6A).
+"""Schema Export DTOs (Phase 2 Step 4, updated Phase 3, Phase 6A, Phase F-10).
 
 DTOs for schema export data structure.
 These are the data structures that will be serialized to the export file.
@@ -15,6 +15,11 @@ Phase 3 Updates:
 Phase 6A Updates (ADR-022):
 - Added RelationshipExportDTO for relationship definitions
 - Added relationships field to SchemaExportDTO
+
+Phase F-10 Updates:
+- Added ControlRuleExportDTO for control rule definitions
+- Added control_rules field to FieldExportDTO
+- Control rules are DESIGN-TIME metadata only (no runtime execution)
 """
 
 from dataclasses import dataclass, field
@@ -49,7 +54,9 @@ class FieldExportDTO:
     """Export DTO for a field definition.
 
     Contains all allowed field metadata for export.
-    EXCLUDES: formula, lookup_entity_id, child_entity_id, control_rules
+    EXCLUDES: formula, lookup_entity_id, child_entity_id
+
+    Phase F-10: Added control_rules field for design-time control rule metadata.
     """
 
     id: str  # Field identifier
@@ -60,6 +67,7 @@ class FieldExportDTO:
     default_value: Optional[str] = None  # Default value as string
     options: tuple = ()  # Tuple of FieldOptionExportDTO for choice fields
     constraints: tuple = ()  # Tuple of ConstraintExportDTO
+    control_rules: tuple = ()  # Tuple of ControlRuleExportDTO (Phase F-10)
 
 
 @dataclass(frozen=True)
@@ -91,6 +99,26 @@ class RelationshipExportDTO:
     name_key: str  # Translation key for relationship name
     description_key: Optional[str] = None  # Translation key for description
     inverse_name_key: Optional[str] = None  # Translation key for inverse name
+
+
+@dataclass(frozen=True)
+class ControlRuleExportDTO:
+    """Export DTO for a control rule definition (Phase F-10).
+
+    Contains control rule metadata for schema export.
+    Control rules are DESIGN-TIME metadata only - NO runtime execution.
+
+    Phase F-10 Constraints:
+    - Associated with a specific field (target_field_id)
+    - Rule type determines UI behavior (VISIBILITY, ENABLED, REQUIRED)
+    - Formula must be a valid BOOLEAN formula
+    - No runtime observers, listeners, or auto-recompute
+    - Design-time schema metadata only
+    """
+
+    rule_type: str  # Control rule type (VISIBILITY, ENABLED, REQUIRED)
+    target_field_id: str  # Field this rule applies to
+    formula_text: str  # Boolean formula expression
 
 
 @dataclass(frozen=True)

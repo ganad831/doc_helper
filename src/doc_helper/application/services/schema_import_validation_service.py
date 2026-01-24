@@ -21,14 +21,17 @@ import json
 from pathlib import Path
 from typing import Optional
 
+from doc_helper.application.dto.control_rule_dto import ControlRuleType
 from doc_helper.application.dto.export_dto import (
     ConstraintExportDTO,
+    ControlRuleExportDTO,
     EntityExportDTO,
     FieldExportDTO,
     FieldOptionExportDTO,
     RelationshipExportDTO,
     SchemaExportDTO,
 )
+from doc_helper.application.dto.formula_dto import SchemaFieldInfoDTO
 from doc_helper.application.dto.import_dto import (
     ImportValidationError,
     ImportWarning,
@@ -74,6 +77,9 @@ KNOWN_CONSTRAINT_TYPES = {
 
 # Known relationship types (Phase 6A - ADR-022)
 KNOWN_RELATIONSHIP_TYPES = {"CONTAINS", "REFERENCES", "ASSOCIATES"}
+
+# Known control rule types (Phase F-10)
+KNOWN_CONTROL_RULE_TYPES = {"VISIBILITY", "ENABLED", "REQUIRED"}
 
 
 class SchemaImportValidationService:
@@ -506,6 +512,21 @@ class SchemaImportValidationService:
                     )
                     errors.extend(constraint_errors)
 
+        # Validate control_rules array (Phase F-10)
+        if "control_rules" in field:
+            if not isinstance(field["control_rules"], list):
+                errors.append(ImportValidationError(
+                    category="invalid_type",
+                    message=f"control_rules must be an array, got {type(field['control_rules']).__name__}",
+                    location=f"{location}.control_rules",
+                ))
+            else:
+                for k, control_rule in enumerate(field["control_rules"]):
+                    control_rule_errors = self._validate_control_rule_structure(
+                        control_rule, f"{location}.control_rules[{k}]"
+                    )
+                    errors.extend(control_rule_errors)
+
         return errors
 
     def _validate_option_structure(
@@ -604,6 +625,83 @@ class SchemaImportValidationService:
                 category="invalid_type",
                 message=f"parameters must be an object, got {type(constraint['parameters']).__name__}",
                 location=f"{location}.parameters",
+            ))
+
+        return errors
+
+    def _validate_control_rule_structure(
+        self,
+        control_rule: dict,
+        location: str,
+    ) -> list[ImportValidationError]:
+        """Validate a single control rule's structure (Phase F-10).
+
+        Note: Formula validation (governance + boolean check) is done later
+        in _validate_control_rule_formula once we have the full schema context.
+        """
+        errors: list[ImportValidationError] = []
+
+        if not isinstance(control_rule, dict):
+            errors.append(ImportValidationError(
+                category="invalid_type",
+                message=f"Control rule must be an object, got {type(control_rule).__name__}",
+                location=location,
+            ))
+            return errors
+
+        # Required: rule_type
+        if "rule_type" not in control_rule:
+            errors.append(ImportValidationError(
+                category="missing_required",
+                message="Missing required field: rule_type",
+                location=location,
+            ))
+        elif not isinstance(control_rule["rule_type"], str):
+            errors.append(ImportValidationError(
+                category="invalid_type",
+                message=f"rule_type must be a string, got {type(control_rule['rule_type']).__name__}",
+                location=f"{location}.rule_type",
+            ))
+        elif control_rule["rule_type"] not in KNOWN_CONTROL_RULE_TYPES:
+            errors.append(ImportValidationError(
+                category="control_rule_invalid",
+                message=f"Unknown rule_type: {control_rule['rule_type']}. "
+                        f"Valid types: {sorted(KNOWN_CONTROL_RULE_TYPES)}",
+                location=f"{location}.rule_type",
+            ))
+
+        # Required: target_field_id
+        if "target_field_id" not in control_rule:
+            errors.append(ImportValidationError(
+                category="missing_required",
+                message="Missing required field: target_field_id",
+                location=location,
+            ))
+        elif not isinstance(control_rule["target_field_id"], str):
+            errors.append(ImportValidationError(
+                category="invalid_type",
+                message=f"target_field_id must be a string, got {type(control_rule['target_field_id']).__name__}",
+                location=f"{location}.target_field_id",
+            ))
+        elif not control_rule["target_field_id"].strip():
+            errors.append(ImportValidationError(
+                category="invalid_value",
+                message="target_field_id cannot be empty",
+                location=f"{location}.target_field_id",
+            ))
+
+        # Required: formula_text
+        if "formula_text" not in control_rule:
+            errors.append(ImportValidationError(
+                category="missing_required",
+                message="Missing required field: formula_text",
+                location=location,
+            ))
+        elif not isinstance(control_rule["formula_text"], str):
+            errors.append(ImportValidationError(
+                category="invalid_type",
+                message=f"formula_text must be a string, got {type(control_rule['formula_text']).__name__}",
+                location=f"{location}.formula_text",
             ))
 
         return errors
@@ -812,6 +910,15 @@ class SchemaImportValidationService:
             field_def = field_result.value
             fields[field_def.id] = field_def
 
+        # Phase F-10: Validate control rule formulas using schema context
+        control_rule_errors = self._validate_control_rules_for_entity(
+            entity_id=entity_id,
+            fields=fields,
+            entity_index=index,
+        )
+        if control_rule_errors:
+            return Failure(tuple(control_rule_errors))
+
         # Create entity
         try:
             entity = EntityDefinition(
@@ -828,6 +935,92 @@ class SchemaImportValidationService:
                 message=f"Failed to create entity: {e}",
                 location=f"entities[{index}]",
             ),))
+
+    def _validate_control_rules_for_entity(
+        self,
+        entity_id: str,
+        fields: dict[FieldDefinitionId, FieldDefinition],
+        entity_index: int,
+    ) -> list[ImportValidationError]:
+        """Validate control rule formulas for all fields in an entity (Phase F-10).
+
+        Uses ControlRuleUseCases to validate each formula:
+        - Formula governance (F-6)
+        - Boolean type enforcement (F-8)
+
+        Per Phase F-10 spec: Reject on invalid rule (no silent dropping).
+        """
+        # Import locally to avoid circular import
+        from doc_helper.application.usecases.control_rule_usecases import ControlRuleUseCases
+
+        errors: list[ImportValidationError] = []
+
+        # Build schema_fields from converted fields
+        schema_fields = self._build_schema_fields(fields)
+
+        # Create ControlRuleUseCases for validation
+        control_rule_usecases = ControlRuleUseCases()
+
+        # Validate control rules for each field
+        for field_idx, field_def in enumerate(fields.values()):
+            for rule_idx, control_rule in enumerate(field_def.control_rules):
+                location = (
+                    f"entities[{entity_index}].fields[{field_idx}]"
+                    f".control_rules[{rule_idx}]"
+                )
+
+                # Validate using ControlRuleUseCases
+                try:
+                    rule_type = ControlRuleType(control_rule.rule_type)
+                except ValueError:
+                    errors.append(ImportValidationError(
+                        category="control_rule_invalid",
+                        message=f"Invalid rule_type: {control_rule.rule_type}",
+                        location=f"{location}.rule_type",
+                    ))
+                    continue
+
+                # Validate formula using ControlRuleUseCases
+                validation_result = control_rule_usecases.validate_control_rule(
+                    rule_type=rule_type,
+                    target_field_id=control_rule.target_field_id,
+                    formula_text=control_rule.formula_text,
+                    schema_fields=schema_fields,
+                )
+
+                # Check if formula is blocked
+                if validation_result.is_blocked:
+                    errors.append(ImportValidationError(
+                        category="control_rule_invalid",
+                        message=(
+                            f"Control rule formula validation failed: "
+                            f"{validation_result.block_reason}"
+                        ),
+                        location=f"{location}.formula_text",
+                    ))
+
+        return errors
+
+    def _build_schema_fields(
+        self,
+        fields: dict[FieldDefinitionId, FieldDefinition],
+    ) -> tuple[SchemaFieldInfoDTO, ...]:
+        """Build SchemaFieldInfoDTO tuple from field definitions for formula validation."""
+        schema_fields: list[SchemaFieldInfoDTO] = []
+
+        for field_def in fields.values():
+            # Map FieldType to formula result type string
+            field_type_str = field_def.field_type.value
+
+            schema_field = SchemaFieldInfoDTO(
+                field_id=field_def.id.value,
+                field_type=field_type_str,
+                entity_id="",  # Not needed for control rule validation
+                label=field_def.label_key.key,  # Translation key for display
+            )
+            schema_fields.append(schema_field)
+
+        return tuple(schema_fields)
 
     def _convert_field(
         self,
@@ -858,6 +1051,17 @@ class SchemaImportValidationService:
                 if constraint_result.value is not None:
                     constraints.append(constraint_result.value)
 
+            # Convert control rules (Phase F-10)
+            # Note: Formula validation happens in _convert_entity after all fields are parsed
+            control_rules: list[ControlRuleExportDTO] = []
+            for control_rule_data in field_data.get("control_rules", []):
+                control_rule = ControlRuleExportDTO(
+                    rule_type=control_rule_data["rule_type"],
+                    target_field_id=control_rule_data["target_field_id"],
+                    formula_text=control_rule_data["formula_text"],
+                )
+                control_rules.append(control_rule)
+
             # Create field definition
             field_def = FieldDefinition(
                 id=FieldDefinitionId(field_data["id"]),
@@ -868,6 +1072,7 @@ class SchemaImportValidationService:
                 default_value=field_data.get("default_value"),
                 options=options,
                 constraints=tuple(constraints),
+                control_rules=tuple(control_rules),
                 formula=field_data.get("formula"),
                 lookup_entity_id=field_data.get("lookup_entity_id"),
                 lookup_display_field=field_data.get("lookup_display_field"),
@@ -959,6 +1164,8 @@ class SchemaImportValidationService:
                     )
                     for c in field.constraints
                 ),
+                # Phase F-10: Include control rules
+                control_rules=field.control_rules,
             )
             for field in entity.get_all_fields()
         )

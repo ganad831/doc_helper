@@ -526,13 +526,16 @@ class TestExportSchemaCommand:
         assert len(formula_warnings) == 1
         assert "1 formula" in formula_warnings[0].message
 
-    def test_warn_excluded_control_rules(
+    def test_export_control_rules(
         self,
         command: ExportSchemaCommand,
         mock_repository: Mock,
         tmp_path: Path,
     ) -> None:
-        """Should warn when control rules are excluded (Decision 4)."""
+        """Should export control rules (Phase F-10)."""
+        # Import ControlRuleExportDTO
+        from doc_helper.application.dto.export_dto import ControlRuleExportDTO
+
         # Setup - field with control rules
         field = Mock()
         field.id.value = "controlled"
@@ -546,7 +549,19 @@ class TestExportSchemaCommand:
         field.options = ()
         field.constraints = ()
         field.formula = None
-        field.control_rules = ("rule1", "rule2")  # 2 control rules
+        # Phase F-10: Control rules are ControlRuleExportDTO objects
+        field.control_rules = (
+            ControlRuleExportDTO(
+                rule_type="VISIBILITY",
+                target_field_id="target_field",
+                formula_text="{{status}} == 'active'",
+            ),
+            ControlRuleExportDTO(
+                rule_type="ENABLED",
+                target_field_id="target_field",
+                formula_text="{{mode}} == 'edit'",
+            ),
+        )
         field.lookup_entity_id = None
         field.child_entity_id = None
 
@@ -566,12 +581,20 @@ class TestExportSchemaCommand:
 
         # Assert
         assert result.is_success()
-        warnings = result.value.warnings
 
-        excluded_warnings = [w for w in warnings if w.category == "excluded_data"]
-        control_warnings = [w for w in excluded_warnings if "control" in w.message.lower()]
-        assert len(control_warnings) == 1
-        assert "2 control rule" in control_warnings[0].message
+        # Verify control rules are in the export file (not excluded)
+        import json
+        with open(export_path, 'r', encoding='utf-8') as f:
+            exported_data = json.load(f)
+
+        # Check that control_rules are present in the exported field
+        exported_field = exported_data["entities"][0]["fields"][0]
+        assert "control_rules" in exported_field
+        assert len(exported_field["control_rules"]) == 2
+        assert exported_field["control_rules"][0]["rule_type"] == "VISIBILITY"
+        assert exported_field["control_rules"][0]["formula_text"] == "{{status}} == 'active'"
+        assert exported_field["control_rules"][1]["rule_type"] == "ENABLED"
+        assert exported_field["control_rules"][1]["formula_text"] == "{{mode}} == 'edit'"
 
     # =========================================================================
     # EXCLUSION Verification

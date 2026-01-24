@@ -160,6 +160,13 @@ class ImportSchemaCommand:
                     message=f"Imported version ({target_version}) is older than existing version ({source_version})",
                 ))
 
+        # Phase F-10: Count control rules across all entities
+        control_rule_count = sum(
+            len(field.control_rules)
+            for entity in import_entities
+            for field in entity.get_all_fields()
+        )
+
         # Step 4: Handle identical schema (Decision 1)
         if compatibility_result and compatibility_result.is_identical:
             if identical_action == IdenticalSchemaAction.SKIP:
@@ -173,6 +180,7 @@ class ImportSchemaCommand:
                     entity_count=len(import_entities),
                     field_count=sum(e.field_count for e in import_entities),
                     relationship_count=len(import_relationships),
+                    control_rule_count=control_rule_count,
                     was_identical=True,
                     was_skipped=True,
                 )
@@ -235,6 +243,7 @@ class ImportSchemaCommand:
             entity_count=len(import_entities),
             field_count=sum(e.field_count for e in import_entities),
             relationship_count=len(import_relationships),
+            control_rule_count=control_rule_count,
             was_identical=compatibility_result.is_identical if compatibility_result else False,
             was_skipped=False,
         )
@@ -363,6 +372,13 @@ class ImportSchemaCommand:
                     message=f"Imported version ({target_version}) is older than existing version ({source_version})",
                 ))
 
+        # Phase F-10: Count control rules across all entities
+        control_rule_count = sum(
+            len(field.control_rules)
+            for entity in import_entities
+            for field in entity.get_all_fields()
+        )
+
         # Step 4: Handle identical schema
         if compatibility_result and compatibility_result.is_identical:
             if identical_action == IdenticalSchemaAction.SKIP:
@@ -376,6 +392,7 @@ class ImportSchemaCommand:
                     entity_count=len(import_entities),
                     field_count=sum(e.field_count for e in import_entities),
                     relationship_count=len(import_relationships),
+                    control_rule_count=control_rule_count,
                     was_identical=True,
                     was_skipped=True,
                 )
@@ -431,6 +448,7 @@ class ImportSchemaCommand:
             entity_count=len(import_entities),
             field_count=sum(e.field_count for e in import_entities),
             relationship_count=len(import_relationships),
+            control_rule_count=control_rule_count,
             was_identical=compatibility_result.is_identical if compatibility_result else False,
             was_skipped=False,
         )
