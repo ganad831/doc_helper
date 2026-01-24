@@ -80,7 +80,7 @@ from doc_helper.application.dto.control_rule_preview_dto import (
     FieldPreviewStateDTO,
     PreviewModeStateDTO,
 )
-from doc_helper.application.dto.export_dto import ExportResult
+from doc_helper.application.dto.export_dto import ControlRuleExportDTO, ExportResult
 from doc_helper.application.dto.formula_dto import SchemaFieldInfoDTO
 from doc_helper.application.dto.import_dto import (
     EnforcementPolicy,
@@ -167,6 +167,9 @@ class SchemaDesignerViewModel(BaseViewModel):
         self._preview_control_rules: list[ControlRulePreviewInputDTO] = []
         self._preview_results: list[ControlRulePreviewResultDTO] = []
         self._field_preview_states: dict[str, FieldPreviewStateDTO] = {}
+
+        # Phase F-11: Persisted control rules for selected field (design-time only)
+        self._control_rules: tuple[ControlRuleExportDTO, ...] = ()
 
     # -------------------------------------------------------------------------
     # Properties (Observable)
@@ -364,6 +367,33 @@ class SchemaDesignerViewModel(BaseViewModel):
         return FieldPreviewStateDTO(field_id=field_id)
 
     # -------------------------------------------------------------------------
+    # Phase F-11: Persisted Control Rules Properties
+    # -------------------------------------------------------------------------
+
+    @property
+    def control_rules(self) -> tuple[ControlRuleExportDTO, ...]:
+        """Get persisted control rules for currently selected field (Phase F-11).
+
+        Returns:
+            Tuple of ControlRuleExportDTO for selected field, empty if no field selected
+
+        Phase F-11 Compliance:
+            - Design-time only, no runtime enforcement
+            - Loaded from schema via SchemaUseCases
+            - Updated via add/update/delete methods
+        """
+        return self._control_rules
+
+    @property
+    def has_control_rules(self) -> bool:
+        """Check if selected field has persisted control rules (Phase F-11).
+
+        Returns:
+            True if selected field has control rules, False otherwise
+        """
+        return len(self._control_rules) > 0
+
+    # -------------------------------------------------------------------------
     # Commands (User Actions)
     # -------------------------------------------------------------------------
 
@@ -431,6 +461,9 @@ class SchemaDesignerViewModel(BaseViewModel):
 
             # Phase F-1: Update formula editor context
             self._update_formula_editor_context()
+
+            # Phase F-11: Load control rules for selected field
+            self.load_control_rules()
 
     def clear_selection(self) -> None:
         """Clear entity and field selection."""
@@ -1231,6 +1264,154 @@ class SchemaDesignerViewModel(BaseViewModel):
         self.notify_change("preview_results")
         self.notify_change("preview_mode_state")
 
+    # -------------------------------------------------------------------------
+    # Phase F-11: Persisted Control Rules Commands (DESIGN-TIME ONLY)
+    # -------------------------------------------------------------------------
+
+    def load_control_rules(self) -> None:
+        """Load persisted control rules for currently selected field (Phase F-11).
+
+        Phase F-11 Compliance:
+            - Calls SchemaUseCases.list_control_rules_for_field()
+            - Design-time only, no runtime enforcement
+            - Updates _control_rules and notifies UI
+        """
+        if not self._selected_entity_id or not self._selected_field_id:
+            self._control_rules = ()
+            self.notify_change("control_rules")
+            self.notify_change("has_control_rules")
+            return
+
+        # Load control rules from SchemaUseCases
+        self._control_rules = self._schema_usecases.list_control_rules_for_field(
+            entity_id=self._selected_entity_id,
+            field_id=self._selected_field_id,
+        )
+
+        self.notify_change("control_rules")
+        self.notify_change("has_control_rules")
+
+    def add_control_rule(
+        self,
+        rule_type: str,
+        target_field_id: str,
+        formula_text: str,
+    ) -> OperationResult:
+        """Add a persisted control rule to selected field (Phase F-11).
+
+        Args:
+            rule_type: Control rule type (VISIBILITY, ENABLED, REQUIRED)
+            target_field_id: ID of field this rule applies to
+            formula_text: Boolean formula expression
+
+        Returns:
+            OperationResult with success status and message
+
+        Phase F-11 Compliance:
+            - Delegates to SchemaUseCases.add_control_rule()
+            - Enforces formula governance and boolean validation
+            - Reloads control rules on success
+            - Design-time only, no runtime enforcement
+        """
+        if not self._selected_entity_id or not self._selected_field_id:
+            return OperationResult(
+                success=False,
+                error="No field selected",
+            )
+
+        result = self._schema_usecases.add_control_rule(
+            entity_id=self._selected_entity_id,
+            field_id=self._selected_field_id,
+            rule_type=rule_type,
+            formula_text=formula_text,
+        )
+
+        if result.success:
+            # Reload control rules to show new rule
+            self.load_control_rules()
+            # Reload entities to update field metadata
+            self.load_entities()
+
+        return result
+
+    def update_control_rule(
+        self,
+        rule_type: str,
+        formula_text: str,
+    ) -> OperationResult:
+        """Update an existing persisted control rule (Phase F-11).
+
+        Args:
+            rule_type: Control rule type to update (VISIBILITY, ENABLED, REQUIRED)
+            formula_text: New boolean formula expression
+
+        Returns:
+            OperationResult with success status and message
+
+        Phase F-11 Compliance:
+            - Delegates to SchemaUseCases.update_control_rule()
+            - Re-validates formula with governance and boolean check
+            - Reloads control rules on success
+            - Design-time only, no runtime enforcement
+        """
+        if not self._selected_entity_id or not self._selected_field_id:
+            return OperationResult(
+                success=False,
+                error="No field selected",
+            )
+
+        result = self._schema_usecases.update_control_rule(
+            entity_id=self._selected_entity_id,
+            field_id=self._selected_field_id,
+            rule_type=rule_type,
+            formula_text=formula_text,
+        )
+
+        if result.success:
+            # Reload control rules to show updated rule
+            self.load_control_rules()
+            # Reload entities to update field metadata
+            self.load_entities()
+
+        return result
+
+    def delete_control_rule(
+        self,
+        rule_type: str,
+    ) -> OperationResult:
+        """Delete a persisted control rule from selected field (Phase F-11).
+
+        Args:
+            rule_type: Control rule type to delete (VISIBILITY, ENABLED, REQUIRED)
+
+        Returns:
+            OperationResult with success status and message
+
+        Phase F-11 Compliance:
+            - Delegates to SchemaUseCases.delete_control_rule()
+            - Reloads control rules on success
+            - Design-time only, no runtime enforcement
+        """
+        if not self._selected_entity_id or not self._selected_field_id:
+            return OperationResult(
+                success=False,
+                error="No field selected",
+            )
+
+        result = self._schema_usecases.delete_control_rule(
+            entity_id=self._selected_entity_id,
+            field_id=self._selected_field_id,
+            rule_type=rule_type,
+        )
+
+        if result.success:
+            # Reload control rules to reflect deletion
+            self.load_control_rules()
+            # Reload entities to update field metadata
+            self.load_entities()
+
+        return result
+
     def dispose(self) -> None:
         """Clean up resources."""
         # Phase F-1: Dispose formula editor viewmodel
@@ -1241,6 +1422,9 @@ class SchemaDesignerViewModel(BaseViewModel):
         # Phase F-9: Clear preview state
         self._clear_preview_state()
         self._preview_mode_enabled = False
+
+        # Phase F-11: Clear control rules
+        self._control_rules = ()
 
         super().dispose()
         self._entities = ()
