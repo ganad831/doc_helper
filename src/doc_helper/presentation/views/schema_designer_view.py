@@ -1,8 +1,8 @@
-"""Schema Designer View (Phase 2 + Phase 6B + Phase 7 + Phase F-1).
+"""Schema Designer View (Phase 2 + Phase 6B + Phase 7 + Phase F-1 + Phase F-9).
 
 UI component for viewing and creating schema definitions.
-Displays entities, fields, validation rules, relationships, and formula editor
-in a five-panel layout.
+Displays entities, fields, validation rules, relationships, formula editor,
+and control rules preview in a six-panel layout.
 
 Phase 2 Step 1 Scope (COMPLETE):
 - READ-ONLY display
@@ -69,6 +69,17 @@ Phase F-1: Formula Editor UI (Read-Only, Design-Time)
 - NO formula execution
 - NO schema mutation from formula editor
 
+Phase F-9: Control Rules Preview UI (UI-Only, In-Memory)
+- Control Rules Preview panel (6th panel)
+- Toggle preview mode ON/OFF
+- Enter temporary field values for preview
+- Define control rules (VISIBILITY, ENABLED, REQUIRED)
+- Evaluate rules via use-cases
+- Apply rule effects to UI only (no persistence)
+- Display blocked rules with reasons
+- NO schema mutation
+- NO persistence
+
 NOT in current scope:
 - No edit/delete buttons for relationships
 """
@@ -77,19 +88,24 @@ from typing import Optional
 
 from PyQt6.QtCore import QEvent, QObject, Qt
 from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
     QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
+from doc_helper.application.dto.control_rule_dto import ControlRuleType
 from doc_helper.presentation.viewmodels.schema_designer_viewmodel import (
     SchemaDesignerViewModel,
 )
@@ -134,27 +150,29 @@ class SchemaDesignerView(BaseView):
     """View for Schema Designer.
 
     Layout:
-        ┌──────────────────────────────────────────────────────────────────────────────┐
-        │  Schema Designer - Create Entities & Fields                                   │
-        ├─────────────┬─────────────┬─────────────┬─────────────┬──────────────────────┤
-        │ Entities    │ Fields      │ Validation  │ Relation-   │ Formula Editor       │
-        │             │             │ Rules       │ ships       │ (Phase F-1)          │
-        │ [Entity 1]  │ [Field 1]   │ [Rule 1]    │ [Rel 1]     │ [Formula Input]      │
-        │ [Entity 2]  │ [Field 2]   │ [Rule 2]    │ [Rel 2]     │ [Type: NUMBER]       │
-        │ [Entity 3]  │ [Field 3]   │             │             │ [Errors/Warnings]    │
-        └─────────────┴─────────────┴─────────────┴─────────────┴──────────────────────┘
+        ┌────────────────────────────────────────────────────────────────────────────────────────────┐
+        │  Schema Designer - Create Entities & Fields                                                 │
+        ├─────────────┬─────────────┬─────────────┬─────────────┬─────────────────┬──────────────────┤
+        │ Entities    │ Fields      │ Validation  │ Relation-   │ Formula Editor  │ Control Rules    │
+        │             │             │ Rules       │ ships       │ (Phase F-1)     │ Preview (F-9)    │
+        │ [Entity 1]  │ [Field 1]   │ [Rule 1]    │ [Rel 1]     │ [Formula Input] │ [x] Preview Mode │
+        │ [Entity 2]  │ [Field 2]   │ [Rule 2]    │ [Rel 2]     │ [Type: NUMBER]  │ [Field Values]   │
+        │ [Entity 3]  │ [Field 3]   │             │             │ [Errors/Warn]   │ [Rules List]     │
+        └─────────────┴─────────────┴─────────────┴─────────────┴─────────────────┴──────────────────┘
 
     Interactions:
     - Click entity → display its fields and relationships
     - Click field → display its validation rules and formula editor
     - Add Relationship → opens dialog (ADD-ONLY per ADR-022)
     - Formula Editor → validates formula, shows type inference (READ-ONLY)
+    - Control Rules Preview → test control rules with temporary values (UI-ONLY)
 
     Design:
-    - Five-panel splitter layout (resizable)
+    - Six-panel splitter layout (resizable)
     - CREATE operations for entities, fields, and relationships
     - Relationships are immutable once created (ADD-ONLY)
     - Formula Editor is READ-ONLY with respect to schema
+    - Control Rules Preview is UI-ONLY (no persistence)
     - Clear visual selection feedback
     """
 
@@ -205,6 +223,15 @@ class SchemaDesignerView(BaseView):
         # Phase F-1: Formula Editor UI
         self._formula_editor_widget: Optional[FormulaEditorWidget] = None
         self._formula_panel_info_label: Optional[QLabel] = None
+
+        # Phase F-9: Control Rules Preview UI
+        self._preview_mode_checkbox: Optional[QCheckBox] = None
+        self._preview_fields_container: Optional[QWidget] = None
+        self._preview_field_inputs: dict[str, QLineEdit] = {}
+        self._preview_rules_list: Optional[QListWidget] = None
+        self._preview_field_states_list: Optional[QListWidget] = None
+        self._add_preview_rule_button: Optional[QPushButton] = None
+        self._preview_panel_info_label: Optional[QLabel] = None
 
     def _build_ui(self) -> None:
         """Build the UI components."""
@@ -302,8 +329,12 @@ class SchemaDesignerView(BaseView):
         formula_panel = self._create_formula_panel()
         splitter.addWidget(formula_panel)
 
+        # Panel 6: Control Rules Preview (Phase F-9)
+        preview_panel = self._create_preview_panel()
+        splitter.addWidget(preview_panel)
+
         # Set initial splitter sizes (equal distribution)
-        splitter.setSizes([240, 240, 240, 240, 240])
+        splitter.setSizes([200, 200, 200, 200, 200, 200])
 
         main_layout.addWidget(splitter)
 
@@ -331,6 +362,9 @@ class SchemaDesignerView(BaseView):
         self._viewmodel.subscribe("error_message", self._on_error_changed)
         # Phase 6B: Subscribe to relationships
         self._viewmodel.subscribe("entity_relationships", self._on_relationships_changed)
+        # Phase F-9: Subscribe to preview mode changes
+        self._viewmodel.subscribe("preview_mode_state", self._on_preview_mode_state_changed)
+        self._viewmodel.subscribe("preview_results", self._on_preview_results_changed)
 
         # Load entities
         self._load_entities()
@@ -730,6 +764,133 @@ class SchemaDesignerView(BaseView):
         layout.addStretch()
         return panel
 
+    def _create_preview_panel(self) -> QWidget:
+        """Create the control rules preview panel (Phase F-9).
+
+        The Control Rules Preview provides:
+        - Toggle to enable/disable preview mode
+        - Field value inputs for temporary preview values
+        - Control rules list for defining rules
+        - Field preview states showing applied effects
+
+        Phase F-9 Constraints:
+        - UI-ONLY with respect to schema
+        - NO persistence
+        - NO schema mutation
+        - In-memory preview values only
+
+        Returns:
+            Widget containing preview controls
+        """
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(5, 5, 5, 5)
+
+        # Panel title
+        title = QLabel("Control Rules Preview")
+        title.setStyleSheet("font-weight: bold; font-size: 11pt; padding: 5px;")
+        layout.addWidget(title)
+
+        # Phase F-9 notice
+        notice = QLabel("UI-only preview (no persistence)")
+        notice.setStyleSheet(
+            "color: #718096; "
+            "font-size: 8pt; "
+            "font-style: italic; "
+            "padding: 2px 5px;"
+        )
+        layout.addWidget(notice)
+
+        # Preview mode toggle
+        self._preview_mode_checkbox = QCheckBox("Enable Preview Mode")
+        self._preview_mode_checkbox.setStyleSheet("padding: 5px;")
+        self._preview_mode_checkbox.setToolTip(
+            "Toggle preview mode to test control rules.\n"
+            "When enabled, you can set temporary field values\n"
+            "and define control rules to see their effects."
+        )
+        self._preview_mode_checkbox.stateChanged.connect(self._on_preview_mode_toggled)
+        layout.addWidget(self._preview_mode_checkbox)
+
+        # Info label (shows when preview mode disabled or no entity selected)
+        self._preview_panel_info_label = QLabel(
+            "Enable preview mode and select an entity\n"
+            "to test control rules with temporary values.\n\n"
+            "Control rules govern field behavior:\n"
+            "• VISIBILITY: Show/hide fields\n"
+            "• ENABLED: Enable/disable fields\n"
+            "• REQUIRED: Show required indicator"
+        )
+        self._preview_panel_info_label.setStyleSheet(
+            "color: gray; font-style: italic; padding: 10px;"
+        )
+        self._preview_panel_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._preview_panel_info_label.setWordWrap(True)
+        layout.addWidget(self._preview_panel_info_label)
+
+        # Preview fields container (scrollable)
+        fields_scroll = QScrollArea()
+        fields_scroll.setWidgetResizable(True)
+        fields_scroll.setMaximumHeight(150)
+        fields_scroll.setVisible(False)
+
+        self._preview_fields_container = QWidget()
+        self._preview_fields_layout = QVBoxLayout(self._preview_fields_container)
+        self._preview_fields_layout.setContentsMargins(5, 5, 5, 5)
+        self._preview_fields_layout.addStretch()
+
+        fields_scroll.setWidget(self._preview_fields_container)
+        self._preview_fields_scroll = fields_scroll
+        layout.addWidget(fields_scroll)
+
+        # Control rules section
+        rules_header = QHBoxLayout()
+        rules_label = QLabel("Preview Rules:")
+        rules_label.setStyleSheet("font-weight: bold; padding: 3px;")
+        rules_header.addWidget(rules_label)
+        rules_header.addStretch()
+
+        self._add_preview_rule_button = QPushButton("+ Add Rule")
+        self._add_preview_rule_button.setStyleSheet("font-size: 9pt; padding: 3px 8px;")
+        self._add_preview_rule_button.clicked.connect(self._on_add_preview_rule_clicked)
+        self._add_preview_rule_button.setToolTip(
+            "Add a control rule for preview.\n"
+            "Rules are evaluated against temporary field values."
+        )
+        self._add_preview_rule_button.setEnabled(False)
+        self._add_preview_rule_button.setVisible(False)
+        rules_header.addWidget(self._add_preview_rule_button)
+
+        layout.addLayout(rules_header)
+
+        # Preview rules list
+        self._preview_rules_list = QListWidget()
+        self._preview_rules_list.setMaximumHeight(100)
+        self._preview_rules_list.setVisible(False)
+        self._preview_rules_list.setToolTip(
+            "Control rules defined for preview.\n"
+            "Double-click to edit, select and press Delete to remove."
+        )
+        layout.addWidget(self._preview_rules_list)
+
+        # Field preview states section
+        states_label = QLabel("Field States:")
+        states_label.setStyleSheet("font-weight: bold; padding: 3px;")
+        states_label.setVisible(False)
+        self._preview_states_label = states_label
+        layout.addWidget(states_label)
+
+        self._preview_field_states_list = QListWidget()
+        self._preview_field_states_list.setVisible(False)
+        self._preview_field_states_list.setToolTip(
+            "Preview of how control rules affect each field.\n"
+            "Shows visibility, enabled, and required states."
+        )
+        layout.addWidget(self._preview_field_states_list)
+
+        layout.addStretch()
+        return panel
+
     # -------------------------------------------------------------------------
     # Phase 5: UX Components
     # -------------------------------------------------------------------------
@@ -889,6 +1050,10 @@ class SchemaDesignerView(BaseView):
         if current:
             entity_id = current.data(Qt.ItemDataRole.UserRole)
             self._viewmodel.select_entity(entity_id)
+
+        # Phase F-9: Update preview panel when entity changes
+        if self._viewmodel.is_preview_mode_enabled:
+            self._on_preview_mode_state_changed()
 
     def _on_field_selected(
         self,
@@ -1814,12 +1979,336 @@ class SchemaDesignerView(BaseView):
                     f"Failed to export schema:\n\n{error}",
                 )
 
+    # -------------------------------------------------------------------------
+    # Phase F-9: Control Rules Preview Operations
+    # -------------------------------------------------------------------------
+
+    def _on_preview_mode_toggled(self, state: int) -> None:
+        """Handle preview mode checkbox toggle (Phase F-9).
+
+        Args:
+            state: Checkbox state (0=unchecked, 2=checked)
+        """
+        is_enabled = state == 2  # Qt.CheckState.Checked.value
+
+        if is_enabled:
+            self._viewmodel.enable_preview_mode()
+        else:
+            self._viewmodel.disable_preview_mode()
+
+    def _on_preview_mode_state_changed(self) -> None:
+        """Handle preview mode state changes from ViewModel (Phase F-9)."""
+        preview_state = self._viewmodel.preview_mode_state
+        is_enabled = preview_state.is_enabled
+        has_entity = self._viewmodel.selected_entity_id is not None
+
+        # Update checkbox without triggering signal
+        if self._preview_mode_checkbox:
+            self._preview_mode_checkbox.blockSignals(True)
+            self._preview_mode_checkbox.setChecked(is_enabled)
+            self._preview_mode_checkbox.blockSignals(False)
+
+        # Show/hide preview controls
+        show_controls = is_enabled and has_entity
+
+        if self._preview_panel_info_label:
+            self._preview_panel_info_label.setVisible(not show_controls)
+
+        if hasattr(self, '_preview_fields_scroll'):
+            self._preview_fields_scroll.setVisible(show_controls)
+
+        if self._add_preview_rule_button:
+            self._add_preview_rule_button.setEnabled(show_controls)
+            self._add_preview_rule_button.setVisible(show_controls)
+
+        if self._preview_rules_list:
+            self._preview_rules_list.setVisible(show_controls)
+
+        if hasattr(self, '_preview_states_label'):
+            self._preview_states_label.setVisible(show_controls)
+
+        if self._preview_field_states_list:
+            self._preview_field_states_list.setVisible(show_controls)
+
+        # Update field inputs when preview mode enabled
+        if show_controls:
+            self._update_preview_field_inputs()
+            self._update_preview_rules_list()
+            self._update_preview_field_states()
+
+    def _on_preview_results_changed(self) -> None:
+        """Handle preview results changes from ViewModel (Phase F-9)."""
+        self._update_preview_field_states()
+
+    def _update_preview_field_inputs(self) -> None:
+        """Update field input widgets for preview (Phase F-9)."""
+        if not self._preview_fields_container:
+            return
+
+        # Clear existing inputs
+        layout = self._preview_fields_layout
+        while layout.count() > 1:  # Keep the stretch
+            item = layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        self._preview_field_inputs.clear()
+
+        # Get fields for selected entity
+        fields = self._viewmodel.fields
+        if not fields:
+            return
+
+        # Create input for each field
+        for field_dto in fields:
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 2, 0, 2)
+
+            label = QLabel(f"{field_dto.label}:")
+            label.setMinimumWidth(80)
+            label.setToolTip(f"Field: {field_dto.id}\nType: {field_dto.field_type}")
+            row_layout.addWidget(label)
+
+            input_field = QLineEdit()
+            input_field.setPlaceholderText(f"({field_dto.field_type})")
+            input_field.setToolTip(
+                f"Enter a temporary value for '{field_dto.label}'.\n"
+                "This value is used for preview only (not saved)."
+            )
+            input_field.textChanged.connect(
+                lambda text, fid=field_dto.id: self._on_preview_field_value_changed(fid, text)
+            )
+            row_layout.addWidget(input_field)
+
+            self._preview_field_inputs[field_dto.id] = input_field
+            layout.insertWidget(layout.count() - 1, row)
+
+    def _on_preview_field_value_changed(self, field_id: str, value: str) -> None:
+        """Handle preview field value change (Phase F-9).
+
+        Args:
+            field_id: ID of field that changed
+            value: New text value
+        """
+        # Convert value based on field type
+        parsed_value = self._parse_preview_value(field_id, value)
+        self._viewmodel.set_preview_field_value(field_id, parsed_value)
+
+    def _parse_preview_value(self, field_id: str, value: str):
+        """Parse preview field value based on field type.
+
+        Args:
+            field_id: ID of field
+            value: Raw text value
+
+        Returns:
+            Parsed value (str, int, float, bool, or original string)
+        """
+        # Find field type
+        field_type = None
+        for field_dto in self._viewmodel.fields:
+            if field_dto.id == field_id:
+                field_type = field_dto.field_type
+                break
+
+        if not value.strip():
+            return None
+
+        # Try to parse based on type
+        if field_type == "NUMBER":
+            try:
+                if "." in value:
+                    return float(value)
+                return int(value)
+            except ValueError:
+                return value
+        elif field_type == "CHECKBOX":
+            lower = value.lower().strip()
+            if lower in ("true", "yes", "1"):
+                return True
+            elif lower in ("false", "no", "0"):
+                return False
+            return value
+        else:
+            return value
+
+    def _update_preview_rules_list(self) -> None:
+        """Update preview rules list (Phase F-9)."""
+        if not self._preview_rules_list:
+            return
+
+        self._preview_rules_list.clear()
+
+        rules = self._viewmodel.preview_control_rules
+        results = self._viewmodel.preview_results
+
+        if not rules:
+            item = QListWidgetItem("No rules defined")
+            item.setForeground(Qt.GlobalColor.gray)
+            self._preview_rules_list.addItem(item)
+            return
+
+        for i, rule_input in enumerate(rules):
+            # Get result if available
+            result = results[i] if i < len(results) else None
+
+            # Build display text
+            status_icon = "✓" if result and result.is_allowed else "✗" if result and result.is_blocked else "?"
+            text = f"{status_icon} {rule_input.rule_type.value}: {rule_input.target_field_id}"
+
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, i)
+
+            # Set color based on status
+            if result:
+                if result.is_blocked:
+                    item.setForeground(Qt.GlobalColor.red)
+                    item.setToolTip(f"BLOCKED: {result.block_reason}")
+                elif result.is_allowed:
+                    exec_result = "True" if result.execution_result else "False"
+                    item.setToolTip(
+                        f"Formula: {rule_input.formula_text}\n"
+                        f"Result: {exec_result}"
+                    )
+                    if result.execution_result:
+                        item.setForeground(Qt.GlobalColor.darkGreen)
+                    else:
+                        item.setForeground(Qt.GlobalColor.darkYellow)
+
+            self._preview_rules_list.addItem(item)
+
+    def _update_preview_field_states(self) -> None:
+        """Update field preview states list (Phase F-9)."""
+        if not self._preview_field_states_list:
+            return
+
+        self._preview_field_states_list.clear()
+
+        preview_state = self._viewmodel.preview_mode_state
+
+        if not preview_state.field_states:
+            item = QListWidgetItem("No field states")
+            item.setForeground(Qt.GlobalColor.gray)
+            self._preview_field_states_list.addItem(item)
+            return
+
+        for field_state in preview_state.field_states:
+            # Build status indicators
+            indicators = []
+            if not field_state.is_visible:
+                indicators.append("👁 Hidden")
+            if not field_state.is_enabled:
+                indicators.append("🔒 Disabled")
+            if field_state.show_required_indicator:
+                indicators.append("* Required")
+
+            if indicators:
+                text = f"{field_state.field_id}: {', '.join(indicators)}"
+            else:
+                text = f"{field_state.field_id}: (no effects)"
+
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, field_state.field_id)
+
+            # Build tooltip with details
+            tooltip_parts = [
+                f"Field: {field_state.field_id}",
+                f"Visible: {'Yes' if field_state.is_visible else 'No'}",
+                f"Enabled: {'Yes' if field_state.is_enabled else 'No'}",
+                f"Required: {'Yes' if field_state.show_required_indicator else 'No'}",
+            ]
+
+            if field_state.applied_rules:
+                tooltip_parts.append(f"\nApplied Rules: {', '.join(r.value for r in field_state.applied_rules)}")
+
+            if field_state.blocked_rules:
+                blocked = [f"{r[0].value}: {r[1]}" for r in field_state.blocked_rules]
+                tooltip_parts.append(f"\nBlocked Rules:\n" + "\n".join(f"  - {b}" for b in blocked))
+
+            item.setToolTip("\n".join(tooltip_parts))
+
+            # Color code based on state
+            if not field_state.is_visible:
+                item.setForeground(Qt.GlobalColor.gray)
+            elif not field_state.is_enabled:
+                item.setForeground(Qt.GlobalColor.darkGray)
+            elif field_state.show_required_indicator:
+                item.setForeground(Qt.GlobalColor.darkRed)
+
+            self._preview_field_states_list.addItem(item)
+
+    def _on_add_preview_rule_clicked(self) -> None:
+        """Handle Add Preview Rule button click (Phase F-9)."""
+        # Show simple dialog to add a control rule
+        from PyQt6.QtWidgets import QInputDialog
+
+        # Get rule type
+        rule_types = [rt.value for rt in ControlRuleType]
+        rule_type_str, ok = QInputDialog.getItem(
+            self._root,
+            "Add Preview Rule",
+            "Select rule type:",
+            rule_types,
+            0,
+            False,
+        )
+        if not ok:
+            return
+
+        rule_type = ControlRuleType(rule_type_str)
+
+        # Get target field
+        fields = self._viewmodel.fields
+        if not fields:
+            QMessageBox.warning(
+                self._root,
+                "No Fields",
+                "No fields available in the selected entity.",
+            )
+            return
+
+        field_ids = [f.id for f in fields]
+        target_field, ok = QInputDialog.getItem(
+            self._root,
+            "Add Preview Rule",
+            "Select target field:",
+            field_ids,
+            0,
+            False,
+        )
+        if not ok:
+            return
+
+        # Get formula
+        formula, ok = QInputDialog.getText(
+            self._root,
+            "Add Preview Rule",
+            f"Enter boolean formula for {rule_type_str}:\n"
+            f"(e.g., 'field_name == \"value\"', 'count > 0')",
+        )
+        if not ok or not formula.strip():
+            return
+
+        # Add the rule
+        self._viewmodel.add_preview_control_rule(
+            rule_type=rule_type,
+            target_field_id=target_field,
+            formula_text=formula.strip(),
+        )
+
+        # Update the rules list
+        self._update_preview_rules_list()
+
     def dispose(self) -> None:
         """Clean up resources."""
         # Phase F-1: Clean up formula editor widget
         if self._formula_editor_widget:
             self._formula_editor_widget.dispose()
             self._formula_editor_widget = None
+
+        # Phase F-9: Clear preview field inputs
+        self._preview_field_inputs.clear()
 
         # Unsubscribe from ViewModel
         if self._viewmodel:

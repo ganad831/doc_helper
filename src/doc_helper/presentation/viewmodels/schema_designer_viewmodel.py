@@ -1,4 +1,4 @@
-"""Schema Designer ViewModel (Phase 2 + Phase 6B + Phase 7 + Phase F-1).
+"""Schema Designer ViewModel (Phase 2 + Phase 6B + Phase 7 + Phase F-1 + Phase F-9).
 
 Manages presentation state for Schema Designer UI.
 Loads entities, fields, validation rules, and relationships from application use-cases.
@@ -51,6 +51,16 @@ Phase F-1 Scope (Formula Editor - Read-Only, Design-Time):
 - NO formula execution
 - NO schema mutation from formula editor
 
+Phase F-9 Scope (Control Rules Preview - UI-Only):
+- Toggle preview mode ON/OFF
+- Set temporary field values for preview
+- Define control rules (VISIBILITY, ENABLED, REQUIRED)
+- Evaluate rules via use-cases
+- Apply rule effects to UI only (no persistence)
+- Display blocked rules with reasons
+- NO schema mutation
+- NO persistence
+
 ARCHITECTURE ENFORCEMENT (Rule 0 Compliance):
 - ViewModel depends ONLY on SchemaUseCases (Application layer use-case)
 - NO command imports
@@ -61,8 +71,15 @@ ARCHITECTURE ENFORCEMENT (Rule 0 Compliance):
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
+from doc_helper.application.dto.control_rule_dto import ControlRuleStatus, ControlRuleType
+from doc_helper.application.dto.control_rule_preview_dto import (
+    ControlRulePreviewInputDTO,
+    ControlRulePreviewResultDTO,
+    FieldPreviewStateDTO,
+    PreviewModeStateDTO,
+)
 from doc_helper.application.dto.export_dto import ExportResult
 from doc_helper.application.dto.formula_dto import SchemaFieldInfoDTO
 from doc_helper.application.dto.import_dto import (
@@ -73,6 +90,7 @@ from doc_helper.application.dto.import_dto import (
 from doc_helper.application.dto.operation_result import OperationResult
 from doc_helper.application.dto.relationship_dto import RelationshipDTO
 from doc_helper.application.dto.schema_dto import EntityDefinitionDTO, FieldDefinitionDTO
+from doc_helper.application.usecases.control_rule_usecases import ControlRuleUseCases
 from doc_helper.application.usecases.formula_usecases import FormulaUseCases
 from doc_helper.application.usecases.schema_usecases import SchemaUseCases
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
@@ -109,6 +127,7 @@ class SchemaDesignerViewModel(BaseViewModel):
         self,
         schema_usecases: SchemaUseCases,
         formula_usecases: Optional[FormulaUseCases] = None,
+        control_rule_usecases: Optional[ControlRuleUseCases] = None,
     ) -> None:
         """Initialize Schema Designer ViewModel.
 
@@ -116,6 +135,8 @@ class SchemaDesignerViewModel(BaseViewModel):
             schema_usecases: Use-case class for all schema operations
             formula_usecases: Use-case class for formula validation (Phase F-1)
                              Optional for backward compatibility
+            control_rule_usecases: Use-case class for control rule preview (Phase F-9)
+                                   Optional for backward compatibility
 
         Architecture Compliance (Rule 0):
             ViewModel receives ONLY use-case classes via DI.
@@ -138,6 +159,14 @@ class SchemaDesignerViewModel(BaseViewModel):
         self._formula_editor_viewmodel: Optional[FormulaEditorViewModel] = None
         if formula_usecases is not None:
             self._formula_editor_viewmodel = FormulaEditorViewModel(formula_usecases)
+
+        # Phase F-9: Control Rules Preview state (UI-only, in-memory)
+        self._control_rule_usecases = control_rule_usecases
+        self._preview_mode_enabled: bool = False
+        self._preview_field_values: dict[str, Any] = {}
+        self._preview_control_rules: list[ControlRulePreviewInputDTO] = []
+        self._preview_results: list[ControlRulePreviewResultDTO] = []
+        self._field_preview_states: dict[str, FieldPreviewStateDTO] = {}
 
     # -------------------------------------------------------------------------
     # Properties (Observable)
@@ -263,6 +292,76 @@ class SchemaDesignerViewModel(BaseViewModel):
                     if field.id == self._selected_field_id:
                         return field.formula
         return None
+
+    # -------------------------------------------------------------------------
+    # Phase F-9: Preview Mode Properties
+    # -------------------------------------------------------------------------
+
+    @property
+    def is_preview_mode_enabled(self) -> bool:
+        """Check if preview mode is enabled (Phase F-9).
+
+        Returns:
+            True if preview mode is active
+        """
+        return self._preview_mode_enabled
+
+    @property
+    def preview_field_values(self) -> dict[str, Any]:
+        """Get current preview field values (Phase F-9).
+
+        Returns:
+            Dict mapping field_id -> preview value (in-memory only)
+        """
+        return self._preview_field_values.copy()
+
+    @property
+    def preview_control_rules(self) -> tuple[ControlRulePreviewInputDTO, ...]:
+        """Get current preview control rules (Phase F-9).
+
+        Returns:
+            Tuple of control rule input DTOs
+        """
+        return tuple(self._preview_control_rules)
+
+    @property
+    def preview_results(self) -> tuple[ControlRulePreviewResultDTO, ...]:
+        """Get preview rule evaluation results (Phase F-9).
+
+        Returns:
+            Tuple of preview result DTOs with validation/execution status
+        """
+        return tuple(self._preview_results)
+
+    @property
+    def preview_mode_state(self) -> PreviewModeStateDTO:
+        """Get complete preview mode state as DTO (Phase F-9).
+
+        Returns:
+            PreviewModeStateDTO with all preview state
+        """
+        return PreviewModeStateDTO(
+            is_enabled=self._preview_mode_enabled,
+            entity_id=self._selected_entity_id,
+            field_values=tuple(self._preview_field_values.items()),
+            control_rules=tuple(self._preview_control_rules),
+            field_states=tuple(self._field_preview_states.values()),
+        )
+
+    def get_field_preview_state(self, field_id: str) -> FieldPreviewStateDTO:
+        """Get preview state for a specific field (Phase F-9).
+
+        Args:
+            field_id: ID of field to get state for
+
+        Returns:
+            FieldPreviewStateDTO with visibility, enabled, required states
+        """
+        if field_id in self._field_preview_states:
+            return self._field_preview_states[field_id]
+
+        # Return default state if not set
+        return FieldPreviewStateDTO(field_id=field_id)
 
     # -------------------------------------------------------------------------
     # Commands (User Actions)
@@ -781,12 +880,367 @@ class SchemaDesignerViewModel(BaseViewModel):
 
         return result
 
+    # -------------------------------------------------------------------------
+    # Phase F-9: Preview Mode Commands
+    # -------------------------------------------------------------------------
+
+    def toggle_preview_mode(self) -> bool:
+        """Toggle preview mode ON/OFF (Phase F-9).
+
+        Returns:
+            New preview mode state (True = enabled)
+
+        Phase F-9 Compliance:
+            - UI-only toggle, no persistence
+            - Clears preview state when disabled
+        """
+        self._preview_mode_enabled = not self._preview_mode_enabled
+
+        if not self._preview_mode_enabled:
+            # Clear all preview state when disabled
+            self._clear_preview_state()
+
+        self.notify_change("is_preview_mode_enabled")
+        self.notify_change("preview_mode_state")
+
+        return self._preview_mode_enabled
+
+    def enable_preview_mode(self) -> None:
+        """Enable preview mode (Phase F-9)."""
+        if not self._preview_mode_enabled:
+            self._preview_mode_enabled = True
+            self.notify_change("is_preview_mode_enabled")
+            self.notify_change("preview_mode_state")
+
+    def disable_preview_mode(self) -> None:
+        """Disable preview mode and clear state (Phase F-9)."""
+        if self._preview_mode_enabled:
+            self._preview_mode_enabled = False
+            self._clear_preview_state()
+            self.notify_change("is_preview_mode_enabled")
+            self.notify_change("preview_mode_state")
+
+    def set_preview_field_value(self, field_id: str, value: Any) -> None:
+        """Set a preview field value (Phase F-9).
+
+        Args:
+            field_id: ID of field to set value for
+            value: Preview value (in-memory only)
+
+        Phase F-9 Compliance:
+            - In-memory only, no persistence
+            - Used for formula execution during preview
+        """
+        self._preview_field_values[field_id] = value
+        self.notify_change("preview_field_values")
+        self.notify_change("preview_mode_state")
+
+        # Re-evaluate rules with new values
+        if self._preview_mode_enabled:
+            self._evaluate_preview_rules()
+
+    def clear_preview_field_value(self, field_id: str) -> None:
+        """Clear a preview field value (Phase F-9).
+
+        Args:
+            field_id: ID of field to clear value for
+        """
+        if field_id in self._preview_field_values:
+            del self._preview_field_values[field_id]
+            self.notify_change("preview_field_values")
+            self.notify_change("preview_mode_state")
+
+            # Re-evaluate rules
+            if self._preview_mode_enabled:
+                self._evaluate_preview_rules()
+
+    def add_preview_control_rule(
+        self,
+        rule_type: ControlRuleType,
+        target_field_id: str,
+        formula_text: str,
+    ) -> int:
+        """Add a preview control rule (Phase F-9).
+
+        Args:
+            rule_type: Type of control rule (VISIBILITY, ENABLED, REQUIRED)
+            target_field_id: ID of field this rule applies to
+            formula_text: Boolean formula expression
+
+        Returns:
+            Index of added rule
+
+        Phase F-9 Compliance:
+            - In-memory only, no persistence
+            - Rule is validated and evaluated immediately
+        """
+        rule_input = ControlRulePreviewInputDTO(
+            rule_type=rule_type,
+            target_field_id=target_field_id,
+            formula_text=formula_text,
+        )
+        self._preview_control_rules.append(rule_input)
+        index = len(self._preview_control_rules) - 1
+
+        self.notify_change("preview_control_rules")
+        self.notify_change("preview_mode_state")
+
+        # Evaluate the new rule
+        if self._preview_mode_enabled:
+            self._evaluate_preview_rules()
+
+        return index
+
+    def remove_preview_control_rule(self, index: int) -> bool:
+        """Remove a preview control rule by index (Phase F-9).
+
+        Args:
+            index: Index of rule to remove
+
+        Returns:
+            True if rule was removed, False if index invalid
+        """
+        if 0 <= index < len(self._preview_control_rules):
+            del self._preview_control_rules[index]
+            # Also remove corresponding result if it exists
+            if index < len(self._preview_results):
+                del self._preview_results[index]
+
+            self.notify_change("preview_control_rules")
+            self.notify_change("preview_results")
+            self.notify_change("preview_mode_state")
+
+            # Re-compute field states
+            if self._preview_mode_enabled:
+                self._compute_field_preview_states()
+
+            return True
+        return False
+
+    def update_preview_control_rule(
+        self,
+        index: int,
+        rule_type: Optional[ControlRuleType] = None,
+        target_field_id: Optional[str] = None,
+        formula_text: Optional[str] = None,
+    ) -> bool:
+        """Update a preview control rule (Phase F-9).
+
+        Args:
+            index: Index of rule to update
+            rule_type: New rule type (optional)
+            target_field_id: New target field ID (optional)
+            formula_text: New formula text (optional)
+
+        Returns:
+            True if rule was updated, False if index invalid
+        """
+        if 0 <= index < len(self._preview_control_rules):
+            old_rule = self._preview_control_rules[index]
+            new_rule = ControlRulePreviewInputDTO(
+                rule_type=rule_type if rule_type is not None else old_rule.rule_type,
+                target_field_id=(
+                    target_field_id
+                    if target_field_id is not None
+                    else old_rule.target_field_id
+                ),
+                formula_text=(
+                    formula_text if formula_text is not None else old_rule.formula_text
+                ),
+            )
+            self._preview_control_rules[index] = new_rule
+
+            self.notify_change("preview_control_rules")
+            self.notify_change("preview_mode_state")
+
+            # Re-evaluate rules
+            if self._preview_mode_enabled:
+                self._evaluate_preview_rules()
+
+            return True
+        return False
+
+    def evaluate_preview_rules(self) -> tuple[ControlRulePreviewResultDTO, ...]:
+        """Manually trigger evaluation of all preview rules (Phase F-9).
+
+        Returns:
+            Tuple of preview result DTOs
+
+        Phase F-9 Compliance:
+            - Uses ControlRuleUseCases.preview_control_rule()
+            - No persistence
+            - Deterministic execution
+        """
+        self._evaluate_preview_rules()
+        return tuple(self._preview_results)
+
+    def _evaluate_preview_rules(self) -> None:
+        """Internal: Evaluate all preview rules via use-cases.
+
+        Updates _preview_results and _field_preview_states.
+        """
+        if self._control_rule_usecases is None:
+            # No use-cases available, clear results
+            self._preview_results = []
+            self._field_preview_states = {}
+            return
+
+        # Build schema fields from current entity
+        schema_fields = self._build_schema_fields_for_preview()
+
+        # Evaluate each rule
+        self._preview_results = []
+        for rule_input in self._preview_control_rules:
+            result = self._control_rule_usecases.preview_control_rule(
+                rule_input=rule_input,
+                schema_fields=schema_fields,
+                field_values=self._preview_field_values,
+            )
+            self._preview_results.append(result)
+
+        # Compute field preview states from results
+        self._compute_field_preview_states()
+
+        self.notify_change("preview_results")
+
+    def _build_schema_fields_for_preview(self) -> tuple[SchemaFieldInfoDTO, ...]:
+        """Build schema field info for preview validation.
+
+        Returns:
+            Tuple of SchemaFieldInfoDTO for current entity's fields
+        """
+        if not self._selected_entity_id:
+            return ()
+
+        schema_fields: list[SchemaFieldInfoDTO] = []
+        for entity in self._entities:
+            if entity.id == self._selected_entity_id:
+                for field in entity.fields:
+                    schema_fields.append(
+                        SchemaFieldInfoDTO(
+                            field_id=field.id,
+                            field_type=field.field_type,
+                            label=field.label,
+                        )
+                    )
+                break
+
+        return tuple(schema_fields)
+
+    def _compute_field_preview_states(self) -> None:
+        """Compute field preview states from rule results.
+
+        Applies rule effects to field states:
+        - VISIBILITY: affects is_visible
+        - ENABLED: affects is_enabled
+        - REQUIRED: affects show_required_indicator
+        """
+        # Reset all field states
+        self._field_preview_states = {}
+
+        # Get all field IDs for current entity
+        field_ids: list[str] = []
+        if self._selected_entity_id:
+            for entity in self._entities:
+                if entity.id == self._selected_entity_id:
+                    field_ids = [f.id for f in entity.fields]
+                    break
+
+        # Initialize default states for all fields
+        for field_id in field_ids:
+            self._field_preview_states[field_id] = FieldPreviewStateDTO(
+                field_id=field_id,
+                is_visible=True,
+                is_enabled=True,
+                show_required_indicator=False,
+                applied_rules=(),
+                blocked_rules=(),
+            )
+
+        # Apply rule results
+        for result in self._preview_results:
+            target_id = result.rule_input.target_field_id
+            if target_id not in self._field_preview_states:
+                continue
+
+            current_state = self._field_preview_states[target_id]
+            applied_rules = list(current_state.applied_rules)
+            blocked_rules = list(current_state.blocked_rules)
+
+            if result.is_blocked:
+                # Rule is blocked, record it but don't apply
+                blocked_rules.append(
+                    (result.rule_input.rule_type, result.block_reason or "Unknown")
+                )
+            elif result.is_allowed and result.execution_result is not None:
+                # Rule is allowed and executed, apply effect
+                applied_rules.append(result.rule_input.rule_type)
+
+                # Get current state values
+                is_visible = current_state.is_visible
+                is_enabled = current_state.is_enabled
+                show_required = current_state.show_required_indicator
+
+                # Apply effect based on rule type
+                if result.rule_input.rule_type == ControlRuleType.VISIBILITY:
+                    is_visible = result.execution_result
+                elif result.rule_input.rule_type == ControlRuleType.ENABLED:
+                    is_enabled = result.execution_result
+                elif result.rule_input.rule_type == ControlRuleType.REQUIRED:
+                    show_required = result.execution_result
+
+                # Update state
+                self._field_preview_states[target_id] = FieldPreviewStateDTO(
+                    field_id=target_id,
+                    is_visible=is_visible,
+                    is_enabled=is_enabled,
+                    show_required_indicator=show_required,
+                    applied_rules=tuple(applied_rules),
+                    blocked_rules=tuple(blocked_rules),
+                )
+            else:
+                # Rule allowed but execution had error or no result
+                # Just update blocked_rules if there was an error
+                if result.execution_error:
+                    blocked_rules.append(
+                        (
+                            result.rule_input.rule_type,
+                            f"Execution error: {result.execution_error}",
+                        )
+                    )
+                    self._field_preview_states[target_id] = FieldPreviewStateDTO(
+                        field_id=target_id,
+                        is_visible=current_state.is_visible,
+                        is_enabled=current_state.is_enabled,
+                        show_required_indicator=current_state.show_required_indicator,
+                        applied_rules=tuple(applied_rules),
+                        blocked_rules=tuple(blocked_rules),
+                    )
+
+        self.notify_change("preview_mode_state")
+
+    def _clear_preview_state(self) -> None:
+        """Clear all preview state (internal)."""
+        self._preview_field_values.clear()
+        self._preview_control_rules.clear()
+        self._preview_results.clear()
+        self._field_preview_states.clear()
+
+        self.notify_change("preview_field_values")
+        self.notify_change("preview_control_rules")
+        self.notify_change("preview_results")
+        self.notify_change("preview_mode_state")
+
     def dispose(self) -> None:
         """Clean up resources."""
         # Phase F-1: Dispose formula editor viewmodel
         if self._formula_editor_viewmodel:
             self._formula_editor_viewmodel.dispose()
             self._formula_editor_viewmodel = None
+
+        # Phase F-9: Clear preview state
+        self._clear_preview_state()
+        self._preview_mode_enabled = False
 
         super().dispose()
         self._entities = ()

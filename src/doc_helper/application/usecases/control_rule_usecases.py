@@ -21,12 +21,18 @@ ARCHITECTURE COMPLIANCE:
 - No domain object exposure
 """
 
+from typing import Any
+
 from doc_helper.application.dto.control_rule_dto import (
     ControlRuleDiagnosticsDTO,
     ControlRuleDTO,
     ControlRuleResultDTO,
     ControlRuleStatus,
     ControlRuleType,
+)
+from doc_helper.application.dto.control_rule_preview_dto import (
+    ControlRulePreviewInputDTO,
+    ControlRulePreviewResultDTO,
 )
 from doc_helper.application.dto.formula_dto import (
     FormulaGovernanceStatus,
@@ -364,4 +370,139 @@ class ControlRuleUseCases:
             status=ControlRuleStatus.CLEARED,
             rule=None,
             block_reason=None,
+        )
+
+    def preview_control_rule(
+        self,
+        rule_input: ControlRulePreviewInputDTO,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+        field_values: dict[str, Any],
+    ) -> ControlRulePreviewResultDTO:
+        """Preview a control rule with temporary field values.
+
+        PHASE F-9: Control Rules Preview Application
+
+        This method:
+        1. Validates the control rule using validate_control_rule()
+        2. If ALLOWED, executes the formula using FormulaUseCases.execute_formula()
+        3. Returns a ControlRulePreviewResultDTO with validation + execution results
+
+        Args:
+            rule_input: Control rule definition (type, target, formula)
+            schema_fields: Read-only schema field snapshot (DTOs)
+            field_values: Temporary field values for preview (in-memory only)
+
+        Returns:
+            ControlRulePreviewResultDTO with:
+            - rule_input: The input rule definition
+            - validation_status: ALLOWED, BLOCKED, or CLEARED
+            - is_allowed: True if rule passes validation
+            - is_blocked: True if rule is blocked by governance/type
+            - block_reason: Reason if blocked
+            - execution_result: Boolean result of formula execution (if allowed)
+            - execution_error: Error message if execution failed
+
+        Example:
+            result = usecases.preview_control_rule(
+                rule_input=ControlRulePreviewInputDTO(
+                    rule_type=ControlRuleType.VISIBILITY,
+                    target_field_id="secret_field",
+                    formula_text="user_role == 'admin'"
+                ),
+                schema_fields=schema_fields,
+                field_values={"user_role": "admin"}
+            )
+            if result.is_allowed and result.execution_result is True:
+                # Field should be visible
+                pass
+
+        Phase F-9 Compliance:
+            - UI-only preview, no persistence
+            - In-memory field values only
+            - Read-only schema access (DTOs)
+            - No schema mutation
+            - Deterministic execution
+            - Returns DTO only
+        """
+        # Handle empty formula -> CLEARED (no effect)
+        if not rule_input.formula_text or not rule_input.formula_text.strip():
+            return ControlRulePreviewResultDTO(
+                rule_input=rule_input,
+                validation_status=ControlRuleStatus.CLEARED,
+                is_allowed=False,
+                is_blocked=False,
+                block_reason=None,
+                execution_result=None,
+                execution_error=None,
+            )
+
+        # Step 1: Validate the control rule using existing validation
+        validation_result = self.validate_control_rule(
+            rule_type=rule_input.rule_type,
+            target_field_id=rule_input.target_field_id,
+            formula_text=rule_input.formula_text,
+            schema_fields=schema_fields,
+        )
+
+        # If BLOCKED, return without execution
+        if validation_result.status == ControlRuleStatus.BLOCKED:
+            return ControlRulePreviewResultDTO(
+                rule_input=rule_input,
+                validation_status=ControlRuleStatus.BLOCKED,
+                is_allowed=False,
+                is_blocked=True,
+                block_reason=validation_result.block_reason,
+                execution_result=None,
+                execution_error=None,
+            )
+
+        # If CLEARED, return without execution
+        if validation_result.status == ControlRuleStatus.CLEARED:
+            return ControlRulePreviewResultDTO(
+                rule_input=rule_input,
+                validation_status=ControlRuleStatus.CLEARED,
+                is_allowed=False,
+                is_blocked=False,
+                block_reason=None,
+                execution_result=None,
+                execution_error=None,
+            )
+
+        # Step 2: ALLOWED - Execute formula with temporary field values
+        execution_result = self._formula_usecases.execute_formula(
+            formula_text=rule_input.formula_text,
+            field_values=field_values,
+        )
+
+        # Handle execution failure
+        if not execution_result.success:
+            return ControlRulePreviewResultDTO(
+                rule_input=rule_input,
+                validation_status=ControlRuleStatus.ALLOWED,
+                is_allowed=True,
+                is_blocked=False,
+                block_reason=None,
+                execution_result=None,
+                execution_error=execution_result.error,
+            )
+
+        # Coerce result to boolean (control rules require boolean)
+        # The formula should return boolean based on F-8 validation,
+        # but we handle edge cases gracefully
+        bool_result: bool | None = None
+        if execution_result.value is not None:
+            if isinstance(execution_result.value, bool):
+                bool_result = execution_result.value
+            else:
+                # Coerce to boolean for truthy/falsy evaluation
+                bool_result = bool(execution_result.value)
+
+        return ControlRulePreviewResultDTO(
+            rule_input=rule_input,
+            validation_status=ControlRuleStatus.ALLOWED,
+            is_allowed=True,
+            is_blocked=False,
+            block_reason=None,
+            execution_result=bool_result,
+            execution_error=None,
         )

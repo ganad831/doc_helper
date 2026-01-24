@@ -88,6 +88,14 @@ from doc_helper.application.dto.control_rule_dto import (
     ControlRuleDTO,
     ControlRuleResultDTO,
 )
+from doc_helper.application.dto.control_rule_preview_dto import (
+    # Phase F-9: Control Rules Preview (UI-only, in-memory)
+    PreviewEffectType,
+    ControlRulePreviewInputDTO,
+    ControlRulePreviewResultDTO,
+    FieldPreviewStateDTO,
+    PreviewModeStateDTO,
+)
 
 __all__ = [
     # Project DTOs
@@ -152,4 +160,10 @@ __all__ = [
     "ControlRuleDiagnosticsDTO",
     "ControlRuleDTO",
     "ControlRuleResultDTO",
+    # Control Rule Preview DTOs (Phase F-9)
+    "PreviewEffectType",
+    "ControlRulePreviewInputDTO",
+    "ControlRulePreviewResultDTO",
+    "FieldPreviewStateDTO",
+    "PreviewModeStateDTO",
 ]

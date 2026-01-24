@@ -1,9 +1,10 @@
-"""Unit tests for ControlRuleUseCases (Phase F-8: Control Rules).
+"""Unit tests for ControlRuleUseCases (Phase F-8 + F-9: Control Rules).
 
 Tests control rule validation use-case methods:
 - validate_control_rule: Validates formula and checks boolean requirement
 - can_apply_control_rule: Checks if rule can be applied
 - clear_control_rule: Clears/removes a control rule
+- preview_control_rule: Preview control rule with temporary field values (F-9)
 
 PHASE F-8 CONSTRAINTS:
 - Control Rules use BOOLEAN formulas only
@@ -15,11 +16,18 @@ PHASE F-8 CONSTRAINTS:
 - NO DAG building
 - NO schema mutation
 
+PHASE F-9 CONSTRAINTS:
+- Preview-only capability, NO persistence
+- Uses FormulaUseCases.execute_formula() for execution
+- In-memory field values only
+- UI-only preview effects (VISIBILITY, ENABLED, REQUIRED)
+
 TEST REQUIREMENTS (from spec):
 - Boolean acceptance: boolean formula -> ALLOWED
 - Non-boolean blocking: non-boolean formula -> BLOCKED
 - Governance: INVALID -> blocked, VALID/VALID_WITH_WARNINGS -> allowed
 - Determinism: same input -> same output
+- Preview execution: formula evaluated with temporary field values
 """
 
 import pytest
@@ -30,6 +38,10 @@ from doc_helper.application.dto.control_rule_dto import (
     ControlRuleResultDTO,
     ControlRuleStatus,
     ControlRuleType,
+)
+from doc_helper.application.dto.control_rule_preview_dto import (
+    ControlRulePreviewInputDTO,
+    ControlRulePreviewResultDTO,
 )
 from doc_helper.application.dto.formula_dto import (
     FormulaGovernanceStatus,
@@ -557,3 +569,290 @@ class TestControlRuleUseCases:
         )
 
         assert "cleared" in result.status_message.lower()
+
+    # =========================================================================
+    # Test: preview_control_rule (Phase F-9)
+    # =========================================================================
+
+    def test_preview_control_rule_valid_formula_returns_result(
+        self, usecases: ControlRuleUseCases, schema_fields: tuple[SchemaFieldInfoDTO, ...]
+    ) -> None:
+        """Preview with valid boolean formula returns execution result."""
+        rule_input = ControlRulePreviewInputDTO(
+            rule_type=ControlRuleType.VISIBILITY,
+            target_field_id="target_field",
+            formula_text="is_admin == true",
+        )
+
+        result = usecases.preview_control_rule(
+            rule_input=rule_input,
+            schema_fields=schema_fields,
+            field_values={"is_admin": True},
+        )
+
+        assert result.validation_status == ControlRuleStatus.ALLOWED
+        assert result.is_allowed is True
+        assert result.is_blocked is False
+        assert result.execution_result is True
+        assert result.execution_error is None
+
+    def test_preview_control_rule_formula_evaluates_to_false(
+        self, usecases: ControlRuleUseCases, schema_fields: tuple[SchemaFieldInfoDTO, ...]
+    ) -> None:
+        """Preview formula can evaluate to False."""
+        rule_input = ControlRulePreviewInputDTO(
+            rule_type=ControlRuleType.VISIBILITY,
+            target_field_id="target_field",
+            formula_text="is_admin == true",
+        )
+
+        result = usecases.preview_control_rule(
+            rule_input=rule_input,
+            schema_fields=schema_fields,
+            field_values={"is_admin": False},
+        )
+
+        assert result.is_allowed is True
+        assert result.execution_result is False
+
+    def test_preview_control_rule_blocked_formula_no_execution(
+        self, usecases: ControlRuleUseCases, schema_fields: tuple[SchemaFieldInfoDTO, ...]
+    ) -> None:
+        """Preview with blocked formula returns blocked status without execution."""
+        rule_input = ControlRulePreviewInputDTO(
+            rule_type=ControlRuleType.ENABLED,
+            target_field_id="target_field",
+            formula_text="age + 10",  # Non-boolean -> BLOCKED
+        )
+
+        result = usecases.preview_control_rule(
+            rule_input=rule_input,
+            schema_fields=schema_fields,
+            field_values={"age": 25},
+        )
+
+        assert result.validation_status == ControlRuleStatus.BLOCKED
+        assert result.is_blocked is True
+        assert result.is_allowed is False
+        assert result.execution_result is None  # No execution for blocked
+        assert result.block_reason is not None
+        assert "BOOLEAN" in result.block_reason
+
+    def test_preview_control_rule_empty_formula_cleared(
+        self, usecases: ControlRuleUseCases, schema_fields: tuple[SchemaFieldInfoDTO, ...]
+    ) -> None:
+        """Preview with empty formula returns CLEARED status."""
+        rule_input = ControlRulePreviewInputDTO(
+            rule_type=ControlRuleType.REQUIRED,
+            target_field_id="target_field",
+            formula_text="",
+        )
+
+        result = usecases.preview_control_rule(
+            rule_input=rule_input,
+            schema_fields=schema_fields,
+            field_values={},
+        )
+
+        assert result.validation_status == ControlRuleStatus.CLEARED
+        assert result.is_allowed is False
+        assert result.is_blocked is False
+        assert result.execution_result is None
+
+    def test_preview_control_rule_whitespace_formula_cleared(
+        self, usecases: ControlRuleUseCases, schema_fields: tuple[SchemaFieldInfoDTO, ...]
+    ) -> None:
+        """Preview with whitespace-only formula returns CLEARED status."""
+        rule_input = ControlRulePreviewInputDTO(
+            rule_type=ControlRuleType.VISIBILITY,
+            target_field_id="target_field",
+            formula_text="   ",
+        )
+
+        result = usecases.preview_control_rule(
+            rule_input=rule_input,
+            schema_fields=schema_fields,
+            field_values={},
+        )
+
+        assert result.validation_status == ControlRuleStatus.CLEARED
+
+    def test_preview_control_rule_uses_field_values(
+        self, usecases: ControlRuleUseCases, schema_fields: tuple[SchemaFieldInfoDTO, ...]
+    ) -> None:
+        """Preview executes formula with provided field_values."""
+        rule_input = ControlRulePreviewInputDTO(
+            rule_type=ControlRuleType.ENABLED,
+            target_field_id="target_field",
+            formula_text="age >= 18",
+        )
+
+        # Test with age = 20 (should be True)
+        result1 = usecases.preview_control_rule(
+            rule_input=rule_input,
+            schema_fields=schema_fields,
+            field_values={"age": 20},
+        )
+        assert result1.execution_result is True
+
+        # Test with age = 15 (should be False)
+        result2 = usecases.preview_control_rule(
+            rule_input=rule_input,
+            schema_fields=schema_fields,
+            field_values={"age": 15},
+        )
+        assert result2.execution_result is False
+
+    def test_preview_control_rule_complex_expression(
+        self, usecases: ControlRuleUseCases, schema_fields: tuple[SchemaFieldInfoDTO, ...]
+    ) -> None:
+        """Preview handles complex boolean expressions."""
+        rule_input = ControlRulePreviewInputDTO(
+            rule_type=ControlRuleType.VISIBILITY,
+            target_field_id="target_field",
+            formula_text="is_admin and has_permission",
+        )
+
+        # Both True
+        result1 = usecases.preview_control_rule(
+            rule_input=rule_input,
+            schema_fields=schema_fields,
+            field_values={"is_admin": True, "has_permission": True},
+        )
+        assert result1.execution_result is True
+
+        # One False
+        result2 = usecases.preview_control_rule(
+            rule_input=rule_input,
+            schema_fields=schema_fields,
+            field_values={"is_admin": True, "has_permission": False},
+        )
+        assert result2.execution_result is False
+
+    def test_preview_control_rule_deterministic(
+        self, usecases: ControlRuleUseCases, schema_fields: tuple[SchemaFieldInfoDTO, ...]
+    ) -> None:
+        """Preview is deterministic: same input -> same output."""
+        rule_input = ControlRulePreviewInputDTO(
+            rule_type=ControlRuleType.VISIBILITY,
+            target_field_id="target_field",
+            formula_text="is_admin == true",
+        )
+        field_values = {"is_admin": True}
+
+        result1 = usecases.preview_control_rule(
+            rule_input=rule_input,
+            schema_fields=schema_fields,
+            field_values=field_values,
+        )
+
+        result2 = usecases.preview_control_rule(
+            rule_input=rule_input,
+            schema_fields=schema_fields,
+            field_values=field_values,
+        )
+
+        assert result1.validation_status == result2.validation_status
+        assert result1.is_allowed == result2.is_allowed
+        assert result1.execution_result == result2.execution_result
+
+    def test_preview_control_rule_all_rule_types(
+        self, usecases: ControlRuleUseCases, schema_fields: tuple[SchemaFieldInfoDTO, ...]
+    ) -> None:
+        """Preview works with all control rule types."""
+        for rule_type in ControlRuleType:
+            rule_input = ControlRulePreviewInputDTO(
+                rule_type=rule_type,
+                target_field_id="target_field",
+                formula_text="is_admin == true",
+            )
+
+            result = usecases.preview_control_rule(
+                rule_input=rule_input,
+                schema_fields=schema_fields,
+                field_values={"is_admin": True},
+            )
+
+            assert result.is_allowed is True
+            assert result.execution_result is True
+
+    def test_preview_control_rule_preserves_input(
+        self, usecases: ControlRuleUseCases, schema_fields: tuple[SchemaFieldInfoDTO, ...]
+    ) -> None:
+        """Preview result includes the input rule."""
+        rule_input = ControlRulePreviewInputDTO(
+            rule_type=ControlRuleType.REQUIRED,
+            target_field_id="my_field",
+            formula_text="has_permission == true",
+        )
+
+        result = usecases.preview_control_rule(
+            rule_input=rule_input,
+            schema_fields=schema_fields,
+            field_values={"has_permission": True},
+        )
+
+        assert result.rule_input == rule_input
+        assert result.rule_input.rule_type == ControlRuleType.REQUIRED
+        assert result.rule_input.target_field_id == "my_field"
+        assert result.rule_input.formula_text == "has_permission == true"
+
+    def test_preview_control_rule_governance_blocked(
+        self, usecases: ControlRuleUseCases, schema_fields: tuple[SchemaFieldInfoDTO, ...]
+    ) -> None:
+        """Preview with invalid governance (syntax error) returns blocked."""
+        rule_input = ControlRulePreviewInputDTO(
+            rule_type=ControlRuleType.VISIBILITY,
+            target_field_id="target_field",
+            formula_text="is_admin ==",  # Syntax error
+        )
+
+        result = usecases.preview_control_rule(
+            rule_input=rule_input,
+            schema_fields=schema_fields,
+            field_values={"is_admin": True},
+        )
+
+        assert result.is_blocked is True
+        assert result.execution_result is None
+        assert "error" in result.block_reason.lower()
+
+    def test_preview_control_rule_unknown_field_blocked(
+        self, usecases: ControlRuleUseCases, schema_fields: tuple[SchemaFieldInfoDTO, ...]
+    ) -> None:
+        """Preview with unknown field reference returns blocked."""
+        rule_input = ControlRulePreviewInputDTO(
+            rule_type=ControlRuleType.ENABLED,
+            target_field_id="target_field",
+            formula_text="unknown_field == true",
+        )
+
+        result = usecases.preview_control_rule(
+            rule_input=rule_input,
+            schema_fields=schema_fields,
+            field_values={"unknown_field": True},
+        )
+
+        assert result.is_blocked is True
+        assert "Unknown field" in result.block_reason
+
+    def test_preview_control_rule_missing_field_value(
+        self, usecases: ControlRuleUseCases, schema_fields: tuple[SchemaFieldInfoDTO, ...]
+    ) -> None:
+        """Preview with missing field value handles gracefully."""
+        rule_input = ControlRulePreviewInputDTO(
+            rule_type=ControlRuleType.VISIBILITY,
+            target_field_id="target_field",
+            formula_text="is_admin == true",
+        )
+
+        result = usecases.preview_control_rule(
+            rule_input=rule_input,
+            schema_fields=schema_fields,
+            field_values={},  # Missing is_admin
+        )
+
+        # Should still be allowed (formula is valid)
+        assert result.is_allowed is True
+        # Execution may fail or return None-ish value
+        # The important thing is it doesn't crash
