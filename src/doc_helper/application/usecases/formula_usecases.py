@@ -1,4 +1,4 @@
-"""Formula Use Cases (Phase F-1 + F-2 + F-3 + F-4).
+"""Formula Use Cases (Phase F-1 + F-2 + F-3 + F-4 + F-6 + F-7).
 
 Application layer use-case class for formula operations.
 Presentation layer MUST use this class instead of directly accessing
@@ -37,6 +37,23 @@ PHASE F-4 CONSTRAINTS (Cycle Detection - ADR-041):
 - Same-entity scope only
 - Returns FormulaCycleAnalysisResultDTO
 
+PHASE F-6 CONSTRAINTS (Governance & Enforcement):
+- Policy evaluation only (no new analysis)
+- Deterministic: same input -> same output
+- No execution
+- No persistence
+- No schema mutation
+- Non-blocking (informational only)
+- Returns FormulaGovernanceResultDTO
+
+PHASE F-7 CONSTRAINTS (Formula Binding & Persistence Rules):
+- Policy & wiring only (no persistence)
+- Pure deterministic binding evaluation
+- No schema mutation
+- No auto-execution
+- No observers/listeners
+- Returns FormulaBindingResultDTO
+
 ARCHITECTURE COMPLIANCE:
 - FormulaUseCases is the composition root for formula operations
 - ViewModel calls ONLY use-case methods
@@ -48,14 +65,26 @@ ARCHITECTURE COMPLIANCE:
 from typing import Any, Callable
 
 from doc_helper.application.dto.formula_dto import (
+    # Phase F-4
     FormulaCycleAnalysisResultDTO,
     FormulaCycleDTO,
+    # Phase F-3
     FormulaDependencyAnalysisResultDTO,
     FormulaDependencyDTO,
+    # Phase F-2
     FormulaExecutionResultDTO,
+    # Phase F-6
+    FormulaGovernanceResultDTO,
+    FormulaGovernanceStatus,
+    # Phase F-1
     FormulaResultType,
     FormulaValidationResultDTO,
     SchemaFieldInfoDTO,
+    # Phase F-7: Formula Binding
+    FormulaBindingDTO,
+    FormulaBindingResultDTO,
+    FormulaBindingStatus,
+    FormulaBindingTarget,
 )
 from doc_helper.domain.common.result import Failure, Success
 from doc_helper.domain.formula.ast_nodes import (
@@ -238,11 +267,12 @@ BUILTIN_FUNCTIONS: dict[str, Callable[..., Any]] = {
 
 
 class FormulaUseCases:
-    """Use-case class for formula validation, execution, dependency discovery, and cycle detection.
+    """Use-case class for formula validation, execution, dependency discovery, cycle detection, governance, and binding.
 
     Provides formula parsing, validation, type inference (Phase F-1),
     runtime execution (Phase F-2), dependency discovery (Phase F-3),
-    and cycle detection (Phase F-4).
+    cycle detection (Phase F-4), governance evaluation (Phase F-6),
+    and binding policy (Phase F-7).
 
     PHASE F-1 SCOPE (Design-Time):
     - parse_formula(): Parse formula text into AST (internal)
@@ -257,6 +287,14 @@ class FormulaUseCases:
 
     PHASE F-4 SCOPE (Cycle Detection - ADR-041):
     - detect_cycles(): Detect circular dependencies (analysis only)
+
+    PHASE F-6 SCOPE (Governance & Enforcement):
+    - evaluate_governance(): Evaluate governance status from existing diagnostics
+
+    PHASE F-7 SCOPE (Formula Binding & Persistence Rules):
+    - can_bind_formula(): Check if binding is allowed
+    - bind_formula(): Attempt to bind formula to target
+    - unbind_formula(): Clear/unbind formula from target
 
     FORBIDDEN OPERATIONS:
     - Schema mutation
@@ -815,6 +853,366 @@ class FormulaUseCases:
                 dfs(field_id)
 
         return cycles
+
+    # =========================================================================
+    # PHASE F-6: Governance & Enforcement (Policy Decisions)
+    # =========================================================================
+
+    def evaluate_governance(
+        self,
+        formula_text: str | None,
+        validation_result: FormulaValidationResultDTO | None,
+        cycle_result: FormulaCycleAnalysisResultDTO | None,
+    ) -> FormulaGovernanceResultDTO:
+        """Evaluate governance status from existing diagnostics.
+
+        PHASE F-6 - Pure, deterministic policy evaluation:
+        - No new analysis (uses existing diagnostics)
+        - No execution
+        - No persistence
+        - No schema mutation
+        - Non-blocking (informational only)
+
+        This method aggregates existing diagnostic results and returns
+        a governance decision. It does NOT perform any new analysis.
+
+        Args:
+            formula_text: The formula text (to detect empty state)
+            validation_result: Result from validate_formula() (Phase F-1)
+            cycle_result: Result from detect_cycles() (Phase F-4)
+
+        Returns:
+            FormulaGovernanceResultDTO with:
+            - status: Governance status (EMPTY, INVALID, VALID_WITH_WARNINGS, VALID)
+            - blocking_reasons: Reasons formula is blocked (if any)
+            - warning_reasons: Non-blocking warnings (if any)
+
+        Governance Rules:
+            - EMPTY: No formula text (neutral, not blocked)
+            - INVALID: Syntax errors, unknown fields, or cycles exist
+            - VALID_WITH_WARNINGS: No blocking issues but has type warnings
+              or UNKNOWN inferred type
+            - VALID: No errors, no warnings, known type
+
+        Example:
+            validation = usecases.validate_formula(formula_text, schema_fields)
+            cycle = usecases.detect_cycles(dependencies)
+            governance = usecases.evaluate_governance(formula_text, validation, cycle)
+
+            if governance.is_blocked:
+                # Show blocking reasons to user
+                pass
+            elif governance.has_warnings:
+                # Show warnings but allow save
+                pass
+
+        Phase F-6 Compliance:
+            - Policy decision only (no new analysis)
+            - Deterministic: same input → same output
+            - No execution
+            - No persistence
+            - No schema mutation
+            - Returns DTO only
+        """
+        blocking_reasons: list[str] = []
+        warning_reasons: list[str] = []
+
+        # Rule 1: EMPTY - No formula text
+        if not formula_text or not formula_text.strip():
+            return FormulaGovernanceResultDTO(
+                status=FormulaGovernanceStatus.EMPTY,
+                blocking_reasons=(),
+                warning_reasons=(),
+            )
+
+        # Collect blocking reasons from validation result
+        if validation_result is not None:
+            # Syntax errors and unknown field references are blocking
+            for error in validation_result.errors:
+                blocking_reasons.append(error)
+
+            # Type warnings are non-blocking
+            for warning in validation_result.warnings:
+                warning_reasons.append(warning)
+
+            # UNKNOWN inferred type is a warning (not blocking)
+            if (
+                validation_result.is_valid
+                and validation_result.inferred_type == FormulaResultType.UNKNOWN.value
+            ):
+                warning_reasons.append("Formula result type cannot be determined")
+
+        # Collect blocking reasons from cycle detection
+        if cycle_result is not None and cycle_result.has_cycles:
+            for cycle in cycle_result.cycles:
+                blocking_reasons.append(f"Circular dependency: {cycle.cycle_path}")
+
+        # Determine governance status
+        if blocking_reasons:
+            return FormulaGovernanceResultDTO(
+                status=FormulaGovernanceStatus.INVALID,
+                blocking_reasons=tuple(blocking_reasons),
+                warning_reasons=tuple(warning_reasons),
+            )
+        elif warning_reasons:
+            return FormulaGovernanceResultDTO(
+                status=FormulaGovernanceStatus.VALID_WITH_WARNINGS,
+                blocking_reasons=(),
+                warning_reasons=tuple(warning_reasons),
+            )
+        else:
+            return FormulaGovernanceResultDTO(
+                status=FormulaGovernanceStatus.VALID,
+                blocking_reasons=(),
+                warning_reasons=(),
+            )
+
+    # =========================================================================
+    # PHASE F-7: Formula Binding & Persistence Rules (Policy & Wiring Only)
+    # =========================================================================
+
+    def can_bind_formula(
+        self,
+        target_type: FormulaBindingTarget,
+        governance_result: FormulaGovernanceResultDTO,
+    ) -> FormulaBindingResultDTO:
+        """Check if a formula can be bound to a target.
+
+        PHASE F-7 - Pure, deterministic policy evaluation:
+        - No persistence
+        - No execution
+        - No schema mutation
+        - No auto-execution
+        - No observers/listeners
+
+        This method evaluates whether a formula can be bound to a specific
+        target type based on governance status and target availability.
+
+        Args:
+            target_type: The binding target type (CALCULATED_FIELD, etc.)
+            governance_result: Result from evaluate_governance() (Phase F-6)
+
+        Returns:
+            FormulaBindingResultDTO with:
+            - status: ALLOWED, BLOCKED_INVALID_FORMULA, BLOCKED_UNSUPPORTED_TARGET, or CLEARED
+            - binding: None (binding not created, just checking)
+            - block_reason: Reason if blocked
+
+        Binding Rules:
+            - CALCULATED_FIELD: Allowed if governance is not INVALID
+            - VALIDATION_RULE: FORBIDDEN in Phase F-7 (future)
+            - OUTPUT_MAPPING: FORBIDDEN in Phase F-7 (future)
+
+        Governance Enforcement:
+            - EMPTY: Returns CLEARED (no formula to bind)
+            - VALID: Binding allowed
+            - VALID_WITH_WARNINGS: Binding allowed
+            - INVALID: Binding FORBIDDEN (hard block)
+
+        Example:
+            governance = usecases.evaluate_governance(formula, validation, cycles)
+            can_bind = usecases.can_bind_formula(FormulaBindingTarget.CALCULATED_FIELD, governance)
+            if can_bind.is_allowed:
+                # Proceed with binding
+                pass
+            else:
+                # Show block reason
+                print(can_bind.block_reason)
+
+        Phase F-7 Compliance:
+            - Pure policy evaluation
+            - Deterministic: same input → same output
+            - No persistence
+            - No execution
+            - No schema mutation
+            - Returns DTO only
+        """
+        # Rule 1: Check target type support
+        if target_type != FormulaBindingTarget.CALCULATED_FIELD:
+            return FormulaBindingResultDTO(
+                status=FormulaBindingStatus.BLOCKED_UNSUPPORTED_TARGET,
+                binding=None,
+                block_reason=f"Target type '{target_type.value}' is not supported in Phase F-7",
+            )
+
+        # Rule 2: Check governance status
+        if governance_result.status == FormulaGovernanceStatus.EMPTY:
+            # Empty formula clears binding
+            return FormulaBindingResultDTO(
+                status=FormulaBindingStatus.CLEARED,
+                binding=None,
+                block_reason=None,
+            )
+
+        if governance_result.status == FormulaGovernanceStatus.INVALID:
+            # Invalid formula cannot be bound
+            reasons = ", ".join(governance_result.blocking_reasons)
+            return FormulaBindingResultDTO(
+                status=FormulaBindingStatus.BLOCKED_INVALID_FORMULA,
+                binding=None,
+                block_reason=f"Formula has errors: {reasons}",
+            )
+
+        # VALID or VALID_WITH_WARNINGS -> binding allowed
+        return FormulaBindingResultDTO(
+            status=FormulaBindingStatus.ALLOWED,
+            binding=None,
+            block_reason=None,
+        )
+
+    def bind_formula(
+        self,
+        target_type: FormulaBindingTarget,
+        target_id: str,
+        formula_text: str,
+        governance_result: FormulaGovernanceResultDTO,
+    ) -> FormulaBindingResultDTO:
+        """Attempt to bind a formula to a target.
+
+        PHASE F-7 - Pure, deterministic binding:
+        - No persistence (binding is in-memory only)
+        - No execution
+        - No schema mutation
+        - No auto-execution
+        - No observers/listeners
+
+        This method creates a binding DTO if the formula can be bound,
+        or returns a blocked result if binding is not allowed.
+
+        Args:
+            target_type: The binding target type (CALCULATED_FIELD, etc.)
+            target_id: ID of the target (e.g., field_id for CALCULATED_FIELD)
+            formula_text: The formula text to bind
+            governance_result: Result from evaluate_governance() (Phase F-6)
+
+        Returns:
+            FormulaBindingResultDTO with:
+            - status: ALLOWED, BLOCKED_INVALID_FORMULA, BLOCKED_UNSUPPORTED_TARGET, or CLEARED
+            - binding: FormulaBindingDTO if binding is created, None otherwise
+            - block_reason: Reason if blocked
+
+        Binding Rules:
+            - CALCULATED_FIELD: Allowed if governance is not INVALID
+            - VALIDATION_RULE: FORBIDDEN in Phase F-7 (future)
+            - OUTPUT_MAPPING: FORBIDDEN in Phase F-7 (future)
+
+        Governance Enforcement:
+            - EMPTY: Returns CLEARED with no binding
+            - VALID: Binding created
+            - VALID_WITH_WARNINGS: Binding created
+            - INVALID: Binding FORBIDDEN
+
+        Example:
+            governance = usecases.evaluate_governance(formula, validation, cycles)
+            result = usecases.bind_formula(
+                FormulaBindingTarget.CALCULATED_FIELD,
+                "total_cost",
+                "price * quantity",
+                governance
+            )
+            if result.is_allowed:
+                binding = result.binding
+                # Use binding DTO
+            else:
+                print(result.block_reason)
+
+        Phase F-7 Compliance:
+            - Pure binding creation (no persistence)
+            - Deterministic: same input → same output
+            - No execution
+            - No schema mutation
+            - Returns DTO only
+        """
+        # Rule 1: Check target type support
+        if target_type != FormulaBindingTarget.CALCULATED_FIELD:
+            return FormulaBindingResultDTO(
+                status=FormulaBindingStatus.BLOCKED_UNSUPPORTED_TARGET,
+                binding=None,
+                block_reason=f"Target type '{target_type.value}' is not supported in Phase F-7",
+            )
+
+        # Rule 2: Check governance status
+        if governance_result.status == FormulaGovernanceStatus.EMPTY:
+            # Empty formula clears binding
+            return FormulaBindingResultDTO(
+                status=FormulaBindingStatus.CLEARED,
+                binding=None,
+                block_reason=None,
+            )
+
+        if governance_result.status == FormulaGovernanceStatus.INVALID:
+            # Invalid formula cannot be bound
+            reasons = ", ".join(governance_result.blocking_reasons)
+            return FormulaBindingResultDTO(
+                status=FormulaBindingStatus.BLOCKED_INVALID_FORMULA,
+                binding=None,
+                block_reason=f"Formula has errors: {reasons}",
+            )
+
+        # VALID or VALID_WITH_WARNINGS -> create binding DTO
+        binding = FormulaBindingDTO(
+            target_type=target_type,
+            target_id=target_id,
+            formula_text=formula_text,
+            governance_status=governance_result.status,
+        )
+
+        return FormulaBindingResultDTO(
+            status=FormulaBindingStatus.ALLOWED,
+            binding=binding,
+            block_reason=None,
+        )
+
+    def unbind_formula(
+        self,
+        target_type: FormulaBindingTarget,
+        target_id: str,
+    ) -> FormulaBindingResultDTO:
+        """Clear/unbind a formula from a target.
+
+        PHASE F-7 - Pure, deterministic unbinding:
+        - No persistence (just creates cleared result)
+        - No execution
+        - No schema mutation
+        - No auto-execution
+        - No observers/listeners
+
+        This method returns a CLEARED result indicating the binding
+        should be removed. The actual removal is done by the caller.
+
+        Args:
+            target_type: The binding target type (CALCULATED_FIELD, etc.)
+            target_id: ID of the target to unbind
+
+        Returns:
+            FormulaBindingResultDTO with:
+            - status: CLEARED
+            - binding: None
+            - block_reason: None
+
+        Example:
+            result = usecases.unbind_formula(
+                FormulaBindingTarget.CALCULATED_FIELD,
+                "total_cost"
+            )
+            # result.is_cleared == True
+            # Caller removes the binding from their state
+
+        Phase F-7 Compliance:
+            - Pure result creation
+            - Deterministic
+            - No persistence
+            - No execution
+            - No schema mutation
+            - Returns DTO only
+        """
+        # Unbinding always returns CLEARED
+        # The caller is responsible for removing the binding from their state
+        return FormulaBindingResultDTO(
+            status=FormulaBindingStatus.CLEARED,
+            binding=None,
+            block_reason=None,
+        )
 
     # =========================================================================
     # Internal Methods (Domain Logic Coordination)

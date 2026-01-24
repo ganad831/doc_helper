@@ -1,4 +1,4 @@
-"""Unit tests for FormulaEditorViewModel (Phase F-1, F-3, F-4).
+"""Unit tests for FormulaEditorViewModel (Phase F-1, F-3, F-4, F-5, F-6, F-7).
 
 Tests formula editor ViewModel behavior:
 - Formula editor shows error on invalid input
@@ -7,6 +7,9 @@ Tests formula editor ViewModel behavior:
 - Formula editor exposes dependencies (Phase F-3)
 - Formula editor exposes unknown_fields (Phase F-3)
 - Formula editor exposes cycle detection results (Phase F-4)
+- Formula editor aggregates diagnostics for display (Phase F-5)
+- Formula editor exposes governance state (Phase F-6)
+- Formula editor exposes binding state (Phase F-7)
 
 PHASE F-1 CONSTRAINTS:
 - Read-only validation (no execution)
@@ -26,6 +29,27 @@ PHASE F-4 CONSTRAINTS (ADR-041):
 - No DAG execution or topological sorting
 - No cycle prevention (analysis-only)
 - Same-entity scope only
+
+PHASE F-5 CONSTRAINTS:
+- Presentation/ViewModel UX-only (no new business logic)
+- Aggregates existing F-1 to F-4 diagnostic info for display
+- Human-readable messages (Presentation formatting)
+- No new DTOs, no FormulaUseCases modifications
+
+PHASE F-6 CONSTRAINTS:
+- Policy evaluation only (no new analysis)
+- Deterministic: same diagnostics → same status
+- No execution
+- No persistence
+- No schema mutation
+
+PHASE F-7 CONSTRAINTS:
+- Policy and wiring only
+- Binding rules: CALCULATED_FIELD allowed, others forbidden
+- Governance enforcement: INVALID → blocked
+- No persistence
+- No execution
+- No schema mutation
 """
 
 import pytest
@@ -33,7 +57,13 @@ import pytest
 from doc_helper.application.dto.formula_dto import (
     FormulaCycleDTO,
     FormulaDependencyDTO,
+    FormulaGovernanceStatus,
     SchemaFieldInfoDTO,
+    # Phase F-7: Formula Binding
+    FormulaBindingTarget,
+    FormulaBindingStatus,
+    FormulaBindingDTO,
+    FormulaBindingResultDTO,
 )
 from doc_helper.application.usecases.formula_usecases import FormulaUseCases
 from doc_helper.presentation.viewmodels.formula_editor_viewmodel import (
@@ -917,3 +947,1232 @@ class TestFormulaEditorViewModel:
         # Should return the same result that's stored
         assert result is viewmodel.cycle_analysis_result
         assert result.has_cycles is True
+
+    # =========================================================================
+    # Phase F-5: Diagnostic Aggregation for Display (Presentation-Only)
+    # =========================================================================
+
+    def test_no_diagnostics_for_empty_formula(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Empty formula should have no diagnostics (Phase F-5)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("")
+
+        assert viewmodel.all_diagnostic_errors == ()
+        assert viewmodel.all_diagnostic_warnings == ()
+        assert viewmodel.all_diagnostic_info == ()
+        assert viewmodel.has_diagnostics is False
+        assert viewmodel.diagnostic_status == "empty"
+        assert viewmodel.status_message == ""
+
+    def test_diagnostic_status_error_for_invalid_formula(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Invalid formula should have error diagnostic status (Phase F-5)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 +++")  # Syntax error
+
+        assert viewmodel.diagnostic_status == "error"
+        assert viewmodel.diagnostic_error_count > 0
+        assert "error" in viewmodel.status_message.lower()
+
+    def test_diagnostic_status_valid_for_correct_formula(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Valid formula should have valid diagnostic status (Phase F-5)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+
+        assert viewmodel.diagnostic_status == "valid"
+        assert viewmodel.diagnostic_error_count == 0
+        assert "valid" in viewmodel.status_message.lower()
+
+    def test_errors_aggregated_from_validation(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Validation errors should appear in all_diagnostic_errors (Phase F-5)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 +")  # Incomplete expression
+
+        errors = viewmodel.all_diagnostic_errors
+        assert len(errors) > 0
+        # Errors should be prefixed with "Syntax:"
+        assert any("Syntax:" in e for e in errors)
+
+    def test_errors_aggregated_from_unknown_fields(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Unknown fields should appear in all_diagnostic_errors (Phase F-5)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("unknown_field + value1")
+
+        errors = viewmodel.all_diagnostic_errors
+        assert len(errors) > 0
+        # Unknown fields should be prefixed
+        assert any("Unknown field:" in e and "unknown_field" in e for e in errors)
+
+    def test_errors_aggregated_from_cycles(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Cycle errors should appear in all_diagnostic_errors (Phase F-5)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1")
+
+        # Trigger cycle analysis with a cycle
+        viewmodel.analyze_entity_cycles({
+            "field_a": ("field_b",),
+            "field_b": ("field_a",),
+        })
+
+        errors = viewmodel.all_diagnostic_errors
+        assert len(errors) > 0
+        # Cycle errors should be prefixed
+        assert any("Circular dependency:" in e for e in errors)
+
+    def test_warnings_aggregated_from_validation(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Type warnings should appear in all_diagnostic_warnings (Phase F-5)."""
+        viewmodel.set_schema_context(schema_fields)
+        # Mixing types may produce warnings depending on implementation
+        viewmodel.set_formula("value1 + name")  # NUMBER + TEXT
+
+        warnings = viewmodel.all_diagnostic_warnings
+        # Warnings may or may not be present depending on type checking
+        # This test verifies the property exists and returns a tuple
+        assert isinstance(warnings, tuple)
+
+    def test_info_shows_result_type(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Result type should appear in all_diagnostic_info (Phase F-5)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+
+        info = viewmodel.all_diagnostic_info
+        assert len(info) > 0
+        # Should include result type
+        assert any("Result type:" in i for i in info)
+
+    def test_info_shows_dependencies(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Dependencies should appear in all_diagnostic_info (Phase F-5)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+
+        info = viewmodel.all_diagnostic_info
+        assert len(info) > 0
+        # Should include dependencies
+        assert any("Depends on:" in i for i in info)
+
+    def test_info_shows_analyzed_field_count(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Analyzed field count should appear in all_diagnostic_info (Phase F-5)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1")
+
+        viewmodel.analyze_entity_cycles({
+            "field_a": (),
+            "field_b": (),
+        })
+
+        info = viewmodel.all_diagnostic_info
+        # Should include analysis count
+        assert any("Analyzed" in i and "field" in i for i in info)
+
+    def test_has_diagnostics_true_when_errors_present(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """has_diagnostics should be True when errors exist (Phase F-5)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("invalid +++")
+
+        assert viewmodel.has_diagnostics is True
+
+    def test_has_diagnostics_true_when_info_present(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """has_diagnostics should be True when info exists (Phase F-5)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")  # Valid formula with info
+
+        assert viewmodel.has_diagnostics is True
+        assert len(viewmodel.all_diagnostic_info) > 0
+
+    def test_diagnostic_error_count_matches_errors(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """diagnostic_error_count should match length of errors (Phase F-5)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("unknown1 + unknown2")  # Two unknown fields
+
+        count = viewmodel.diagnostic_error_count
+        errors = viewmodel.all_diagnostic_errors
+
+        assert count == len(errors)
+
+    def test_diagnostic_warning_count_matches_warnings(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """diagnostic_warning_count should match length of warnings (Phase F-5)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+
+        count = viewmodel.diagnostic_warning_count
+        warnings = viewmodel.all_diagnostic_warnings
+
+        assert count == len(warnings)
+
+    def test_status_message_shows_error_count(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Status message should show error count when errors exist (Phase F-5)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("unknown_field")
+
+        message = viewmodel.status_message
+        # Should mention error(s)
+        assert "error" in message.lower()
+
+    def test_diagnostic_properties_clear_on_clear_formula(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Clearing formula should clear diagnostic properties (Phase F-5)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("unknown_field + value1")
+
+        viewmodel.analyze_entity_cycles({
+            "field_a": ("field_b",),
+            "field_b": ("field_a",),
+        })
+
+        assert viewmodel.has_diagnostics is True
+
+        viewmodel.clear_formula()
+
+        assert viewmodel.diagnostic_status == "empty"
+        assert viewmodel.all_diagnostic_errors == ()
+        assert viewmodel.all_diagnostic_info == ()
+
+    def test_diagnostic_notifications_triggered(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Setting formula should notify diagnostic subscribers (Phase F-5)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        notifications = []
+        viewmodel.subscribe(
+            "all_diagnostic_errors", lambda: notifications.append("errors")
+        )
+        viewmodel.subscribe(
+            "diagnostic_status", lambda: notifications.append("status")
+        )
+        viewmodel.subscribe(
+            "status_message", lambda: notifications.append("message")
+        )
+
+        viewmodel.set_formula("value1 + value2")
+
+        assert "errors" in notifications
+        assert "status" in notifications
+        assert "message" in notifications
+
+    def test_dispose_clears_diagnostic_state(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Dispose should clear diagnostic state (Phase F-5)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("unknown_field")
+
+        viewmodel.analyze_entity_cycles({
+            "field_a": ("field_b",),
+            "field_b": ("field_a",),
+        })
+
+        assert viewmodel.has_diagnostics is True
+
+        viewmodel.dispose()
+
+        assert viewmodel.diagnostic_status == "empty"
+        assert viewmodel.has_diagnostics is False
+        assert viewmodel.all_diagnostic_errors == ()
+        assert viewmodel.all_diagnostic_warnings == ()
+        assert viewmodel.all_diagnostic_info == ()
+
+    # =========================================================================
+    # Phase F-6: Formula Governance & Enforcement (Policy-Only)
+    # =========================================================================
+
+    def test_governance_empty_for_no_formula(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Empty formula should have EMPTY governance status (Phase F-6)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("")
+
+        assert viewmodel.governance_status == FormulaGovernanceStatus.EMPTY
+        assert viewmodel.is_formula_allowed is True
+        assert viewmodel.is_formula_blocked is False
+        assert viewmodel.governance_message == ""
+        assert viewmodel.governance_blocking_reasons == ()
+        assert viewmodel.governance_warning_reasons == ()
+
+    def test_governance_empty_for_whitespace_formula(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Whitespace-only formula should have EMPTY governance status (Phase F-6)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("   ")
+
+        assert viewmodel.governance_status == FormulaGovernanceStatus.EMPTY
+        assert viewmodel.is_formula_allowed is True
+
+    def test_governance_valid_for_correct_formula(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Valid formula should have VALID governance status (Phase F-6)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+
+        assert viewmodel.governance_status == FormulaGovernanceStatus.VALID
+        assert viewmodel.is_formula_allowed is True
+        assert viewmodel.is_formula_blocked is False
+        assert viewmodel.governance_blocking_reasons == ()
+        # May have warnings from validation (type inference)
+        assert "valid" in viewmodel.governance_message.lower()
+
+    def test_governance_invalid_for_syntax_error(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Syntax error should result in INVALID governance status (Phase F-6)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 +++")
+
+        assert viewmodel.governance_status == FormulaGovernanceStatus.INVALID
+        assert viewmodel.is_formula_allowed is False
+        assert viewmodel.is_formula_blocked is True
+        assert len(viewmodel.governance_blocking_reasons) > 0
+        assert "blocked" in viewmodel.governance_message.lower()
+
+    def test_governance_invalid_for_unknown_field(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Unknown field should result in INVALID governance status (Phase F-6)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("unknown_field + value1")
+
+        assert viewmodel.governance_status == FormulaGovernanceStatus.INVALID
+        assert viewmodel.is_formula_blocked is True
+        assert len(viewmodel.governance_blocking_reasons) > 0
+
+    def test_governance_invalid_for_cycles(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Cycles should result in INVALID governance status (Phase F-6)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1")  # Valid formula initially
+
+        assert viewmodel.governance_status == FormulaGovernanceStatus.VALID
+
+        # Trigger cycle analysis with a cycle
+        viewmodel.analyze_entity_cycles({
+            "field_a": ("field_b",),
+            "field_b": ("field_a",),
+        })
+
+        assert viewmodel.governance_status == FormulaGovernanceStatus.INVALID
+        assert viewmodel.is_formula_blocked is True
+        # Should include cycle error
+        reasons = " ".join(viewmodel.governance_blocking_reasons)
+        assert "circular" in reasons.lower() or "cycle" in reasons.lower()
+
+    def test_governance_result_dto_exposed(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """governance_result should expose the DTO (Phase F-6)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+
+        result = viewmodel.governance_result
+        assert result is not None
+        assert result.status == FormulaGovernanceStatus.VALID
+        assert result.is_allowed is True
+
+    def test_governance_none_before_formula_set(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """governance_result should be None before formula is set (Phase F-6)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        # No formula set yet
+        assert viewmodel.governance_result is None
+        # Default status should be EMPTY
+        assert viewmodel.governance_status == FormulaGovernanceStatus.EMPTY
+        assert viewmodel.is_formula_allowed is True
+
+    def test_governance_updates_on_formula_change(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Governance should update when formula changes (Phase F-6)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        # Valid formula
+        viewmodel.set_formula("value1")
+        assert viewmodel.governance_status == FormulaGovernanceStatus.VALID
+
+        # Invalid formula
+        viewmodel.set_formula("unknown_field")
+        assert viewmodel.governance_status == FormulaGovernanceStatus.INVALID
+
+        # Empty formula
+        viewmodel.set_formula("")
+        assert viewmodel.governance_status == FormulaGovernanceStatus.EMPTY
+
+    def test_governance_updates_on_cycle_analysis(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Governance should update when cycle analysis changes (Phase F-6)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1")
+
+        assert viewmodel.governance_status == FormulaGovernanceStatus.VALID
+
+        # Add cycles
+        viewmodel.analyze_entity_cycles({
+            "field_a": ("field_b",),
+            "field_b": ("field_a",),
+        })
+        assert viewmodel.governance_status == FormulaGovernanceStatus.INVALID
+
+        # Clear cycles
+        viewmodel.clear_cycle_analysis()
+        assert viewmodel.governance_status == FormulaGovernanceStatus.VALID
+
+    def test_governance_cleared_on_clear_formula(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Clearing formula should reset governance state (Phase F-6)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("unknown_field")
+
+        assert viewmodel.governance_status == FormulaGovernanceStatus.INVALID
+
+        viewmodel.clear_formula()
+
+        assert viewmodel.governance_status == FormulaGovernanceStatus.EMPTY
+        assert viewmodel.governance_result is None
+        assert viewmodel.governance_blocking_reasons == ()
+        assert viewmodel.governance_warning_reasons == ()
+
+    def test_governance_cleared_on_dispose(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Dispose should reset governance state (Phase F-6)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("unknown_field")
+
+        assert viewmodel.governance_status == FormulaGovernanceStatus.INVALID
+
+        viewmodel.dispose()
+
+        assert viewmodel.governance_status == FormulaGovernanceStatus.EMPTY
+        assert viewmodel.governance_result is None
+
+    def test_governance_notifications_triggered(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Setting formula should notify governance subscribers (Phase F-6)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        notifications = []
+        viewmodel.subscribe(
+            "governance_result", lambda: notifications.append("result")
+        )
+        viewmodel.subscribe(
+            "governance_status", lambda: notifications.append("status")
+        )
+        viewmodel.subscribe(
+            "is_formula_allowed", lambda: notifications.append("allowed")
+        )
+        viewmodel.subscribe(
+            "is_formula_blocked", lambda: notifications.append("blocked")
+        )
+        viewmodel.subscribe(
+            "governance_message", lambda: notifications.append("message")
+        )
+
+        viewmodel.set_formula("value1 + value2")
+
+        assert "result" in notifications
+        assert "status" in notifications
+        assert "allowed" in notifications
+        assert "blocked" in notifications
+        assert "message" in notifications
+
+    def test_governance_blocking_reasons_from_combined_errors(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Blocking reasons should include both validation and cycle errors (Phase F-6)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("unknown_field")  # Validation error
+
+        # Also add cycles
+        viewmodel.analyze_entity_cycles({
+            "field_a": ("field_b",),
+            "field_b": ("field_a",),
+        })
+
+        reasons = viewmodel.governance_blocking_reasons
+        # Should have both unknown field error and cycle error
+        assert len(reasons) >= 2
+
+    def test_governance_is_allowed_semantic(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """is_formula_allowed should be inverse of is_formula_blocked (Phase F-6)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        # Valid formula
+        viewmodel.set_formula("value1")
+        assert viewmodel.is_formula_allowed is True
+        assert viewmodel.is_formula_blocked is False
+
+        # Invalid formula
+        viewmodel.set_formula("unknown_field")
+        assert viewmodel.is_formula_allowed is False
+        assert viewmodel.is_formula_blocked is True
+
+        # Empty formula (allowed)
+        viewmodel.set_formula("")
+        assert viewmodel.is_formula_allowed is True
+        assert viewmodel.is_formula_blocked is False
+
+    def test_governance_deterministic(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Same formula should produce same governance result (Phase F-6)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        formula = "value1 + value2"
+
+        # First time
+        viewmodel.set_formula(formula)
+        result1 = viewmodel.governance_result
+        status1 = viewmodel.governance_status
+
+        # Clear and re-set
+        viewmodel.clear_formula()
+        viewmodel.set_formula(formula)
+        result2 = viewmodel.governance_result
+        status2 = viewmodel.governance_status
+
+        assert result1 is not None
+        assert result2 is not None
+        assert result1.status == result2.status
+        assert result1.blocking_reasons == result2.blocking_reasons
+        assert result1.warning_reasons == result2.warning_reasons
+        assert status1 == status2
+
+    # =========================================================================
+    # Phase F-7: Formula Binding State (Policy & Wiring Only)
+    # =========================================================================
+
+    def test_binding_target_none_by_default(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Binding target should be None by default (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        assert viewmodel.binding_target is None
+        assert viewmodel.binding_target_id == ""
+
+    def test_set_binding_target_calculated_field(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Setting CALCULATED_FIELD binding target should succeed (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_field_id",
+        )
+
+        assert viewmodel.binding_target == FormulaBindingTarget.CALCULATED_FIELD
+        assert viewmodel.binding_target_id == "target_field_id"
+
+    def test_set_binding_target_validation_rule_recorded(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Setting VALIDATION_RULE binding target should be recorded (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.VALIDATION_RULE,
+            "rule_id",
+        )
+
+        # Target is recorded but will be blocked
+        assert viewmodel.binding_target == FormulaBindingTarget.VALIDATION_RULE
+        assert viewmodel.binding_target_id == "rule_id"
+
+    def test_set_binding_target_output_mapping_recorded(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Setting OUTPUT_MAPPING binding target should be recorded (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.OUTPUT_MAPPING,
+            "mapping_id",
+        )
+
+        # Target is recorded but will be blocked
+        assert viewmodel.binding_target == FormulaBindingTarget.OUTPUT_MAPPING
+        assert viewmodel.binding_target_id == "mapping_id"
+
+    def test_clear_binding_target(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """clear_binding_target should reset binding state (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        viewmodel.clear_binding_target()
+
+        assert viewmodel.binding_target is None
+        assert viewmodel.binding_target_id == ""
+
+    def test_is_binding_allowed_no_target(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """No binding target should result in is_binding_allowed=False (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+
+        # No target set
+        assert viewmodel.binding_target is None
+        assert viewmodel.is_binding_allowed is False
+
+    def test_is_binding_allowed_calculated_field_valid_formula(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """CALCULATED_FIELD with valid formula should allow binding (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        assert viewmodel.governance_status == FormulaGovernanceStatus.VALID
+        assert viewmodel.is_binding_allowed is True
+        assert viewmodel.binding_block_reason is None
+
+    def test_is_binding_allowed_calculated_field_empty_formula(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """CALCULATED_FIELD with empty formula should allow binding (clears) (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        assert viewmodel.governance_status == FormulaGovernanceStatus.EMPTY
+        assert viewmodel.is_binding_allowed is True
+        assert viewmodel.binding_block_reason is None
+
+    def test_is_binding_blocked_invalid_formula(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Invalid formula should block binding (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("unknown_field")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        assert viewmodel.governance_status == FormulaGovernanceStatus.INVALID
+        assert viewmodel.is_binding_allowed is False
+        assert viewmodel.binding_block_reason is not None
+        # Block reason contains error information
+        assert "error" in viewmodel.binding_block_reason.lower()
+
+    def test_is_binding_blocked_unsupported_target_validation_rule(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """VALIDATION_RULE target should block binding in F-7 (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")  # Valid formula
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.VALIDATION_RULE,
+            "rule_id",
+        )
+
+        assert viewmodel.governance_status == FormulaGovernanceStatus.VALID
+        assert viewmodel.is_binding_allowed is False
+        assert viewmodel.binding_block_reason is not None
+        assert "not supported" in viewmodel.binding_block_reason.lower()
+
+    def test_is_binding_blocked_unsupported_target_output_mapping(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """OUTPUT_MAPPING target should block binding in F-7 (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")  # Valid formula
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.OUTPUT_MAPPING,
+            "mapping_id",
+        )
+
+        assert viewmodel.governance_status == FormulaGovernanceStatus.VALID
+        assert viewmodel.is_binding_allowed is False
+        assert viewmodel.binding_block_reason is not None
+        assert "not supported" in viewmodel.binding_block_reason.lower()
+
+    def test_binding_status_allowed_for_valid_calculated_field(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """binding_status should be ALLOWED for valid CALCULATED_FIELD binding (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        assert viewmodel.binding_status == FormulaBindingStatus.ALLOWED
+
+    def test_binding_status_cleared_for_empty_formula(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """binding_status should be CLEARED for empty formula (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        assert viewmodel.binding_status == FormulaBindingStatus.CLEARED
+
+    def test_binding_status_blocked_invalid_formula(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """binding_status should be BLOCKED_INVALID_FORMULA for invalid formula (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("unknown_field")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        assert viewmodel.binding_status == FormulaBindingStatus.BLOCKED_INVALID_FORMULA
+
+    def test_binding_status_blocked_unsupported_target(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """binding_status should be BLOCKED_UNSUPPORTED_TARGET for forbidden targets (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.VALIDATION_RULE,
+            "rule_id",
+        )
+
+        assert viewmodel.binding_status == FormulaBindingStatus.BLOCKED_UNSUPPORTED_TARGET
+
+    def test_binding_status_message_for_allowed(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """binding_status_message should describe allowed status (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        message = viewmodel.binding_status_message
+        assert "allowed" in message.lower()
+
+    def test_binding_status_message_for_blocked(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """binding_status_message should describe blocked status (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("unknown_field")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        message = viewmodel.binding_status_message
+        assert "cannot" in message.lower() or "blocked" in message.lower()
+
+    def test_binding_status_message_for_no_target(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """binding_status_message should indicate no target set (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+
+        # No target set
+        message = viewmodel.binding_status_message
+        # Message contains "target" and "configured" (e.g., "No binding target configured")
+        assert "target" in message.lower() and "configured" in message.lower()
+
+    def test_can_save_binding_true_for_allowed(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """can_save_binding should be True when binding is allowed (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        assert viewmodel.can_save_binding is True
+
+    def test_can_save_binding_true_for_cleared(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """can_save_binding should be True when formula is empty (clear binding) (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        assert viewmodel.can_save_binding is True
+
+    def test_can_save_binding_false_for_blocked(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """can_save_binding should be False when binding is blocked (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("unknown_field")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        assert viewmodel.can_save_binding is False
+
+    def test_can_save_binding_false_for_no_target(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """can_save_binding should be False when no target is set (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+
+        # No target
+        assert viewmodel.can_save_binding is False
+
+    def test_get_binding_result_returns_dto(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """get_binding_result should return FormulaBindingResultDTO (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        result = viewmodel.get_binding_result()
+
+        assert isinstance(result, FormulaBindingResultDTO)
+        assert result.status == FormulaBindingStatus.ALLOWED
+        assert result.binding is not None
+        assert result.binding.target_type == FormulaBindingTarget.CALCULATED_FIELD
+        assert result.binding.target_id == "target_id"
+        assert result.binding.formula_text == "value1 + value2"
+
+    def test_get_binding_result_blocked_for_invalid(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """get_binding_result should return blocked result for invalid formula (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("unknown_field")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        result = viewmodel.get_binding_result()
+
+        assert result.status == FormulaBindingStatus.BLOCKED_INVALID_FORMULA
+        assert result.is_blocked is True
+        assert result.block_reason is not None
+
+    def test_binding_updates_on_formula_change(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Binding state should update when formula changes (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        # Valid formula
+        viewmodel.set_formula("value1 + value2")
+        assert viewmodel.is_binding_allowed is True
+        assert viewmodel.binding_status == FormulaBindingStatus.ALLOWED
+
+        # Invalid formula
+        viewmodel.set_formula("unknown_field")
+        assert viewmodel.is_binding_allowed is False
+        assert viewmodel.binding_status == FormulaBindingStatus.BLOCKED_INVALID_FORMULA
+
+        # Empty formula
+        viewmodel.set_formula("")
+        assert viewmodel.is_binding_allowed is True
+        assert viewmodel.binding_status == FormulaBindingStatus.CLEARED
+
+    def test_binding_updates_on_target_change(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Binding state should update when target changes (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+
+        # CALCULATED_FIELD - allowed
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+        assert viewmodel.is_binding_allowed is True
+
+        # VALIDATION_RULE - blocked
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.VALIDATION_RULE,
+            "rule_id",
+        )
+        assert viewmodel.is_binding_allowed is False
+        assert viewmodel.binding_status == FormulaBindingStatus.BLOCKED_UNSUPPORTED_TARGET
+
+    def test_binding_cleared_on_clear_formula(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """clear_formula should preserve binding target but update status (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        assert viewmodel.binding_status == FormulaBindingStatus.ALLOWED
+
+        viewmodel.clear_formula()
+
+        # Target preserved, but status is CLEARED
+        assert viewmodel.binding_target == FormulaBindingTarget.CALCULATED_FIELD
+        assert viewmodel.binding_target_id == "target_id"
+        assert viewmodel.binding_status == FormulaBindingStatus.CLEARED
+
+    def test_binding_cleared_on_dispose(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """dispose should clear binding target (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        viewmodel.dispose()
+
+        assert viewmodel.binding_target is None
+        assert viewmodel.binding_target_id == ""
+
+    def test_binding_notifications_triggered_on_set_target(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """set_binding_target should notify binding subscribers (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+
+        notifications = []
+        viewmodel.subscribe(
+            "binding_target", lambda: notifications.append("target")
+        )
+        viewmodel.subscribe(
+            "binding_target_id", lambda: notifications.append("target_id")
+        )
+        viewmodel.subscribe(
+            "is_binding_allowed", lambda: notifications.append("allowed")
+        )
+        viewmodel.subscribe(
+            "binding_status", lambda: notifications.append("status")
+        )
+        viewmodel.subscribe(
+            "binding_status_message", lambda: notifications.append("message")
+        )
+
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        assert "target" in notifications
+        assert "target_id" in notifications
+        assert "allowed" in notifications
+        assert "status" in notifications
+        assert "message" in notifications
+
+    def test_binding_notifications_triggered_on_clear_target(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """clear_binding_target should notify binding subscribers (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        notifications = []
+        viewmodel.subscribe(
+            "binding_target", lambda: notifications.append("target")
+        )
+
+        viewmodel.clear_binding_target()
+
+        assert "target" in notifications
+
+    def test_binding_deterministic(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Same inputs should produce same binding result (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        # First evaluation
+        viewmodel.set_formula("value1 + value2")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+        result1 = viewmodel.get_binding_result()
+        status1 = viewmodel.binding_status
+
+        # Clear and re-evaluate
+        viewmodel.clear_binding_target()
+        viewmodel.clear_formula()
+        viewmodel.set_formula("value1 + value2")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+        result2 = viewmodel.get_binding_result()
+        status2 = viewmodel.binding_status
+
+        assert result1.status == result2.status
+        assert status1 == status2
+
+    def test_binding_with_cycles_blocked(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Formula with cycles should be blocked from binding (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1")  # Valid formula initially
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        assert viewmodel.is_binding_allowed is True
+
+        # Add cycles - should block binding
+        viewmodel.analyze_entity_cycles({
+            "field_a": ("field_b",),
+            "field_b": ("field_a",),
+        })
+
+        assert viewmodel.governance_status == FormulaGovernanceStatus.INVALID
+        assert viewmodel.is_binding_allowed is False
+        assert viewmodel.binding_status == FormulaBindingStatus.BLOCKED_INVALID_FORMULA
+
+    def test_binding_valid_with_warnings(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Formula with warnings should still allow binding (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        # This formula is valid (may have type warnings but no errors)
+        viewmodel.set_formula("value1 + value2")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        # Even with potential warnings, VALID and VALID_WITH_WARNINGS allow binding
+        assert viewmodel.governance_status in (
+            FormulaGovernanceStatus.VALID,
+            FormulaGovernanceStatus.VALID_WITH_WARNINGS,
+        )
+        assert viewmodel.is_binding_allowed is True
+
+    def test_binding_result_includes_governance_status(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Binding result should include governance status (Phase F-7)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+        viewmodel.set_binding_target(
+            FormulaBindingTarget.CALCULATED_FIELD,
+            "target_id",
+        )
+
+        result = viewmodel.get_binding_result()
+
+        assert result.binding is not None
+        assert result.binding.governance_status == FormulaGovernanceStatus.VALID

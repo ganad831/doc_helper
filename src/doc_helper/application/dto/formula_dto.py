@@ -4,6 +4,8 @@ Phase F-1: Formula Editor (Read-Only, Design-Time)
 Phase F-2: Formula Runtime Execution
 Phase F-3: Formula Dependency Discovery (Analysis-Only)
 Phase F-4: Formula Cycle Detection (Design-Time Analysis)
+Phase F-6: Formula Governance & Enforcement (Policy Decisions)
+Phase F-7: Formula Binding & Persistence Rules (Policy Only)
 
 RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md H2):
 - DTOs are immutable (frozen dataclasses)
@@ -324,3 +326,271 @@ class FormulaCycleAnalysisResultDTO:
     def cycle_errors(self) -> tuple[str, ...]:
         """Get all cycle paths as error messages."""
         return tuple(f"Circular dependency: {c.cycle_path}" for c in self.cycles)
+
+
+# =============================================================================
+# PHASE F-6: Formula Governance & Enforcement (Policy Decisions)
+# =============================================================================
+
+
+class FormulaGovernanceStatus(Enum):
+    """Governance status for a formula (Phase F-6).
+
+    Represents the overall acceptability of a formula based on
+    existing diagnostics from F-1 through F-4.
+
+    PHASE F-6 CONSTRAINTS:
+    - Policy decision only (no new analysis)
+    - Deterministic: same diagnostics -> same status
+    - No execution
+    - No persistence
+    - No schema mutation
+    """
+
+    EMPTY = "EMPTY"  # No formula text (neutral, not blocked)
+    INVALID = "INVALID"  # Blocked due to errors (syntax, unknown fields, cycles)
+    VALID_WITH_WARNINGS = "VALID_WITH_WARNINGS"  # Allowed but has warnings
+    VALID = "VALID"  # Fully valid, no issues
+
+
+@dataclass(frozen=True)
+class FormulaGovernanceResultDTO:
+    """UI-facing formula governance decision (Phase F-6).
+
+    Represents the governance evaluation of a formula based on
+    existing diagnostics. Determines whether a formula is allowed
+    to be saved, exported, or accepted as schema-valid.
+
+    PHASE F-6 CONSTRAINTS:
+    - Policy evaluation only (no new analysis)
+    - Deterministic: same input -> same output
+    - No execution
+    - No persistence
+    - No schema mutation
+    - No blocking of saves (informational only)
+
+    FORBIDDEN in this DTO:
+    - AST objects
+    - Domain value objects
+    - Execution results
+    - New diagnostic analysis
+    - Cached results
+
+    Governance Rules:
+    - INVALID: Syntax errors, unknown fields, or cycles exist
+    - VALID_WITH_WARNINGS: No blocking issues but has type warnings
+    - VALID: No errors and no warnings
+    - EMPTY: No formula text (neutral)
+    """
+
+    status: FormulaGovernanceStatus  # Overall governance status
+    blocking_reasons: tuple[str, ...]  # Reasons formula is blocked (if any)
+    warning_reasons: tuple[str, ...]  # Non-blocking warnings (if any)
+
+    @property
+    def is_allowed(self) -> bool:
+        """Check if formula is allowed (not blocked).
+
+        A formula is allowed if it has status EMPTY, VALID, or VALID_WITH_WARNINGS.
+        Only INVALID status blocks the formula.
+        """
+        return self.status != FormulaGovernanceStatus.INVALID
+
+    @property
+    def is_blocked(self) -> bool:
+        """Check if formula is blocked.
+
+        A formula is blocked only if it has INVALID status.
+        """
+        return self.status == FormulaGovernanceStatus.INVALID
+
+    @property
+    def is_empty(self) -> bool:
+        """Check if formula is empty (neutral state)."""
+        return self.status == FormulaGovernanceStatus.EMPTY
+
+    @property
+    def is_valid(self) -> bool:
+        """Check if formula is fully valid (no errors, no warnings)."""
+        return self.status == FormulaGovernanceStatus.VALID
+
+    @property
+    def has_warnings(self) -> bool:
+        """Check if formula has warnings."""
+        return len(self.warning_reasons) > 0
+
+    @property
+    def blocking_count(self) -> int:
+        """Get count of blocking reasons."""
+        return len(self.blocking_reasons)
+
+    @property
+    def warning_count(self) -> int:
+        """Get count of warning reasons."""
+        return len(self.warning_reasons)
+
+    @property
+    def summary_message(self) -> str:
+        """Get human-readable governance summary.
+
+        Returns a concise message describing the governance decision.
+        """
+        if self.status == FormulaGovernanceStatus.EMPTY:
+            return ""
+        elif self.status == FormulaGovernanceStatus.INVALID:
+            return f"Formula blocked: {self.blocking_count} issue(s)"
+        elif self.status == FormulaGovernanceStatus.VALID_WITH_WARNINGS:
+            return f"Formula valid with {self.warning_count} warning(s)"
+        else:
+            return "Formula is valid"
+
+
+# =============================================================================
+# PHASE F-7: Formula Binding & Persistence Rules (Policy Only)
+# =============================================================================
+
+
+class FormulaBindingTarget(Enum):
+    """Target types for formula binding (Phase F-7).
+
+    Defines the schema elements that can own a formula.
+
+    PHASE F-7 CONSTRAINTS:
+    - Policy definition only (no execution)
+    - No persistence
+    - No schema mutation
+    - Deterministic binding rules
+
+    Allowed Targets (v1):
+    - CALCULATED_FIELD: Formula bound to a calculated field (ALLOWED)
+
+    Future Targets (NOT implemented):
+    - VALIDATION_RULE: Formula for custom validation (FORBIDDEN in F-7)
+    - OUTPUT_MAPPING: Formula for output transformation (FORBIDDEN in F-7)
+    """
+
+    CALCULATED_FIELD = "CALCULATED_FIELD"  # Allowed in F-7
+    VALIDATION_RULE = "VALIDATION_RULE"  # Placeholder - FORBIDDEN in F-7
+    OUTPUT_MAPPING = "OUTPUT_MAPPING"  # Placeholder - FORBIDDEN in F-7
+
+
+class FormulaBindingStatus(Enum):
+    """Status of a formula binding attempt (Phase F-7).
+
+    Represents the result of checking whether a formula can be bound
+    to a specific target.
+
+    PHASE F-7 CONSTRAINTS:
+    - Policy decision only
+    - No persistence
+    - No execution
+    - Deterministic
+    """
+
+    ALLOWED = "ALLOWED"  # Binding is permitted
+    BLOCKED_INVALID_FORMULA = "BLOCKED_INVALID_FORMULA"  # Formula has errors
+    BLOCKED_UNSUPPORTED_TARGET = "BLOCKED_UNSUPPORTED_TARGET"  # Target type not allowed
+    CLEARED = "CLEARED"  # Formula was empty (binding cleared)
+
+
+@dataclass(frozen=True)
+class FormulaBindingDTO:
+    """UI-facing formula binding information (Phase F-7).
+
+    Represents a formula bound to a specific schema element.
+    This is a policy/wiring DTO - NO persistence, NO execution.
+
+    PHASE F-7 CONSTRAINTS:
+    - Policy representation only
+    - No persistence of bindings
+    - No execution triggers
+    - No schema mutation
+    - No domain objects
+    - Strings and primitives only
+
+    FORBIDDEN in this DTO:
+    - AST objects
+    - Domain value objects
+    - Persistence identifiers
+    - Execution state
+    - Observer/listener references
+    """
+
+    target_type: FormulaBindingTarget  # What kind of element owns this formula
+    target_id: str  # ID of the owning element (field_id, rule_id, etc.)
+    formula_text: str  # The formula expression text
+    governance_status: FormulaGovernanceStatus  # Governance status from F-6
+
+    @property
+    def is_bound(self) -> bool:
+        """Check if formula is actively bound (non-empty)."""
+        return bool(self.formula_text and self.formula_text.strip())
+
+    @property
+    def is_valid_binding(self) -> bool:
+        """Check if binding is valid (non-blocked governance)."""
+        return self.governance_status != FormulaGovernanceStatus.INVALID
+
+    @property
+    def is_empty(self) -> bool:
+        """Check if binding has no formula (cleared state)."""
+        return not self.formula_text or not self.formula_text.strip()
+
+
+@dataclass(frozen=True)
+class FormulaBindingResultDTO:
+    """UI-facing formula binding operation result (Phase F-7).
+
+    Represents the result of a bind/unbind operation.
+
+    PHASE F-7 CONSTRAINTS:
+    - Policy result only (no persistence)
+    - Deterministic: same input -> same output
+    - No execution
+    - No schema mutation
+
+    FORBIDDEN in this DTO:
+    - AST objects
+    - Domain value objects
+    - Persistence state
+    - Execution triggers
+    """
+
+    status: FormulaBindingStatus  # Result status
+    binding: FormulaBindingDTO | None  # The binding if successful, None if blocked
+    block_reason: str | None  # Reason for blocking (if blocked)
+
+    @property
+    def is_allowed(self) -> bool:
+        """Check if binding operation was allowed."""
+        return self.status in (
+            FormulaBindingStatus.ALLOWED,
+            FormulaBindingStatus.CLEARED,
+        )
+
+    @property
+    def is_blocked(self) -> bool:
+        """Check if binding operation was blocked."""
+        return self.status in (
+            FormulaBindingStatus.BLOCKED_INVALID_FORMULA,
+            FormulaBindingStatus.BLOCKED_UNSUPPORTED_TARGET,
+        )
+
+    @property
+    def is_cleared(self) -> bool:
+        """Check if binding was cleared (empty formula)."""
+        return self.status == FormulaBindingStatus.CLEARED
+
+    @property
+    def status_message(self) -> str:
+        """Get human-readable status message."""
+        if self.status == FormulaBindingStatus.ALLOWED:
+            return "Formula binding allowed"
+        elif self.status == FormulaBindingStatus.CLEARED:
+            return "Formula binding cleared"
+        elif self.status == FormulaBindingStatus.BLOCKED_INVALID_FORMULA:
+            return f"Binding blocked: {self.block_reason or 'Invalid formula'}"
+        elif self.status == FormulaBindingStatus.BLOCKED_UNSUPPORTED_TARGET:
+            return f"Binding blocked: {self.block_reason or 'Unsupported target type'}"
+        else:
+            return "Unknown binding status"

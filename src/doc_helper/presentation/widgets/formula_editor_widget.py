@@ -1,4 +1,4 @@
-"""Formula Editor Widget (Phase F-1: Formula Editor - Read-Only, Design-Time).
+"""Formula Editor Widget (Phase F-1, F-5: Formula Editor - Read-Only, Design-Time).
 
 A reusable widget for editing and validating formula expressions.
 Provides live syntax validation, type inference, and error display.
@@ -10,11 +10,19 @@ PHASE F-1 SCOPE:
 - Error/warning display
 - Field reference display
 
-PHASE F-1 CONSTRAINTS:
+PHASE F-5 SCOPE (Diagnostics & UX Visualization):
+- Dedicated error panel (red accent)
+- Dedicated warning panel (yellow/orange accent)
+- Info panel (neutral accent with dependencies, cycles, type)
+- Inline status hint below editor
+- Cycle path display (textual only)
+
+PHASE F-1/F-5 CONSTRAINTS:
 - Read-only with respect to schema
 - NO formula execution
 - NO schema mutation
 - NO formula persistence
+- NO new analysis logic (F-5: display only)
 
 ARCHITECTURE COMPLIANCE:
 - Widget binds to FormulaEditorViewModel
@@ -47,14 +55,23 @@ class FormulaEditorWidget(QWidget):
     - Multi-line monospace text editor
     - Live validation with debouncing
     - Inferred result type display
-    - Error/warning messages
-    - Field references list
+    - Dedicated error panel (red accent) - Phase F-5
+    - Dedicated warning panel (yellow accent) - Phase F-5
+    - Info panel (dependencies, type info) - Phase F-5
+    - Inline status hint - Phase F-5
+    - Cycle visualization (textual) - Phase F-5
 
     Phase F-1 Compliance:
     - Read-only schema access via ViewModel
     - No schema mutation
     - No formula execution
     - No persistence
+
+    Phase F-5 Compliance:
+    - Display only - no new logic
+    - Consumes ViewModel aggregated properties
+    - Human-readable message display
+    - Non-blocking visual feedback
 
     Usage:
         viewmodel = FormulaEditorViewModel(formula_usecases)
@@ -128,12 +145,51 @@ class FormulaEditorWidget(QWidget):
         self._formula_input.textChanged.connect(self._on_text_changed)
         main_layout.addWidget(self._formula_input)
 
+        # Inline status hint (Phase F-5)
+        self._status_hint_label = QLabel()
+        self._status_hint_label.setStyleSheet(
+            "font-size: 9pt; padding: 2px 4px;"
+        )
+        main_layout.addWidget(self._status_hint_label)
+
         # Result type indicator
         type_frame = self._create_type_indicator()
         main_layout.addWidget(type_frame)
 
-        # Error/warning display
+        # Phase F-5: Dedicated diagnostic panels
+        # Errors panel (red accent) - visible only when errors exist
+        self._errors_panel = self._create_diagnostic_panel(
+            panel_type="error",
+            header_text="Errors",
+            bg_color="#fff5f5",
+            border_color="#fc8181",
+            header_color="#c53030",
+        )
+        main_layout.addWidget(self._errors_panel)
+
+        # Warnings panel (yellow accent) - visible only when warnings exist
+        self._warnings_panel = self._create_diagnostic_panel(
+            panel_type="warning",
+            header_text="Warnings",
+            bg_color="#fffff0",
+            border_color="#f6e05e",
+            header_color="#b7791f",
+        )
+        main_layout.addWidget(self._warnings_panel)
+
+        # Info panel (neutral accent) - visible only when info exists
+        self._info_panel = self._create_diagnostic_panel(
+            panel_type="info",
+            header_text="Info",
+            bg_color="#ebf8ff",
+            border_color="#90cdf4",
+            header_color="#2b6cb0",
+        )
+        main_layout.addWidget(self._info_panel)
+
+        # Legacy error/warning display (kept for backwards compatibility)
         self._error_frame = self._create_error_display()
+        self._error_frame.setVisible(False)  # Hidden - using new panels instead
         main_layout.addWidget(self._error_frame)
 
         # Field references display
@@ -251,6 +307,69 @@ class FormulaEditorWidget(QWidget):
 
         return frame
 
+    def _create_diagnostic_panel(
+        self,
+        panel_type: str,
+        header_text: str,
+        bg_color: str,
+        border_color: str,
+        header_color: str,
+    ) -> QFrame:
+        """Create a diagnostic panel (Phase F-5).
+
+        Args:
+            panel_type: Type identifier ("error", "warning", "info")
+            header_text: Header text for the panel
+            bg_color: Background color (hex)
+            border_color: Border color (hex)
+            header_color: Header text color (hex)
+
+        Returns:
+            QFrame containing the diagnostic panel
+
+        Phase F-5 Compliance:
+            Creates display-only panel for diagnostic messages.
+            No logic - just UI structure.
+        """
+        frame = QFrame()
+        frame.setVisible(False)  # Hidden by default
+        frame.setObjectName(f"diagnostic_panel_{panel_type}")
+        frame.setStyleSheet(
+            f"QFrame#{frame.objectName()} {{ "
+            f"background-color: {bg_color}; "
+            f"border: 1px solid {border_color}; "
+            f"border-radius: 4px; "
+            f"}}"
+        )
+
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(4)
+
+        # Header with count
+        header_label = QLabel(header_text)
+        header_label.setStyleSheet(f"font-weight: bold; color: {header_color};")
+        layout.addWidget(header_label)
+
+        # Messages area
+        messages_label = QLabel()
+        messages_label.setWordWrap(True)
+        messages_label.setStyleSheet("padding-left: 8px; color: #2d3748;")
+        layout.addWidget(messages_label)
+
+        # Store references for later updates
+        if panel_type == "error":
+            self._error_panel_header = header_label
+            self._error_panel_messages = messages_label
+        elif panel_type == "warning":
+            self._warning_panel_header = header_label
+            self._warning_panel_messages = messages_label
+        elif panel_type == "info":
+            self._info_panel_header = header_label
+            self._info_panel_messages = messages_label
+
+        return frame
+
     def _subscribe_to_viewmodel(self) -> None:
         """Subscribe to ViewModel property changes."""
         self._viewmodel.subscribe("validation_result", self._update_from_viewmodel)
@@ -259,6 +378,11 @@ class FormulaEditorWidget(QWidget):
         self._viewmodel.subscribe("errors", self._update_error_display)
         self._viewmodel.subscribe("warnings", self._update_error_display)
         self._viewmodel.subscribe("field_references", self._update_references_display)
+        # Phase F-5: Subscribe to diagnostic aggregation properties
+        self._viewmodel.subscribe("all_diagnostic_errors", self._update_errors_panel)
+        self._viewmodel.subscribe("all_diagnostic_warnings", self._update_warnings_panel)
+        self._viewmodel.subscribe("all_diagnostic_info", self._update_info_panel)
+        self._viewmodel.subscribe("status_message", self._update_status_hint)
 
     def _update_from_viewmodel(self) -> None:
         """Update all UI elements from ViewModel state."""
@@ -266,6 +390,11 @@ class FormulaEditorWidget(QWidget):
         self._update_type_display()
         self._update_error_display()
         self._update_references_display()
+        # Phase F-5: Update diagnostic panels
+        self._update_errors_panel()
+        self._update_warnings_panel()
+        self._update_info_panel()
+        self._update_status_hint()
 
     def _on_text_changed(self) -> None:
         """Handle formula text change.
@@ -392,6 +521,124 @@ class FormulaEditorWidget(QWidget):
             if len(functions) > 8:
                 hint += f", ... (+{len(functions) - 8} more)"
             self._functions_label.setText(hint)
+
+    # =========================================================================
+    # Phase F-5: Diagnostic Panel Updates
+    # =========================================================================
+
+    def _update_status_hint(self) -> None:
+        """Update the inline status hint below the editor (Phase F-5).
+
+        Displays a concise status message based on diagnostic_status.
+
+        Phase F-5 Compliance:
+            Display only - reads ViewModel status_message property.
+        """
+        status = self._viewmodel.diagnostic_status
+        message = self._viewmodel.status_message
+
+        if not message:
+            self._status_hint_label.setText("")
+            self._status_hint_label.setVisible(False)
+            return
+
+        self._status_hint_label.setVisible(True)
+
+        # Style based on status
+        if status == "error":
+            self._status_hint_label.setStyleSheet(
+                "font-size: 9pt; padding: 2px 4px; color: #c53030;"
+            )
+            self._status_hint_label.setText(f"\u2718 {message}")
+        elif status == "warning":
+            self._status_hint_label.setStyleSheet(
+                "font-size: 9pt; padding: 2px 4px; color: #b7791f;"
+            )
+            self._status_hint_label.setText(f"\u26A0 {message}")
+        elif status == "valid":
+            self._status_hint_label.setStyleSheet(
+                "font-size: 9pt; padding: 2px 4px; color: #38a169;"
+            )
+            self._status_hint_label.setText(f"\u2714 {message}")
+        else:
+            self._status_hint_label.setText("")
+            self._status_hint_label.setVisible(False)
+
+    def _update_errors_panel(self) -> None:
+        """Update the errors panel (Phase F-5).
+
+        Displays all aggregated errors from F-1 through F-4.
+        Panel is only visible when errors exist.
+
+        Phase F-5 Compliance:
+            Display only - reads ViewModel all_diagnostic_errors property.
+        """
+        errors = self._viewmodel.all_diagnostic_errors
+
+        if not errors:
+            self._errors_panel.setVisible(False)
+            return
+
+        self._errors_panel.setVisible(True)
+        self._error_panel_header.setText(f"Errors ({len(errors)})")
+
+        # Build message list with bullet points
+        messages = []
+        for error in errors:
+            messages.append(f"\u2022 {error}")
+        self._error_panel_messages.setText("\n".join(messages))
+
+    def _update_warnings_panel(self) -> None:
+        """Update the warnings panel (Phase F-5).
+
+        Displays all aggregated warnings from F-1 through F-4.
+        Panel is only visible when warnings exist.
+
+        Phase F-5 Compliance:
+            Display only - reads ViewModel all_diagnostic_warnings property.
+        """
+        warnings = self._viewmodel.all_diagnostic_warnings
+
+        if not warnings:
+            self._warnings_panel.setVisible(False)
+            return
+
+        self._warnings_panel.setVisible(True)
+        self._warning_panel_header.setText(f"Warnings ({len(warnings)})")
+
+        # Build message list with bullet points
+        messages = []
+        for warning in warnings:
+            messages.append(f"\u2022 {warning}")
+        self._warning_panel_messages.setText("\n".join(messages))
+
+    def _update_info_panel(self) -> None:
+        """Update the info panel (Phase F-5).
+
+        Displays informational messages including:
+        - Inferred result type
+        - Field dependencies
+        - Analyzed field count (if cycle analysis performed)
+
+        Panel is only visible when info exists.
+
+        Phase F-5 Compliance:
+            Display only - reads ViewModel all_diagnostic_info property.
+        """
+        info = self._viewmodel.all_diagnostic_info
+
+        if not info:
+            self._info_panel.setVisible(False)
+            return
+
+        self._info_panel.setVisible(True)
+        self._info_panel_header.setText(f"Info ({len(info)})")
+
+        # Build message list with bullet points
+        messages = []
+        for item in info:
+            messages.append(f"\u2022 {item}")
+        self._info_panel_messages.setText("\n".join(messages))
 
     def set_formula(self, formula_text: str) -> None:
         """Set the formula text programmatically.

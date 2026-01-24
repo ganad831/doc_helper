@@ -1,4 +1,4 @@
-"""Unit tests for FormulaUseCases (Phase F-1 + F-2 + F-3 + F-4).
+"""Unit tests for FormulaUseCases (Phase F-1 + F-2 + F-3 + F-4 + F-6 + F-7).
 
 Tests formula validation use-case methods (Phase F-1):
 - validate_formula: Validates syntax, field references, functions
@@ -13,6 +13,14 @@ Tests formula dependency analysis use-case methods (Phase F-3):
 
 Tests formula cycle detection use-case methods (Phase F-4):
 - detect_cycles: Detects circular dependencies in formula fields
+
+Tests formula governance use-case methods (Phase F-6):
+- evaluate_governance: Evaluates governance status from existing diagnostics
+
+Tests formula binding use-case methods (Phase F-7):
+- can_bind_formula: Checks if binding is allowed
+- bind_formula: Attempts to bind formula to target
+- unbind_formula: Clears/unbinds formula from target
 
 PHASE F-1 CONSTRAINTS:
 - Read-only validation (no execution)
@@ -39,19 +47,46 @@ PHASE F-4 CONSTRAINTS (ADR-041):
 - No blocking of saves/edits
 - Same-entity scope only
 - Deterministic output
+
+PHASE F-6 CONSTRAINTS (Governance & Enforcement):
+- Policy evaluation only (no new analysis)
+- Deterministic: same input -> same output
+- No execution
+- No persistence
+- No schema mutation
+- Non-blocking (informational only)
+
+PHASE F-7 CONSTRAINTS (Formula Binding & Persistence Rules):
+- Policy & wiring only (no persistence)
+- Pure deterministic binding evaluation
+- No schema mutation
+- No auto-execution
+- No observers/listeners
 """
 
 import pytest
 
 from doc_helper.application.dto.formula_dto import (
+    # Phase F-4
     FormulaCycleAnalysisResultDTO,
     FormulaCycleDTO,
+    # Phase F-3
     FormulaDependencyAnalysisResultDTO,
     FormulaDependencyDTO,
+    # Phase F-2
     FormulaExecutionResultDTO,
+    # Phase F-6
+    FormulaGovernanceResultDTO,
+    FormulaGovernanceStatus,
+    # Phase F-1
     FormulaResultType,
     FormulaValidationResultDTO,
     SchemaFieldInfoDTO,
+    # Phase F-7: Formula Binding
+    FormulaBindingDTO,
+    FormulaBindingResultDTO,
+    FormulaBindingStatus,
+    FormulaBindingTarget,
 )
 from doc_helper.application.usecases.formula_usecases import FormulaUseCases
 
@@ -2035,3 +2070,1193 @@ class TestFormulaCycleDetection:
         assert result.has_cycles is True
         # Should find cycles
         assert result.cycle_count >= 1
+
+
+# =============================================================================
+# PHASE F-6: Formula Governance Tests
+# =============================================================================
+
+
+class TestFormulaGovernance:
+    """Tests for FormulaUseCases.evaluate_governance() (Phase F-6).
+
+    PHASE F-6 CONSTRAINTS:
+    - Policy evaluation only (no new analysis)
+    - Deterministic: same input -> same output
+    - No execution
+    - No persistence
+    - No schema mutation
+    - Non-blocking (informational only)
+    """
+
+    @pytest.fixture
+    def usecases(self) -> FormulaUseCases:
+        """Create FormulaUseCases instance."""
+        return FormulaUseCases()
+
+    @pytest.fixture
+    def schema_fields(self) -> tuple[SchemaFieldInfoDTO, ...]:
+        """Create sample schema fields for governance tests."""
+        return (
+            SchemaFieldInfoDTO(
+                field_id="price",
+                field_type="NUMBER",
+                entity_id="product",
+                label="Price",
+            ),
+            SchemaFieldInfoDTO(
+                field_id="quantity",
+                field_type="NUMBER",
+                entity_id="product",
+                label="Quantity",
+            ),
+        )
+
+    # -------------------------------------------------------------------------
+    # EMPTY Status (No Formula Text)
+    # -------------------------------------------------------------------------
+
+    def test_empty_formula_returns_empty_status(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """Empty formula text should return EMPTY governance status."""
+        result = usecases.evaluate_governance(
+            formula_text="",
+            validation_result=None,
+            cycle_result=None,
+        )
+
+        assert result.status == FormulaGovernanceStatus.EMPTY
+        assert result.is_allowed is True
+        assert result.is_blocked is False
+        assert result.is_empty is True
+        assert len(result.blocking_reasons) == 0
+        assert len(result.warning_reasons) == 0
+
+    def test_whitespace_formula_returns_empty_status(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """Whitespace-only formula text should return EMPTY governance status."""
+        result = usecases.evaluate_governance(
+            formula_text="   \t\n  ",
+            validation_result=None,
+            cycle_result=None,
+        )
+
+        assert result.status == FormulaGovernanceStatus.EMPTY
+        assert result.is_allowed is True
+        assert result.is_blocked is False
+
+    def test_none_formula_returns_empty_status(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """None formula text should return EMPTY governance status."""
+        result = usecases.evaluate_governance(
+            formula_text=None,
+            validation_result=None,
+            cycle_result=None,
+        )
+
+        assert result.status == FormulaGovernanceStatus.EMPTY
+        assert result.is_allowed is True
+
+    # -------------------------------------------------------------------------
+    # INVALID Status (Syntax Errors)
+    # -------------------------------------------------------------------------
+
+    def test_syntax_error_returns_invalid_status(
+        self, usecases: FormulaUseCases, schema_fields: tuple[SchemaFieldInfoDTO, ...]
+    ) -> None:
+        """Syntax errors in validation should return INVALID governance status."""
+        # Create a validation result with syntax errors
+        validation_result = FormulaValidationResultDTO(
+            is_valid=False,
+            errors=("Syntax error: unexpected token",),
+            warnings=(),
+            inferred_type="UNKNOWN",
+            field_references=(),
+        )
+
+        result = usecases.evaluate_governance(
+            formula_text="price +",
+            validation_result=validation_result,
+            cycle_result=None,
+        )
+
+        assert result.status == FormulaGovernanceStatus.INVALID
+        assert result.is_allowed is False
+        assert result.is_blocked is True
+        assert len(result.blocking_reasons) == 1
+        assert "Syntax error" in result.blocking_reasons[0]
+
+    def test_multiple_syntax_errors_all_captured(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """Multiple syntax errors should all be captured as blocking reasons."""
+        validation_result = FormulaValidationResultDTO(
+            is_valid=False,
+            errors=(
+                "Syntax error: unexpected token",
+                "Syntax error: missing operand",
+            ),
+            warnings=(),
+            inferred_type="UNKNOWN",
+            field_references=(),
+        )
+
+        result = usecases.evaluate_governance(
+            formula_text="price + * quantity",
+            validation_result=validation_result,
+            cycle_result=None,
+        )
+
+        assert result.status == FormulaGovernanceStatus.INVALID
+        assert result.blocking_count == 2
+
+    # -------------------------------------------------------------------------
+    # INVALID Status (Unknown Fields)
+    # -------------------------------------------------------------------------
+
+    def test_unknown_field_returns_invalid_status(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """Unknown field references should return INVALID governance status."""
+        validation_result = FormulaValidationResultDTO(
+            is_valid=False,
+            errors=("Unknown field: 'unknown_field'",),
+            warnings=(),
+            inferred_type="UNKNOWN",
+            field_references=("unknown_field",),
+        )
+
+        result = usecases.evaluate_governance(
+            formula_text="unknown_field + 1",
+            validation_result=validation_result,
+            cycle_result=None,
+        )
+
+        assert result.status == FormulaGovernanceStatus.INVALID
+        assert result.is_blocked is True
+        assert len(result.blocking_reasons) == 1
+        assert "unknown_field" in result.blocking_reasons[0].lower()
+
+    # -------------------------------------------------------------------------
+    # INVALID Status (Cycles)
+    # -------------------------------------------------------------------------
+
+    def test_cycles_return_invalid_status(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """Cycles in formula dependencies should return INVALID governance status."""
+        # Valid formula but with cycles detected
+        validation_result = FormulaValidationResultDTO(
+            is_valid=True,
+            errors=(),
+            warnings=(),
+            inferred_type="NUMBER",
+            field_references=("field_a", "field_b"),
+        )
+
+        cycle_result = FormulaCycleAnalysisResultDTO(
+            has_cycles=True,
+            cycles=(
+                FormulaCycleDTO(
+                    field_ids=("field_a", "field_b"),
+                    cycle_path="field_a → field_b → field_a",
+                    severity="ERROR",
+                ),
+            ),
+            analyzed_field_count=2,
+        )
+
+        result = usecases.evaluate_governance(
+            formula_text="field_a + field_b",
+            validation_result=validation_result,
+            cycle_result=cycle_result,
+        )
+
+        assert result.status == FormulaGovernanceStatus.INVALID
+        assert result.is_blocked is True
+        assert len(result.blocking_reasons) == 1
+        assert "Circular dependency" in result.blocking_reasons[0]
+        assert "field_a → field_b → field_a" in result.blocking_reasons[0]
+
+    def test_multiple_cycles_all_captured(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """Multiple cycles should all be captured as blocking reasons."""
+        validation_result = FormulaValidationResultDTO(
+            is_valid=True,
+            errors=(),
+            warnings=(),
+            inferred_type="NUMBER",
+            field_references=(),
+        )
+
+        cycle_result = FormulaCycleAnalysisResultDTO(
+            has_cycles=True,
+            cycles=(
+                FormulaCycleDTO(
+                    field_ids=("a",),
+                    cycle_path="a → a",
+                    severity="ERROR",
+                ),
+                FormulaCycleDTO(
+                    field_ids=("x", "y"),
+                    cycle_path="x → y → x",
+                    severity="ERROR",
+                ),
+            ),
+            analyzed_field_count=3,
+        )
+
+        result = usecases.evaluate_governance(
+            formula_text="a + x",
+            validation_result=validation_result,
+            cycle_result=cycle_result,
+        )
+
+        assert result.status == FormulaGovernanceStatus.INVALID
+        assert result.blocking_count == 2
+
+    # -------------------------------------------------------------------------
+    # INVALID Status (Combined: Syntax + Cycles)
+    # -------------------------------------------------------------------------
+
+    def test_combined_errors_all_captured(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """Syntax errors and cycles should all be captured as blocking reasons."""
+        validation_result = FormulaValidationResultDTO(
+            is_valid=False,
+            errors=("Unknown field: 'missing'",),
+            warnings=(),
+            inferred_type="UNKNOWN",
+            field_references=(),
+        )
+
+        cycle_result = FormulaCycleAnalysisResultDTO(
+            has_cycles=True,
+            cycles=(
+                FormulaCycleDTO(
+                    field_ids=("a", "b"),
+                    cycle_path="a → b → a",
+                    severity="ERROR",
+                ),
+            ),
+            analyzed_field_count=2,
+        )
+
+        result = usecases.evaluate_governance(
+            formula_text="missing + a",
+            validation_result=validation_result,
+            cycle_result=cycle_result,
+        )
+
+        assert result.status == FormulaGovernanceStatus.INVALID
+        assert result.blocking_count == 2
+
+    # -------------------------------------------------------------------------
+    # VALID_WITH_WARNINGS Status (Type Warnings)
+    # -------------------------------------------------------------------------
+
+    def test_type_warnings_return_valid_with_warnings(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """Type warnings should return VALID_WITH_WARNINGS governance status."""
+        validation_result = FormulaValidationResultDTO(
+            is_valid=True,
+            errors=(),
+            warnings=("Arithmetic operation '*' on TEXT type may fail",),
+            inferred_type="NUMBER",
+            field_references=("price",),
+        )
+
+        result = usecases.evaluate_governance(
+            formula_text="price * 2",
+            validation_result=validation_result,
+            cycle_result=None,
+        )
+
+        assert result.status == FormulaGovernanceStatus.VALID_WITH_WARNINGS
+        assert result.is_allowed is True
+        assert result.is_blocked is False
+        assert result.has_warnings is True
+        assert len(result.warning_reasons) == 1
+
+    def test_unknown_inferred_type_returns_valid_with_warnings(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """UNKNOWN inferred type should return VALID_WITH_WARNINGS governance status."""
+        validation_result = FormulaValidationResultDTO(
+            is_valid=True,
+            errors=(),
+            warnings=(),
+            inferred_type="UNKNOWN",
+            field_references=("price",),
+        )
+
+        result = usecases.evaluate_governance(
+            formula_text="if_else(price > 0, price, null)",
+            validation_result=validation_result,
+            cycle_result=None,
+        )
+
+        assert result.status == FormulaGovernanceStatus.VALID_WITH_WARNINGS
+        assert result.is_allowed is True
+        assert result.has_warnings is True
+        assert any(
+            "type cannot be determined" in w.lower() for w in result.warning_reasons
+        )
+
+    # -------------------------------------------------------------------------
+    # VALID Status (No Issues)
+    # -------------------------------------------------------------------------
+
+    def test_valid_formula_returns_valid_status(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """Valid formula with no issues should return VALID governance status."""
+        validation_result = FormulaValidationResultDTO(
+            is_valid=True,
+            errors=(),
+            warnings=(),
+            inferred_type="NUMBER",
+            field_references=("price", "quantity"),
+        )
+
+        cycle_result = FormulaCycleAnalysisResultDTO(
+            has_cycles=False,
+            cycles=(),
+            analyzed_field_count=2,
+        )
+
+        result = usecases.evaluate_governance(
+            formula_text="price * quantity",
+            validation_result=validation_result,
+            cycle_result=cycle_result,
+        )
+
+        assert result.status == FormulaGovernanceStatus.VALID
+        assert result.is_allowed is True
+        assert result.is_blocked is False
+        assert result.is_valid is True
+        assert len(result.blocking_reasons) == 0
+        assert len(result.warning_reasons) == 0
+
+    def test_valid_formula_without_cycle_result(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """Valid formula without cycle analysis should return VALID if no errors."""
+        validation_result = FormulaValidationResultDTO(
+            is_valid=True,
+            errors=(),
+            warnings=(),
+            inferred_type="NUMBER",
+            field_references=("price",),
+        )
+
+        result = usecases.evaluate_governance(
+            formula_text="price * 2",
+            validation_result=validation_result,
+            cycle_result=None,
+        )
+
+        assert result.status == FormulaGovernanceStatus.VALID
+        assert result.is_allowed is True
+
+    # -------------------------------------------------------------------------
+    # Summary Message
+    # -------------------------------------------------------------------------
+
+    def test_empty_summary_message(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """EMPTY status should return empty summary message."""
+        result = usecases.evaluate_governance(
+            formula_text="",
+            validation_result=None,
+            cycle_result=None,
+        )
+
+        assert result.summary_message == ""
+
+    def test_invalid_summary_message(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """INVALID status should return blocking issue count in summary."""
+        validation_result = FormulaValidationResultDTO(
+            is_valid=False,
+            errors=("Error 1", "Error 2"),
+            warnings=(),
+            inferred_type="UNKNOWN",
+            field_references=(),
+        )
+
+        result = usecases.evaluate_governance(
+            formula_text="bad formula",
+            validation_result=validation_result,
+            cycle_result=None,
+        )
+
+        assert "blocked" in result.summary_message.lower()
+        assert "2" in result.summary_message
+
+    def test_valid_with_warnings_summary_message(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """VALID_WITH_WARNINGS status should return warning count in summary."""
+        validation_result = FormulaValidationResultDTO(
+            is_valid=True,
+            errors=(),
+            warnings=("Warning 1",),
+            inferred_type="NUMBER",
+            field_references=(),
+        )
+
+        result = usecases.evaluate_governance(
+            formula_text="price * 2",
+            validation_result=validation_result,
+            cycle_result=None,
+        )
+
+        assert "warning" in result.summary_message.lower()
+        assert "1" in result.summary_message
+
+    def test_valid_summary_message(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """VALID status should return 'valid' in summary."""
+        validation_result = FormulaValidationResultDTO(
+            is_valid=True,
+            errors=(),
+            warnings=(),
+            inferred_type="NUMBER",
+            field_references=(),
+        )
+
+        result = usecases.evaluate_governance(
+            formula_text="price * 2",
+            validation_result=validation_result,
+            cycle_result=None,
+        )
+
+        assert "valid" in result.summary_message.lower()
+
+    # -------------------------------------------------------------------------
+    # Determinism (Same inputs -> Same output)
+    # -------------------------------------------------------------------------
+
+    def test_governance_is_deterministic(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """Same inputs should produce same governance outputs."""
+        validation_result = FormulaValidationResultDTO(
+            is_valid=True,
+            errors=(),
+            warnings=("Type warning",),
+            inferred_type="NUMBER",
+            field_references=("price",),
+        )
+
+        result1 = usecases.evaluate_governance(
+            formula_text="price * 2",
+            validation_result=validation_result,
+            cycle_result=None,
+        )
+        result2 = usecases.evaluate_governance(
+            formula_text="price * 2",
+            validation_result=validation_result,
+            cycle_result=None,
+        )
+        result3 = usecases.evaluate_governance(
+            formula_text="price * 2",
+            validation_result=validation_result,
+            cycle_result=None,
+        )
+
+        assert result1.status == result2.status == result3.status
+        assert result1.blocking_reasons == result2.blocking_reasons == result3.blocking_reasons
+        assert result1.warning_reasons == result2.warning_reasons == result3.warning_reasons
+
+    # -------------------------------------------------------------------------
+    # DTO Immutability
+    # -------------------------------------------------------------------------
+
+    def test_governance_result_is_frozen(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """FormulaGovernanceResultDTO should be frozen (immutable)."""
+        result = usecases.evaluate_governance(
+            formula_text="price * 2",
+            validation_result=FormulaValidationResultDTO(
+                is_valid=True,
+                errors=(),
+                warnings=(),
+                inferred_type="NUMBER",
+                field_references=(),
+            ),
+            cycle_result=None,
+        )
+
+        # Attempting to modify should raise an error
+        with pytest.raises(AttributeError):
+            result.status = FormulaGovernanceStatus.INVALID  # type: ignore
+
+        with pytest.raises(AttributeError):
+            result.blocking_reasons = ("new reason",)  # type: ignore
+
+    # -------------------------------------------------------------------------
+    # Integration: Full Validation + Governance Flow
+    # -------------------------------------------------------------------------
+
+    def test_full_flow_valid_formula(
+        self, usecases: FormulaUseCases, schema_fields: tuple[SchemaFieldInfoDTO, ...]
+    ) -> None:
+        """Full flow: validate formula, then evaluate governance."""
+        # Step 1: Validate
+        validation_result = usecases.validate_formula(
+            formula_text="price * quantity",
+            schema_fields=schema_fields,
+        )
+
+        # Step 2: Evaluate governance
+        governance_result = usecases.evaluate_governance(
+            formula_text="price * quantity",
+            validation_result=validation_result,
+            cycle_result=None,
+        )
+
+        assert governance_result.status == FormulaGovernanceStatus.VALID
+        assert governance_result.is_allowed is True
+
+    def test_full_flow_invalid_formula(
+        self, usecases: FormulaUseCases, schema_fields: tuple[SchemaFieldInfoDTO, ...]
+    ) -> None:
+        """Full flow: validate invalid formula, then evaluate governance."""
+        # Step 1: Validate (unknown field)
+        validation_result = usecases.validate_formula(
+            formula_text="unknown_field * 2",
+            schema_fields=schema_fields,
+        )
+
+        # Step 2: Evaluate governance
+        governance_result = usecases.evaluate_governance(
+            formula_text="unknown_field * 2",
+            validation_result=validation_result,
+            cycle_result=None,
+        )
+
+        assert governance_result.status == FormulaGovernanceStatus.INVALID
+        assert governance_result.is_blocked is True
+
+    def test_full_flow_with_cycles(
+        self, usecases: FormulaUseCases, schema_fields: tuple[SchemaFieldInfoDTO, ...]
+    ) -> None:
+        """Full flow: validate formula, detect cycles, then evaluate governance."""
+        # Step 1: Validate
+        validation_result = usecases.validate_formula(
+            formula_text="price * quantity",
+            schema_fields=schema_fields,
+        )
+
+        # Step 2: Detect cycles (simulate cyclic dependencies)
+        cycle_result = usecases.detect_cycles(
+            formula_dependencies={
+                "price": ("quantity",),
+                "quantity": ("price",),
+            }
+        )
+
+        # Step 3: Evaluate governance
+        governance_result = usecases.evaluate_governance(
+            formula_text="price * quantity",
+            validation_result=validation_result,
+            cycle_result=cycle_result,
+        )
+
+        assert governance_result.status == FormulaGovernanceStatus.INVALID
+        assert governance_result.is_blocked is True
+        assert any("Circular dependency" in r for r in governance_result.blocking_reasons)
+
+
+# =============================================================================
+# PHASE F-7: Formula Binding Tests
+# =============================================================================
+
+
+class TestFormulaBinding:
+    """Tests for FormulaUseCases binding methods (Phase F-7).
+
+    PHASE F-7 CONSTRAINTS:
+    - Policy & wiring only (no persistence)
+    - Pure deterministic binding evaluation
+    - No schema mutation
+    - No auto-execution
+    - No observers/listeners
+    """
+
+    @pytest.fixture
+    def usecases(self) -> FormulaUseCases:
+        """Create FormulaUseCases instance."""
+        return FormulaUseCases()
+
+    @pytest.fixture
+    def valid_governance(self) -> FormulaGovernanceResultDTO:
+        """Create a valid governance result."""
+        return FormulaGovernanceResultDTO(
+            status=FormulaGovernanceStatus.VALID,
+            blocking_reasons=(),
+            warning_reasons=(),
+        )
+
+    @pytest.fixture
+    def valid_with_warnings_governance(self) -> FormulaGovernanceResultDTO:
+        """Create a valid-with-warnings governance result."""
+        return FormulaGovernanceResultDTO(
+            status=FormulaGovernanceStatus.VALID_WITH_WARNINGS,
+            blocking_reasons=(),
+            warning_reasons=("Type warning: result type cannot be determined",),
+        )
+
+    @pytest.fixture
+    def invalid_governance(self) -> FormulaGovernanceResultDTO:
+        """Create an invalid governance result."""
+        return FormulaGovernanceResultDTO(
+            status=FormulaGovernanceStatus.INVALID,
+            blocking_reasons=("Unknown field: 'missing_field'",),
+            warning_reasons=(),
+        )
+
+    @pytest.fixture
+    def empty_governance(self) -> FormulaGovernanceResultDTO:
+        """Create an empty governance result."""
+        return FormulaGovernanceResultDTO(
+            status=FormulaGovernanceStatus.EMPTY,
+            blocking_reasons=(),
+            warning_reasons=(),
+        )
+
+    # -------------------------------------------------------------------------
+    # can_bind_formula: Target Type Support
+    # -------------------------------------------------------------------------
+
+    def test_can_bind_calculated_field_allowed(
+        self,
+        usecases: FormulaUseCases,
+        valid_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """CALCULATED_FIELD target should be allowed with valid governance."""
+        result = usecases.can_bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            governance_result=valid_governance,
+        )
+
+        assert result.status == FormulaBindingStatus.ALLOWED
+        assert result.is_allowed is True
+        assert result.is_blocked is False
+        assert result.block_reason is None
+
+    def test_can_bind_validation_rule_blocked(
+        self,
+        usecases: FormulaUseCases,
+        valid_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """VALIDATION_RULE target should be blocked in Phase F-7."""
+        result = usecases.can_bind_formula(
+            target_type=FormulaBindingTarget.VALIDATION_RULE,
+            governance_result=valid_governance,
+        )
+
+        assert result.status == FormulaBindingStatus.BLOCKED_UNSUPPORTED_TARGET
+        assert result.is_allowed is False
+        assert result.is_blocked is True
+        assert result.block_reason is not None
+        assert "not supported" in result.block_reason.lower()
+
+    def test_can_bind_output_mapping_blocked(
+        self,
+        usecases: FormulaUseCases,
+        valid_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """OUTPUT_MAPPING target should be blocked in Phase F-7."""
+        result = usecases.can_bind_formula(
+            target_type=FormulaBindingTarget.OUTPUT_MAPPING,
+            governance_result=valid_governance,
+        )
+
+        assert result.status == FormulaBindingStatus.BLOCKED_UNSUPPORTED_TARGET
+        assert result.is_allowed is False
+        assert result.is_blocked is True
+
+    # -------------------------------------------------------------------------
+    # can_bind_formula: Governance Enforcement
+    # -------------------------------------------------------------------------
+
+    def test_can_bind_empty_governance_returns_cleared(
+        self,
+        usecases: FormulaUseCases,
+        empty_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """Empty governance status should return CLEARED binding status."""
+        result = usecases.can_bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            governance_result=empty_governance,
+        )
+
+        assert result.status == FormulaBindingStatus.CLEARED
+        assert result.is_allowed is True
+        assert result.is_cleared is True
+        assert result.block_reason is None
+
+    def test_can_bind_valid_governance_allowed(
+        self,
+        usecases: FormulaUseCases,
+        valid_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """VALID governance status should allow binding."""
+        result = usecases.can_bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            governance_result=valid_governance,
+        )
+
+        assert result.status == FormulaBindingStatus.ALLOWED
+        assert result.is_allowed is True
+
+    def test_can_bind_valid_with_warnings_allowed(
+        self,
+        usecases: FormulaUseCases,
+        valid_with_warnings_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """VALID_WITH_WARNINGS governance status should allow binding."""
+        result = usecases.can_bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            governance_result=valid_with_warnings_governance,
+        )
+
+        assert result.status == FormulaBindingStatus.ALLOWED
+        assert result.is_allowed is True
+
+    def test_can_bind_invalid_governance_blocked(
+        self,
+        usecases: FormulaUseCases,
+        invalid_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """INVALID governance status should block binding."""
+        result = usecases.can_bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            governance_result=invalid_governance,
+        )
+
+        assert result.status == FormulaBindingStatus.BLOCKED_INVALID_FORMULA
+        assert result.is_allowed is False
+        assert result.is_blocked is True
+        assert result.block_reason is not None
+        assert "missing_field" in result.block_reason.lower()
+
+    # -------------------------------------------------------------------------
+    # bind_formula: Success Cases
+    # -------------------------------------------------------------------------
+
+    def test_bind_formula_valid_creates_binding(
+        self,
+        usecases: FormulaUseCases,
+        valid_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """Valid bind_formula should create FormulaBindingDTO."""
+        result = usecases.bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            target_id="total_cost",
+            formula_text="price * quantity",
+            governance_result=valid_governance,
+        )
+
+        assert result.status == FormulaBindingStatus.ALLOWED
+        assert result.is_allowed is True
+        assert result.binding is not None
+
+        binding = result.binding
+        assert binding.target_type == FormulaBindingTarget.CALCULATED_FIELD
+        assert binding.target_id == "total_cost"
+        assert binding.formula_text == "price * quantity"
+        assert binding.governance_status == FormulaGovernanceStatus.VALID
+
+    def test_bind_formula_valid_with_warnings_creates_binding(
+        self,
+        usecases: FormulaUseCases,
+        valid_with_warnings_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """VALID_WITH_WARNINGS governance should create binding."""
+        result = usecases.bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            target_id="result",
+            formula_text="if_else(a, b, c)",
+            governance_result=valid_with_warnings_governance,
+        )
+
+        assert result.status == FormulaBindingStatus.ALLOWED
+        assert result.binding is not None
+        assert result.binding.governance_status == FormulaGovernanceStatus.VALID_WITH_WARNINGS
+
+    # -------------------------------------------------------------------------
+    # bind_formula: Blocked Cases
+    # -------------------------------------------------------------------------
+
+    def test_bind_formula_invalid_governance_no_binding(
+        self,
+        usecases: FormulaUseCases,
+        invalid_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """Invalid governance should not create binding."""
+        result = usecases.bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            target_id="total",
+            formula_text="missing_field + 1",
+            governance_result=invalid_governance,
+        )
+
+        assert result.status == FormulaBindingStatus.BLOCKED_INVALID_FORMULA
+        assert result.binding is None
+        assert result.block_reason is not None
+
+    def test_bind_formula_unsupported_target_no_binding(
+        self,
+        usecases: FormulaUseCases,
+        valid_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """Unsupported target should not create binding."""
+        result = usecases.bind_formula(
+            target_type=FormulaBindingTarget.VALIDATION_RULE,
+            target_id="rule_1",
+            formula_text="price > 0",
+            governance_result=valid_governance,
+        )
+
+        assert result.status == FormulaBindingStatus.BLOCKED_UNSUPPORTED_TARGET
+        assert result.binding is None
+        assert result.block_reason is not None
+
+    # -------------------------------------------------------------------------
+    # bind_formula: CLEARED Status (Empty Formula)
+    # -------------------------------------------------------------------------
+
+    def test_bind_formula_empty_governance_returns_cleared(
+        self,
+        usecases: FormulaUseCases,
+        empty_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """Empty governance should return CLEARED with no binding."""
+        result = usecases.bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            target_id="total",
+            formula_text="",
+            governance_result=empty_governance,
+        )
+
+        assert result.status == FormulaBindingStatus.CLEARED
+        assert result.is_cleared is True
+        assert result.binding is None
+        assert result.block_reason is None
+
+    # -------------------------------------------------------------------------
+    # unbind_formula
+    # -------------------------------------------------------------------------
+
+    def test_unbind_formula_returns_cleared(
+        self,
+        usecases: FormulaUseCases,
+    ) -> None:
+        """unbind_formula should always return CLEARED status."""
+        result = usecases.unbind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            target_id="total",
+        )
+
+        assert result.status == FormulaBindingStatus.CLEARED
+        assert result.is_cleared is True
+        assert result.binding is None
+        assert result.block_reason is None
+
+    def test_unbind_formula_any_target(
+        self,
+        usecases: FormulaUseCases,
+    ) -> None:
+        """unbind_formula should work for any target type."""
+        for target in FormulaBindingTarget:
+            result = usecases.unbind_formula(
+                target_type=target,
+                target_id="any_id",
+            )
+
+            assert result.status == FormulaBindingStatus.CLEARED
+            assert result.is_cleared is True
+
+    # -------------------------------------------------------------------------
+    # FormulaBindingDTO Properties
+    # -------------------------------------------------------------------------
+
+    def test_binding_dto_is_bound_true(
+        self,
+        usecases: FormulaUseCases,
+        valid_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """FormulaBindingDTO.is_bound should be True for non-empty formula."""
+        result = usecases.bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            target_id="total",
+            formula_text="price * quantity",
+            governance_result=valid_governance,
+        )
+
+        assert result.binding is not None
+        assert result.binding.is_bound is True
+        assert result.binding.is_empty is False
+
+    def test_binding_dto_is_valid_binding_true(
+        self,
+        usecases: FormulaUseCases,
+        valid_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """FormulaBindingDTO.is_valid_binding should be True for VALID governance."""
+        result = usecases.bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            target_id="total",
+            formula_text="price * quantity",
+            governance_result=valid_governance,
+        )
+
+        assert result.binding is not None
+        assert result.binding.is_valid_binding is True
+
+    # -------------------------------------------------------------------------
+    # FormulaBindingResultDTO Properties
+    # -------------------------------------------------------------------------
+
+    def test_binding_result_dto_status_message(
+        self,
+        usecases: FormulaUseCases,
+        valid_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """FormulaBindingResultDTO.status_message should be human-readable."""
+        result = usecases.bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            target_id="total",
+            formula_text="price * quantity",
+            governance_result=valid_governance,
+        )
+
+        assert result.status_message != ""
+        assert "allowed" in result.status_message.lower() or "ready" in result.status_message.lower()
+
+    def test_binding_result_blocked_status_message(
+        self,
+        usecases: FormulaUseCases,
+        invalid_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """Blocked binding should have informative status message."""
+        result = usecases.bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            target_id="total",
+            formula_text="invalid",
+            governance_result=invalid_governance,
+        )
+
+        assert result.status_message != ""
+        assert "blocked" in result.status_message.lower() or "error" in result.status_message.lower()
+
+    # -------------------------------------------------------------------------
+    # Determinism (Same inputs -> Same output)
+    # -------------------------------------------------------------------------
+
+    def test_can_bind_is_deterministic(
+        self,
+        usecases: FormulaUseCases,
+        valid_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """can_bind_formula should be deterministic."""
+        result1 = usecases.can_bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            governance_result=valid_governance,
+        )
+        result2 = usecases.can_bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            governance_result=valid_governance,
+        )
+        result3 = usecases.can_bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            governance_result=valid_governance,
+        )
+
+        assert result1.status == result2.status == result3.status
+        assert result1.is_allowed == result2.is_allowed == result3.is_allowed
+
+    def test_bind_formula_is_deterministic(
+        self,
+        usecases: FormulaUseCases,
+        valid_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """bind_formula should be deterministic."""
+        result1 = usecases.bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            target_id="total",
+            formula_text="price * quantity",
+            governance_result=valid_governance,
+        )
+        result2 = usecases.bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            target_id="total",
+            formula_text="price * quantity",
+            governance_result=valid_governance,
+        )
+
+        assert result1.status == result2.status
+        assert result1.binding == result2.binding
+
+    # -------------------------------------------------------------------------
+    # DTO Immutability
+    # -------------------------------------------------------------------------
+
+    def test_binding_result_dto_is_frozen(
+        self,
+        usecases: FormulaUseCases,
+        valid_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """FormulaBindingResultDTO should be frozen (immutable)."""
+        result = usecases.bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            target_id="total",
+            formula_text="price * quantity",
+            governance_result=valid_governance,
+        )
+
+        with pytest.raises(AttributeError):
+            result.status = FormulaBindingStatus.BLOCKED_INVALID_FORMULA  # type: ignore
+
+        with pytest.raises(AttributeError):
+            result.binding = None  # type: ignore
+
+    def test_binding_dto_is_frozen(
+        self,
+        usecases: FormulaUseCases,
+        valid_governance: FormulaGovernanceResultDTO,
+    ) -> None:
+        """FormulaBindingDTO should be frozen (immutable)."""
+        result = usecases.bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            target_id="total",
+            formula_text="price * quantity",
+            governance_result=valid_governance,
+        )
+
+        assert result.binding is not None
+        with pytest.raises(AttributeError):
+            result.binding.target_id = "other"  # type: ignore
+
+        with pytest.raises(AttributeError):
+            result.binding.formula_text = "different"  # type: ignore
+
+    # -------------------------------------------------------------------------
+    # Integration: Full Binding Flow
+    # -------------------------------------------------------------------------
+
+    def test_full_flow_valid_formula_binding(
+        self,
+        usecases: FormulaUseCases,
+    ) -> None:
+        """Full flow: validate, governance, then bind formula."""
+        schema_fields = (
+            SchemaFieldInfoDTO(
+                field_id="price",
+                field_type="NUMBER",
+                entity_id="product",
+                label="Price",
+            ),
+            SchemaFieldInfoDTO(
+                field_id="quantity",
+                field_type="NUMBER",
+                entity_id="product",
+                label="Quantity",
+            ),
+        )
+
+        # Step 1: Validate formula
+        validation_result = usecases.validate_formula(
+            formula_text="price * quantity",
+            schema_fields=schema_fields,
+        )
+        assert validation_result.is_valid is True
+
+        # Step 2: Evaluate governance
+        governance_result = usecases.evaluate_governance(
+            formula_text="price * quantity",
+            validation_result=validation_result,
+            cycle_result=None,
+        )
+        assert governance_result.status == FormulaGovernanceStatus.VALID
+
+        # Step 3: Check if can bind
+        can_bind_result = usecases.can_bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            governance_result=governance_result,
+        )
+        assert can_bind_result.is_allowed is True
+
+        # Step 4: Bind formula
+        bind_result = usecases.bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            target_id="total_cost",
+            formula_text="price * quantity",
+            governance_result=governance_result,
+        )
+        assert bind_result.is_allowed is True
+        assert bind_result.binding is not None
+        assert bind_result.binding.target_id == "total_cost"
+        assert bind_result.binding.formula_text == "price * quantity"
+
+    def test_full_flow_invalid_formula_binding_blocked(
+        self,
+        usecases: FormulaUseCases,
+    ) -> None:
+        """Full flow: invalid formula should block binding."""
+        schema_fields = (
+            SchemaFieldInfoDTO(
+                field_id="price",
+                field_type="NUMBER",
+                entity_id="product",
+                label="Price",
+            ),
+        )
+
+        # Step 1: Validate formula (unknown field)
+        validation_result = usecases.validate_formula(
+            formula_text="unknown_field * 2",
+            schema_fields=schema_fields,
+        )
+        assert validation_result.is_valid is False
+
+        # Step 2: Evaluate governance
+        governance_result = usecases.evaluate_governance(
+            formula_text="unknown_field * 2",
+            validation_result=validation_result,
+            cycle_result=None,
+        )
+        assert governance_result.status == FormulaGovernanceStatus.INVALID
+
+        # Step 3: Check if can bind
+        can_bind_result = usecases.can_bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            governance_result=governance_result,
+        )
+        assert can_bind_result.is_allowed is False
+        assert can_bind_result.is_blocked is True
+
+        # Step 4: Attempt to bind (should fail)
+        bind_result = usecases.bind_formula(
+            target_type=FormulaBindingTarget.CALCULATED_FIELD,
+            target_id="total",
+            formula_text="unknown_field * 2",
+            governance_result=governance_result,
+        )
+        assert bind_result.is_allowed is False
+        assert bind_result.binding is None
+        assert bind_result.block_reason is not None

@@ -1,4 +1,4 @@
-"""Formula Editor ViewModel (Phase F-1, F-3, F-4: Formula Editor).
+"""Formula Editor ViewModel (Phase F-1, F-3, F-4, F-5, F-6, F-7: Formula Editor).
 
 Manages presentation state for the Formula Editor UI.
 Provides live formula validation with syntax highlighting and error display.
@@ -21,7 +21,27 @@ PHASE F-4 SCOPE (ADR-041):
 - Read-only, deterministic analysis
 - Same-entity scope only
 
-PHASE F-1/F-3/F-4 CONSTRAINTS:
+PHASE F-5 SCOPE (Diagnostics & UX Visualization):
+- Aggregate all diagnostic information from F-1 through F-4
+- Provide display-ready grouped properties for UI
+- Human-readable status messages
+- NO new logic - only consume existing DTO data
+
+PHASE F-6 SCOPE (Governance & Enforcement):
+- Expose governance evaluation results from use-case
+- Read-only governance status and properties
+- NO new governance logic (use-case owns logic)
+- NO blocking behavior (informational only)
+
+PHASE F-7 SCOPE (Formula Binding & Persistence Rules):
+- Hold binding target state (CALCULATED_FIELD, etc.)
+- Expose binding status based on governance
+- Expose binding block reasons
+- NO persistence (ViewModel state only)
+- NO schema mutation
+- NO auto-execution
+
+PHASE F-1/F-3/F-4/F-5/F-6/F-7 CONSTRAINTS:
 - Read-only with respect to schema
 - NO schema mutation
 - NO formula persistence
@@ -29,6 +49,8 @@ PHASE F-1/F-3/F-4 CONSTRAINTS:
 - NO dependency graph/DAG execution
 - NO topological sorting
 - NO cycle prevention (analysis-only)
+- NO new analysis logic (F-5: aggregation only)
+- NO binding persistence (F-7: in-memory only)
 
 ARCHITECTURE ENFORCEMENT (Rule 0 Compliance):
 - ViewModel depends ONLY on FormulaUseCases (Application layer use-case)
@@ -42,13 +64,23 @@ ARCHITECTURE ENFORCEMENT (Rule 0 Compliance):
 from typing import Optional
 
 from doc_helper.application.dto.formula_dto import (
+    # Phase F-4
     FormulaCycleAnalysisResultDTO,
     FormulaCycleDTO,
+    # Phase F-3
     FormulaDependencyAnalysisResultDTO,
     FormulaDependencyDTO,
+    # Phase F-6
+    FormulaGovernanceResultDTO,
+    FormulaGovernanceStatus,
+    # Phase F-1
     FormulaResultType,
     FormulaValidationResultDTO,
     SchemaFieldInfoDTO,
+    # Phase F-7: Formula Binding
+    FormulaBindingResultDTO,
+    FormulaBindingStatus,
+    FormulaBindingTarget,
 )
 from doc_helper.application.usecases.formula_usecases import FormulaUseCases
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
@@ -64,6 +96,9 @@ class FormulaEditorViewModel(BaseViewModel):
     - Track available fields from schema
     - Analyze formula dependencies (Phase F-3)
     - Detect formula cycles (Phase F-4)
+    - Aggregate diagnostics for UI display (Phase F-5)
+    - Expose governance evaluation (Phase F-6)
+    - Manage binding target and status (Phase F-7)
 
     Phase F-1 Compliance:
     - Read-only schema access (DTOs)
@@ -85,6 +120,25 @@ class FormulaEditorViewModel(BaseViewModel):
     - No cycle prevention (analysis-only)
     - Same-entity scope only
 
+    Phase F-5 Compliance (Diagnostics & UX):
+    - Aggregation only - no new logic
+    - Consumes existing DTO data
+    - Human-readable message formatting
+    - Read-only, deterministic
+
+    Phase F-6 Compliance (Governance & Enforcement):
+    - Exposes governance evaluation from use-case
+    - Read-only governance properties
+    - No governance logic in ViewModel
+    - Non-blocking (informational only)
+
+    Phase F-7 Compliance (Formula Binding):
+    - Hold binding target state
+    - Expose binding eligibility from use-case
+    - No binding persistence (ViewModel state only)
+    - No schema mutation
+    - No auto-execution
+
     Usage:
         vm = FormulaEditorViewModel(formula_usecases)
         vm.set_schema_context(schema_fields)
@@ -99,6 +153,11 @@ class FormulaEditorViewModel(BaseViewModel):
         vm.analyze_entity_cycles({"field_a": ("field_b",), "field_b": ("field_a",)})
         has_cycles = vm.has_cycles
         cycles = vm.cycles
+
+        # Phase F-5: Aggregated diagnostics
+        all_errors = vm.all_diagnostic_errors  # All errors from F-1 to F-4
+        all_warnings = vm.all_diagnostic_warnings  # All warnings
+        status = vm.diagnostic_status  # Overall status
 
     Observable Properties:
         - formula_text: Current formula text
@@ -118,6 +177,23 @@ class FormulaEditorViewModel(BaseViewModel):
         - cycle_count: Number of cycles (Phase F-4)
         - all_cycle_field_ids: All fields in cycles (Phase F-4)
         - cycle_errors: Human-readable cycle errors (Phase F-4)
+        - all_diagnostic_errors: Aggregated errors (Phase F-5)
+        - all_diagnostic_warnings: Aggregated warnings (Phase F-5)
+        - all_diagnostic_info: Aggregated info messages (Phase F-5)
+        - diagnostic_status: Overall status (Phase F-5)
+        - status_message: Human-readable status (Phase F-5)
+        - governance_result: Governance evaluation DTO (Phase F-6)
+        - governance_status: Governance status enum value (Phase F-6)
+        - is_formula_allowed: Whether formula is allowed (Phase F-6)
+        - is_formula_blocked: Whether formula is blocked (Phase F-6)
+        - governance_message: Human-readable governance message (Phase F-6)
+        - binding_target: Current binding target type (Phase F-7)
+        - binding_target_id: Current binding target ID (Phase F-7)
+        - is_binding_allowed: Whether binding is allowed (Phase F-7)
+        - binding_block_reason: Reason binding is blocked (Phase F-7)
+        - binding_status: Binding status enum value (Phase F-7)
+        - binding_status_message: Human-readable binding status (Phase F-7)
+        - can_save_binding: Whether binding can be saved (Phase F-7)
     """
 
     def __init__(
@@ -141,7 +217,11 @@ class FormulaEditorViewModel(BaseViewModel):
         self._validation_result: Optional[FormulaValidationResultDTO] = None
         self._dependency_analysis_result: Optional[FormulaDependencyAnalysisResultDTO] = None
         self._cycle_analysis_result: Optional[FormulaCycleAnalysisResultDTO] = None
+        self._governance_result: Optional[FormulaGovernanceResultDTO] = None
         self._schema_fields: tuple[SchemaFieldInfoDTO, ...] = ()
+        # Phase F-7: Binding state
+        self._binding_target: Optional[FormulaBindingTarget] = None
+        self._binding_target_id: str = ""
 
     # =========================================================================
     # Properties (Observable)
@@ -380,6 +460,435 @@ class FormulaEditorViewModel(BaseViewModel):
         return self._cycle_analysis_result.analyzed_field_count
 
     # =========================================================================
+    # Phase F-5 Properties (Diagnostic Aggregation)
+    # =========================================================================
+
+    @property
+    def all_diagnostic_errors(self) -> tuple[str, ...]:
+        """Get all errors aggregated from F-1 through F-4 (Phase F-5).
+
+        Aggregates errors from:
+        - Validation errors (F-1)
+        - Unknown field references (F-3)
+        - Cycle detection errors (F-4)
+
+        Returns:
+            Tuple of human-readable error messages
+
+        Phase F-5 Compliance:
+            Aggregation only - no new logic or analysis.
+
+        Note:
+            Returns empty tuple if no formula text (better UX - no scary
+            errors when user hasn't typed anything yet).
+        """
+        # UX: Don't show errors if there's no formula yet
+        if not self.has_formula:
+            return ()
+
+        errors: list[str] = []
+
+        # F-1: Validation errors
+        if self._validation_result is not None:
+            for error in self._validation_result.errors:
+                errors.append(f"Syntax: {error}")
+
+        # F-3: Unknown field errors (these are errors, not warnings)
+        if self._dependency_analysis_result is not None:
+            for field_id in self._dependency_analysis_result.unknown_fields:
+                errors.append(f"Unknown field: {field_id}")
+
+        # F-4: Cycle errors
+        if self._cycle_analysis_result is not None:
+            for cycle in self._cycle_analysis_result.cycles:
+                errors.append(f"Circular dependency: {cycle.cycle_path}")
+
+        return tuple(errors)
+
+    @property
+    def all_diagnostic_warnings(self) -> tuple[str, ...]:
+        """Get all warnings aggregated from F-1 through F-4 (Phase F-5).
+
+        Aggregates warnings from:
+        - Type mismatch warnings (F-1)
+        - Other validation warnings (F-1)
+
+        Returns:
+            Tuple of human-readable warning messages
+
+        Phase F-5 Compliance:
+            Aggregation only - no new logic or analysis.
+
+        Note:
+            Returns empty tuple if no formula text (consistent with errors).
+        """
+        # UX: Don't show warnings if there's no formula yet
+        if not self.has_formula:
+            return ()
+
+        warnings: list[str] = []
+
+        # F-1: Validation warnings
+        if self._validation_result is not None:
+            for warning in self._validation_result.warnings:
+                warnings.append(f"Type: {warning}")
+
+        return tuple(warnings)
+
+    @property
+    def all_diagnostic_info(self) -> tuple[str, ...]:
+        """Get all info messages aggregated from F-1 through F-4 (Phase F-5).
+
+        Aggregates informational messages from:
+        - Inferred result type (F-1)
+        - Dependencies list (F-3)
+        - Analyzed field count (F-4)
+
+        Returns:
+            Tuple of human-readable info messages
+
+        Phase F-5 Compliance:
+            Aggregation only - no new logic or analysis.
+
+        Note:
+            Returns empty tuple if no formula text (consistent with errors).
+        """
+        # UX: Don't show info if there's no formula yet
+        if not self.has_formula:
+            return ()
+
+        info: list[str] = []
+
+        # F-1: Inferred type
+        if self._validation_result is not None:
+            info.append(f"Result type: {self._validation_result.inferred_type}")
+
+        # F-3: Dependencies
+        if self._dependency_analysis_result is not None:
+            known_deps = self._dependency_analysis_result.known_dependencies
+            if known_deps:
+                dep_names = ", ".join(d.field_id for d in known_deps)
+                info.append(f"Depends on: {dep_names}")
+
+        # F-4: Analysis summary (only if cycle analysis was performed)
+        if self._cycle_analysis_result is not None:
+            count = self._cycle_analysis_result.analyzed_field_count
+            if count > 0:
+                info.append(f"Analyzed {count} formula field(s)")
+
+        return tuple(info)
+
+    @property
+    def diagnostic_status(self) -> str:
+        """Get overall diagnostic status (Phase F-5).
+
+        Returns one of:
+        - "empty": No formula entered
+        - "error": Has errors (validation, unknown fields, or cycles)
+        - "warning": Has warnings but no errors
+        - "valid": No errors or warnings
+
+        Phase F-5 Compliance:
+            Aggregation only - reads existing properties.
+        """
+        if not self.has_formula:
+            return "empty"
+
+        # Check for any errors
+        if len(self.all_diagnostic_errors) > 0:
+            return "error"
+
+        # Check for any warnings
+        if len(self.all_diagnostic_warnings) > 0:
+            return "warning"
+
+        return "valid"
+
+    @property
+    def status_message(self) -> str:
+        """Get human-readable status message (Phase F-5).
+
+        Returns a concise status message suitable for inline display.
+
+        Phase F-5 Compliance:
+            Aggregation only - maps existing status to message.
+        """
+        status = self.diagnostic_status
+
+        if status == "empty":
+            return ""
+        elif status == "error":
+            error_count = len(self.all_diagnostic_errors)
+            return f"Formula has {error_count} error(s)"
+        elif status == "warning":
+            warning_count = len(self.all_diagnostic_warnings)
+            return f"Formula has {warning_count} warning(s)"
+        else:
+            return "Formula is valid"
+
+    @property
+    def has_diagnostics(self) -> bool:
+        """Check if any diagnostics exist (Phase F-5).
+
+        Returns:
+            True if there are any errors, warnings, or info messages
+        """
+        return (
+            len(self.all_diagnostic_errors) > 0
+            or len(self.all_diagnostic_warnings) > 0
+            or len(self.all_diagnostic_info) > 0
+        )
+
+    @property
+    def diagnostic_error_count(self) -> int:
+        """Get total count of diagnostic errors (Phase F-5)."""
+        return len(self.all_diagnostic_errors)
+
+    @property
+    def diagnostic_warning_count(self) -> int:
+        """Get total count of diagnostic warnings (Phase F-5)."""
+        return len(self.all_diagnostic_warnings)
+
+    # =========================================================================
+    # Phase F-6 Properties (Governance & Enforcement)
+    # =========================================================================
+
+    @property
+    def governance_result(self) -> Optional[FormulaGovernanceResultDTO]:
+        """Get latest governance evaluation result (Phase F-6).
+
+        Returns:
+            FormulaGovernanceResultDTO or None if not evaluated
+        """
+        return self._governance_result
+
+    @property
+    def governance_status(self) -> FormulaGovernanceStatus:
+        """Get governance status (Phase F-6).
+
+        Returns:
+            FormulaGovernanceStatus enum value. Returns EMPTY if not evaluated.
+        """
+        if self._governance_result is None:
+            return FormulaGovernanceStatus.EMPTY
+        return self._governance_result.status
+
+    @property
+    def is_formula_allowed(self) -> bool:
+        """Check if formula is allowed by governance (Phase F-6).
+
+        A formula is allowed if:
+        - No formula text (EMPTY status)
+        - Valid with no issues (VALID status)
+        - Valid with warnings (VALID_WITH_WARNINGS status)
+
+        Only INVALID status blocks the formula.
+
+        Returns:
+            True if formula is allowed (not blocked)
+        """
+        if self._governance_result is None:
+            return True  # No evaluation = allowed (empty/neutral)
+        return self._governance_result.is_allowed
+
+    @property
+    def is_formula_blocked(self) -> bool:
+        """Check if formula is blocked by governance (Phase F-6).
+
+        A formula is blocked only if it has INVALID status due to:
+        - Syntax errors
+        - Unknown field references
+        - Circular dependencies
+
+        Returns:
+            True if formula is blocked (INVALID status)
+        """
+        if self._governance_result is None:
+            return False  # No evaluation = not blocked
+        return self._governance_result.is_blocked
+
+    @property
+    def governance_message(self) -> str:
+        """Get human-readable governance message (Phase F-6).
+
+        Returns a concise summary message describing the governance decision.
+
+        Returns:
+            Human-readable governance summary
+        """
+        if self._governance_result is None:
+            return ""
+        return self._governance_result.summary_message
+
+    @property
+    def governance_blocking_reasons(self) -> tuple[str, ...]:
+        """Get blocking reasons from governance (Phase F-6).
+
+        Returns:
+            Tuple of reasons why formula is blocked (empty if not blocked)
+        """
+        if self._governance_result is None:
+            return ()
+        return self._governance_result.blocking_reasons
+
+    @property
+    def governance_warning_reasons(self) -> tuple[str, ...]:
+        """Get warning reasons from governance (Phase F-6).
+
+        Returns:
+            Tuple of warning reasons (non-blocking issues)
+        """
+        if self._governance_result is None:
+            return ()
+        return self._governance_result.warning_reasons
+
+    # =========================================================================
+    # Phase F-7 Properties (Formula Binding)
+    # =========================================================================
+
+    @property
+    def binding_target(self) -> Optional[FormulaBindingTarget]:
+        """Get current binding target type (Phase F-7).
+
+        Returns:
+            FormulaBindingTarget or None if no target set
+        """
+        return self._binding_target
+
+    @property
+    def binding_target_id(self) -> str:
+        """Get current binding target ID (Phase F-7).
+
+        Returns:
+            Target ID (e.g., field_id) or empty string if not set
+        """
+        return self._binding_target_id
+
+    @property
+    def is_binding_allowed(self) -> bool:
+        """Check if formula can be bound to current target (Phase F-7).
+
+        Evaluates binding rules:
+        - CALCULATED_FIELD: Allowed if governance is not INVALID
+        - VALIDATION_RULE/OUTPUT_MAPPING: FORBIDDEN in Phase F-7
+
+        Returns:
+            True if binding is allowed, False otherwise
+
+        Phase F-7 Compliance:
+            Pure property - reads governance state and target.
+            No side effects.
+        """
+        if self._binding_target is None:
+            return False
+
+        if self._governance_result is None:
+            return False
+
+        # Use use-case to evaluate binding eligibility
+        result = self._formula_usecases.can_bind_formula(
+            target_type=self._binding_target,
+            governance_result=self._governance_result,
+        )
+        return result.is_allowed
+
+    @property
+    def binding_block_reason(self) -> Optional[str]:
+        """Get reason why binding is blocked (Phase F-7).
+
+        Returns:
+            Block reason string, or None if binding is allowed
+
+        Phase F-7 Compliance:
+            Pure property - reads governance state and target.
+            No side effects.
+        """
+        if self._binding_target is None:
+            return "No binding target set"
+
+        if self._governance_result is None:
+            return "Governance not evaluated"
+
+        result = self._formula_usecases.can_bind_formula(
+            target_type=self._binding_target,
+            governance_result=self._governance_result,
+        )
+        return result.block_reason
+
+    @property
+    def binding_status(self) -> FormulaBindingStatus:
+        """Get current binding status (Phase F-7).
+
+        Returns:
+            FormulaBindingStatus enum value
+
+        Phase F-7 Compliance:
+            Pure property - reads governance state and target.
+            No side effects.
+        """
+        if self._binding_target is None:
+            return FormulaBindingStatus.BLOCKED_UNSUPPORTED_TARGET
+
+        if self._governance_result is None:
+            # If formula is empty (cleared), return CLEARED status
+            if not self._formula_text or not self._formula_text.strip():
+                return FormulaBindingStatus.CLEARED
+            return FormulaBindingStatus.BLOCKED_INVALID_FORMULA
+
+        result = self._formula_usecases.can_bind_formula(
+            target_type=self._binding_target,
+            governance_result=self._governance_result,
+        )
+        return result.status
+
+    @property
+    def binding_status_message(self) -> str:
+        """Get human-readable binding status message (Phase F-7).
+
+        Returns:
+            Human-readable status message describing binding eligibility
+
+        Phase F-7 Compliance:
+            Pure property - reads binding status and formats message.
+            No side effects.
+        """
+        if self._binding_target is None:
+            return "No binding target configured"
+
+        if self._governance_result is None:
+            return "Formula not validated"
+
+        result = self._formula_usecases.can_bind_formula(
+            target_type=self._binding_target,
+            governance_result=self._governance_result,
+        )
+        return result.status_message
+
+    @property
+    def can_save_binding(self) -> bool:
+        """Check if binding can be saved (Phase F-7).
+
+        A binding can be saved if:
+        - Binding target is set
+        - Binding is allowed (or formula is empty/cleared)
+
+        Returns:
+            True if binding can be saved
+
+        Phase F-7 Compliance:
+            Pure property - no persistence occurs here.
+            Caller is responsible for actual persistence.
+        """
+        if self._binding_target is None:
+            return False
+
+        status = self.binding_status
+        return status in (
+            FormulaBindingStatus.ALLOWED,
+            FormulaBindingStatus.CLEARED,
+        )
+
+    # =========================================================================
     # Commands (User Actions)
     # =========================================================================
 
@@ -422,11 +931,13 @@ class FormulaEditorViewModel(BaseViewModel):
         self._validate_formula()
 
     def clear_formula(self) -> None:
-        """Clear formula text, validation result, dependency analysis, and cycle analysis."""
+        """Clear formula text, validation result, dependency analysis, cycle analysis, governance, and binding."""
         self._formula_text = ""
         self._validation_result = None
         self._dependency_analysis_result = None
         self._cycle_analysis_result = None
+        self._governance_result = None
+        # Note: binding target is NOT cleared - it's context, not formula data
 
         self.notify_change("formula_text")
         self.notify_change("has_formula")
@@ -454,6 +965,29 @@ class FormulaEditorViewModel(BaseViewModel):
         self.notify_change("all_cycle_field_ids")
         self.notify_change("cycle_errors")
         self.notify_change("analyzed_field_count")
+        # Phase F-5 notifications (diagnostic aggregation)
+        self.notify_change("all_diagnostic_errors")
+        self.notify_change("all_diagnostic_warnings")
+        self.notify_change("all_diagnostic_info")
+        self.notify_change("diagnostic_status")
+        self.notify_change("status_message")
+        self.notify_change("has_diagnostics")
+        self.notify_change("diagnostic_error_count")
+        self.notify_change("diagnostic_warning_count")
+        # Phase F-6 notifications (governance)
+        self.notify_change("governance_result")
+        self.notify_change("governance_status")
+        self.notify_change("is_formula_allowed")
+        self.notify_change("is_formula_blocked")
+        self.notify_change("governance_message")
+        self.notify_change("governance_blocking_reasons")
+        self.notify_change("governance_warning_reasons")
+        # Phase F-7 notifications (binding status may change with cleared formula)
+        self.notify_change("is_binding_allowed")
+        self.notify_change("binding_block_reason")
+        self.notify_change("binding_status")
+        self.notify_change("binding_status_message")
+        self.notify_change("can_save_binding")
 
     def validate(self) -> FormulaValidationResultDTO:
         """Manually trigger validation.
@@ -468,6 +1002,108 @@ class FormulaEditorViewModel(BaseViewModel):
             warnings=(),
             inferred_type=FormulaResultType.UNKNOWN.value,
             field_references=(),
+        )
+
+    # =========================================================================
+    # Phase F-7 Commands (Binding Actions)
+    # =========================================================================
+
+    def set_binding_target(
+        self,
+        target_type: FormulaBindingTarget,
+        target_id: str,
+    ) -> None:
+        """Set the binding target for formula (Phase F-7).
+
+        Args:
+            target_type: The binding target type (CALCULATED_FIELD, etc.)
+            target_id: ID of the target (e.g., field_id for CALCULATED_FIELD)
+
+        Phase F-7 Compliance:
+            Sets binding context for subsequent binding operations.
+            No persistence occurs here.
+        """
+        self._binding_target = target_type
+        self._binding_target_id = target_id
+
+        # Notify binding-related properties
+        self.notify_change("binding_target")
+        self.notify_change("binding_target_id")
+        self.notify_change("is_binding_allowed")
+        self.notify_change("binding_block_reason")
+        self.notify_change("binding_status")
+        self.notify_change("binding_status_message")
+        self.notify_change("can_save_binding")
+
+    def clear_binding_target(self) -> None:
+        """Clear the binding target (Phase F-7).
+
+        Resets binding context to no target.
+
+        Phase F-7 Compliance:
+            Clears binding context only.
+            No persistence occurs here.
+        """
+        self._binding_target = None
+        self._binding_target_id = ""
+
+        # Notify binding-related properties
+        self.notify_change("binding_target")
+        self.notify_change("binding_target_id")
+        self.notify_change("is_binding_allowed")
+        self.notify_change("binding_block_reason")
+        self.notify_change("binding_status")
+        self.notify_change("binding_status_message")
+        self.notify_change("can_save_binding")
+
+    def get_binding_result(self) -> FormulaBindingResultDTO:
+        """Get the binding result for current formula and target (Phase F-7).
+
+        Returns a FormulaBindingResultDTO indicating whether binding is
+        allowed and, if so, contains the binding DTO to be persisted.
+
+        Returns:
+            FormulaBindingResultDTO with:
+            - status: ALLOWED, BLOCKED_*, or CLEARED
+            - binding: FormulaBindingDTO if allowed, None otherwise
+            - block_reason: Reason if blocked
+
+        Phase F-7 Compliance:
+            Pure operation - creates binding result DTO.
+            No persistence occurs here.
+            Caller is responsible for actual persistence.
+
+        Usage:
+            vm.set_binding_target(FormulaBindingTarget.CALCULATED_FIELD, "total")
+            vm.set_formula("price * quantity")
+            result = vm.get_binding_result()
+            if result.is_allowed:
+                binding = result.binding
+                # Persist binding to schema
+            else:
+                # Show block reason
+                print(result.block_reason)
+        """
+        if self._binding_target is None:
+            return FormulaBindingResultDTO(
+                status=FormulaBindingStatus.BLOCKED_UNSUPPORTED_TARGET,
+                binding=None,
+                block_reason="No binding target set",
+            )
+
+        if self._governance_result is None:
+            return FormulaBindingResultDTO(
+                status=FormulaBindingStatus.BLOCKED_INVALID_FORMULA,
+                binding=None,
+                block_reason="Formula not validated",
+            )
+
+        # Use use-case to create binding
+        return self._formula_usecases.bind_formula(
+            target_type=self._binding_target,
+            target_id=self._binding_target_id,
+            formula_text=self._formula_text,
+            governance_result=self._governance_result,
         )
 
     def analyze_entity_cycles(
@@ -510,6 +1146,14 @@ class FormulaEditorViewModel(BaseViewModel):
             formula_dependencies=formula_dependencies,
         )
 
+        # Re-evaluate governance after cycle analysis (Phase F-6)
+        # Cycles affect governance status
+        self._governance_result = self._formula_usecases.evaluate_governance(
+            formula_text=self._formula_text,
+            validation_result=self._validation_result,
+            cycle_result=self._cycle_analysis_result,
+        )
+
         # Notify observers of cycle-related property changes
         self.notify_change("cycle_analysis_result")
         self.notify_change("has_cycles")
@@ -518,6 +1162,21 @@ class FormulaEditorViewModel(BaseViewModel):
         self.notify_change("all_cycle_field_ids")
         self.notify_change("cycle_errors")
         self.notify_change("analyzed_field_count")
+        # Phase F-5 notifications (cycle changes affect diagnostics)
+        self.notify_change("all_diagnostic_errors")
+        self.notify_change("all_diagnostic_info")
+        self.notify_change("diagnostic_status")
+        self.notify_change("status_message")
+        self.notify_change("has_diagnostics")
+        self.notify_change("diagnostic_error_count")
+        # Phase F-6 notifications (cycle changes affect governance)
+        self.notify_change("governance_result")
+        self.notify_change("governance_status")
+        self.notify_change("is_formula_allowed")
+        self.notify_change("is_formula_blocked")
+        self.notify_change("governance_message")
+        self.notify_change("governance_blocking_reasons")
+        self.notify_change("governance_warning_reasons")
 
         return self._cycle_analysis_result
 
@@ -529,6 +1188,13 @@ class FormulaEditorViewModel(BaseViewModel):
         """
         self._cycle_analysis_result = None
 
+        # Re-evaluate governance without cycle data (Phase F-6)
+        self._governance_result = self._formula_usecases.evaluate_governance(
+            formula_text=self._formula_text,
+            validation_result=self._validation_result,
+            cycle_result=None,
+        )
+
         self.notify_change("cycle_analysis_result")
         self.notify_change("has_cycles")
         self.notify_change("cycles")
@@ -536,21 +1202,37 @@ class FormulaEditorViewModel(BaseViewModel):
         self.notify_change("all_cycle_field_ids")
         self.notify_change("cycle_errors")
         self.notify_change("analyzed_field_count")
+        # Phase F-5 notifications (cycle changes affect diagnostics)
+        self.notify_change("all_diagnostic_errors")
+        self.notify_change("all_diagnostic_info")
+        self.notify_change("diagnostic_status")
+        self.notify_change("status_message")
+        self.notify_change("has_diagnostics")
+        self.notify_change("diagnostic_error_count")
+        # Phase F-6 notifications (cycle changes affect governance)
+        self.notify_change("governance_result")
+        self.notify_change("governance_status")
+        self.notify_change("is_formula_allowed")
+        self.notify_change("is_formula_blocked")
+        self.notify_change("governance_message")
+        self.notify_change("governance_blocking_reasons")
+        self.notify_change("governance_warning_reasons")
 
     # =========================================================================
     # Internal Methods
     # =========================================================================
 
     def _validate_formula(self) -> None:
-        """Validate current formula text and analyze dependencies.
+        """Validate current formula text, analyze dependencies, and evaluate governance.
 
         Internal method that:
-        1. Calls use-case for validation
+        1. Calls use-case for validation (Phase F-1)
         2. Calls use-case for dependency analysis (Phase F-3)
-        3. Updates validation and dependency result states
-        4. Notifies all relevant observers
+        3. Calls use-case for governance evaluation (Phase F-6)
+        4. Updates all result states
+        5. Notifies all relevant observers
         """
-        # Validate via use-case
+        # Validate via use-case (Phase F-1)
         self._validation_result = self._formula_usecases.validate_formula(
             formula_text=self._formula_text,
             schema_fields=self._schema_fields,
@@ -560,6 +1242,16 @@ class FormulaEditorViewModel(BaseViewModel):
         self._dependency_analysis_result = self._formula_usecases.analyze_dependencies(
             formula_text=self._formula_text,
             schema_fields=self._schema_fields,
+        )
+
+        # Evaluate governance via use-case (Phase F-6)
+        # Note: Cycle analysis is handled separately via analyze_entity_cycles()
+        # so we pass None for cycle_result here. Entity-wide governance
+        # evaluation should be triggered by calling evaluate_entity_governance().
+        self._governance_result = self._formula_usecases.evaluate_governance(
+            formula_text=self._formula_text,
+            validation_result=self._validation_result,
+            cycle_result=self._cycle_analysis_result,
         )
 
         # Notify all observers
@@ -579,6 +1271,23 @@ class FormulaEditorViewModel(BaseViewModel):
         self.notify_change("has_unknown_fields")
         self.notify_change("dependency_count")
         self.notify_change("unknown_count")
+        # Phase F-5 notifications (diagnostic aggregation)
+        self.notify_change("all_diagnostic_errors")
+        self.notify_change("all_diagnostic_warnings")
+        self.notify_change("all_diagnostic_info")
+        self.notify_change("diagnostic_status")
+        self.notify_change("status_message")
+        self.notify_change("has_diagnostics")
+        self.notify_change("diagnostic_error_count")
+        self.notify_change("diagnostic_warning_count")
+        # Phase F-6 notifications (governance)
+        self.notify_change("governance_result")
+        self.notify_change("governance_status")
+        self.notify_change("is_formula_allowed")
+        self.notify_change("is_formula_blocked")
+        self.notify_change("governance_message")
+        self.notify_change("governance_blocking_reasons")
+        self.notify_change("governance_warning_reasons")
 
     def dispose(self) -> None:
         """Clean up resources."""
@@ -587,4 +1296,8 @@ class FormulaEditorViewModel(BaseViewModel):
         self._validation_result = None
         self._dependency_analysis_result = None
         self._cycle_analysis_result = None
+        self._governance_result = None
         self._schema_fields = ()
+        # Phase F-7: Clear binding state
+        self._binding_target = None
+        self._binding_target_id = ""
