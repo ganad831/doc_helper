@@ -1,4 +1,4 @@
-"""Runtime use cases package (Phase R-1, Phase R-2, Phase R-3, Phase R-4).
+"""Runtime use cases package (Phase R-1, Phase R-2, Phase R-3, Phase R-4, Phase R-4.5).
 
 Contains use cases for runtime evaluation:
 - Control rules (Phase R-1)
@@ -6,11 +6,16 @@ Contains use cases for runtime evaluation:
 - Validation constraints (Phase R-2)
 - Orchestrated runtime evaluation (Phase R-3) ← AUTHORITATIVE ENTRY POINT
 - Entity-level control rules aggregation (Phase R-4)
+- Form runtime state adapter (Phase R-4.5)
 
 Phase R-3: Use EvaluateRuntimeRulesUseCase as the single runtime entry point.
 Phase R-4: Entity-level control rule aggregation used by R-3.
+Phase R-4.5: Form runtime state adapter for UI consumption.
 """
 
+from doc_helper.application.usecases.runtime.build_form_runtime_state import (
+    BuildFormRuntimeStateUseCase,
+)
 from doc_helper.application.usecases.runtime.evaluate_control_rules import (
     EvaluateControlRulesUseCase,
 )
@@ -28,6 +33,7 @@ from doc_helper.application.usecases.runtime.evaluate_validation_rules import (
 )
 
 __all__ = [
+    "BuildFormRuntimeStateUseCase",  # Phase R-4.5: Form runtime state adapter
     "EvaluateControlRulesUseCase",
     "EvaluateEntityControlRulesUseCase",  # Phase R-4: Entity-level aggregation
     "EvaluateOutputMappingsUseCase",

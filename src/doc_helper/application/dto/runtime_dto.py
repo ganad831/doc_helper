@@ -1,4 +1,4 @@
-"""Runtime Evaluation DTOs (Phase R-1, R-2, R-3, R-4).
+"""Runtime Evaluation DTOs (Phase R-1, R-2, R-3, R-4, R-4.5).
 
 Data Transfer Objects for runtime evaluation:
 - Control rule evaluation (Phase R-1)
@@ -6,6 +6,7 @@ Data Transfer Objects for runtime evaluation:
 - Validation constraint evaluation (Phase R-2)
 - Orchestrated runtime evaluation (Phase R-3)
 - Entity-level control rules aggregation (Phase R-4)
+- Form runtime state adapter (Phase R-4.5)
 
 ADR-050 Compliance:
 - Pull-based evaluation (caller provides all inputs)
@@ -522,4 +523,173 @@ class EntityControlRulesEvaluationResultDTO:
             entity_id=entity_id,
             field_results=(),
             has_any_rule=False,
+        )
+
+
+# ============================================================================
+# Form Runtime State DTOs (Phase R-4.5)
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class FormFieldRuntimeStateDTO:
+    """Runtime state for a single form field (Phase R-4.5).
+
+    Presentation-ready representation of field runtime state.
+    Combines control rules and validation results without UI logic.
+
+    ADR-050 Compliance:
+        - Immutable field state snapshot
+        - Pull-based (derived from runtime evaluation results)
+        - No domain object leakage
+        - Presentation-agnostic (no UI imports)
+    """
+
+    field_id: str
+    """Field identifier."""
+
+    visible: bool
+    """Whether the field should be visible (from control rules)."""
+
+    enabled: bool
+    """Whether the field should be enabled (from control rules)."""
+
+    required: bool
+    """Whether the field is required (from control rules)."""
+
+    validation_errors: tuple[str, ...]
+    """Validation error messages (ERROR severity - blocking)."""
+
+    validation_warnings: tuple[str, ...]
+    """Validation warning messages (WARNING severity - non-blocking)."""
+
+    validation_info: tuple[str, ...]
+    """Validation info messages (INFO severity - informational)."""
+
+
+@dataclass(frozen=True)
+class FormRuntimeStateDTO:
+    """Runtime state for an entire form (Phase R-4.5).
+
+    Aggregates per-field runtime state for UI consumption.
+    Converts runtime evaluation results into presentation-ready form state.
+
+    ADR-050 Compliance:
+        - Immutable entity-level form state
+        - Pull-based (derived from R-3 orchestration results)
+        - Deterministic (same inputs → same outputs)
+        - Read-only (no persistence)
+        - Single-entity scope only
+
+    Phase R-4.5: Adapter between runtime evaluation and UI layer.
+    """
+
+    entity_id: str
+    """Entity whose form state is represented."""
+
+    fields: tuple[FormFieldRuntimeStateDTO, ...]
+    """Per-field runtime state (ordered by field evaluation order)."""
+
+    has_blocking_errors: bool
+    """Whether any field has ERROR severity validation issues.
+    True if form submission should be blocked."""
+
+    @staticmethod
+    def from_runtime_result(
+        entity_id: str,
+        runtime_result: "RuntimeEvaluationResultDTO",
+    ) -> "FormRuntimeStateDTO":
+        """Create form runtime state from R-3 orchestration result.
+
+        Args:
+            entity_id: Entity identifier
+            runtime_result: RuntimeEvaluationResultDTO from Phase R-3
+
+        Returns:
+            FormRuntimeStateDTO with per-field states
+        """
+        # Extract control rules from R-4 entity-level aggregation
+        control_rules_result = runtime_result.control_rules_result
+
+        # Extract validation results from R-2
+        validation_result = runtime_result.validation_result
+
+        # Build validation lookup: field_id → (errors, warnings, info)
+        validation_by_field: dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]] = {}
+
+        # Group validation issues by field_id
+        for error in validation_result.errors:
+            if error.field_id not in validation_by_field:
+                validation_by_field[error.field_id] = ((), (), ())
+            current = validation_by_field[error.field_id]
+            validation_by_field[error.field_id] = (
+                current[0] + (error.message,),
+                current[1],
+                current[2],
+            )
+
+        for warning in validation_result.warnings:
+            if warning.field_id not in validation_by_field:
+                validation_by_field[warning.field_id] = ((), (), ())
+            current = validation_by_field[warning.field_id]
+            validation_by_field[warning.field_id] = (
+                current[0],
+                current[1] + (warning.message,),
+                current[2],
+            )
+
+        for info in validation_result.info:
+            if info.field_id not in validation_by_field:
+                validation_by_field[info.field_id] = ((), (), ())
+            current = validation_by_field[info.field_id]
+            validation_by_field[info.field_id] = (
+                current[0],
+                current[1],
+                current[2] + (info.message,),
+            )
+
+        # Build per-field runtime state
+        field_states: list[FormFieldRuntimeStateDTO] = []
+
+        for field_control in control_rules_result.field_results:
+            # Get validation messages for this field (or empty tuples)
+            field_validation = validation_by_field.get(
+                field_control.field_id,
+                ((), (), ()),
+            )
+
+            field_state = FormFieldRuntimeStateDTO(
+                field_id=field_control.field_id,
+                visible=field_control.visibility,
+                enabled=field_control.enabled,
+                required=field_control.required,
+                validation_errors=field_validation[0],
+                validation_warnings=field_validation[1],
+                validation_info=field_validation[2],
+            )
+            field_states.append(field_state)
+
+        # Determine if form has blocking errors
+        has_blocking_errors = validation_result.blocking
+
+        return FormRuntimeStateDTO(
+            entity_id=entity_id,
+            fields=tuple(field_states),
+            has_blocking_errors=has_blocking_errors,
+        )
+
+    @staticmethod
+    def default(entity_id: str) -> "FormRuntimeStateDTO":
+        """Create default form state (no fields, no errors).
+
+        Args:
+            entity_id: Entity identifier
+
+        Returns:
+            FormRuntimeStateDTO with empty state
+        """
+        return FormRuntimeStateDTO(
+            entity_id=entity_id,
+            fields=(),
+            has_blocking_errors=False,
         )
