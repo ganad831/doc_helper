@@ -185,3 +185,145 @@ class OutputMappingEvaluationResultDTO:
             value=None,
             error_message=error_message,
         )
+
+
+# ============================================================================
+# Validation Rule Evaluation DTOs (Phase R-2)
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class ValidationIssueDTO:
+    """A single validation issue found during constraint evaluation (Phase R-2).
+
+    ADR-050 Compliance:
+        - Immutable issue record
+        - Severity-based categorization
+        - Human-readable message
+        - Machine-readable code
+    """
+
+    field_id: str
+    """Field identifier that failed validation."""
+
+    field_label: str
+    """Translated human-readable field label."""
+
+    constraint_type: str
+    """Type of constraint that failed (e.g., 'RequiredConstraint', 'MinLengthConstraint')."""
+
+    severity: str
+    """Severity level: 'ERROR', 'WARNING', or 'INFO'."""
+
+    message: str
+    """Translated human-readable error message."""
+
+    code: str
+    """Machine-readable error code (e.g., 'REQUIRED_FIELD_EMPTY', 'VALUE_TOO_SMALL')."""
+
+    details: Optional[dict] = None
+    """Optional constraint-specific details (e.g., {"min_length": 5, "actual_length": 3})."""
+
+
+@dataclass(frozen=True)
+class ValidationEvaluationRequestDTO:
+    """Request DTO for evaluating validation constraints at runtime (Phase R-2).
+
+    ADR-050 Compliance:
+        - Pull-based: Caller provides all inputs
+        - Single-entity scope only (no cross-entity)
+        - Field values passed as snapshot (read-only)
+    """
+
+    entity_id: str
+    """Entity whose fields should be validated."""
+
+    field_values: dict[str, Any]
+    """Current field values for the entity instance (snapshot).
+    Keys are field IDs, values are raw field values."""
+
+
+@dataclass(frozen=True)
+class ValidationEvaluationResultDTO:
+    """Result DTO for validation constraint evaluation at runtime (Phase R-2).
+
+    ADR-050 Compliance:
+        - Explicit success/failure
+        - Severity-based issue categorization
+        - Blocking determination based on ERROR severity
+        - No persistence side effects
+    """
+
+    success: bool
+    """Whether evaluation completed without exceptions.
+    True even if validation issues found (check blocking flag instead)."""
+
+    errors: tuple[ValidationIssueDTO, ...]
+    """Validation issues with ERROR severity (blocking)."""
+
+    warnings: tuple[ValidationIssueDTO, ...]
+    """Validation issues with WARNING severity (non-blocking)."""
+
+    info: tuple[ValidationIssueDTO, ...]
+    """Validation issues with INFO severity (informational only)."""
+
+    blocking: bool
+    """Whether any ERROR severity issues were found.
+    True if len(errors) > 0, False otherwise."""
+
+    evaluated_fields: tuple[str, ...]
+    """Field IDs that were evaluated (had values in field_values dict)."""
+
+    failed_fields: tuple[str, ...]
+    """Field IDs that had ERROR severity issues."""
+
+    error_message: Optional[str] = None
+    """Error message if evaluation failed due to exception (None if success)."""
+
+    @staticmethod
+    def success_result(
+        errors: tuple[ValidationIssueDTO, ...],
+        warnings: tuple[ValidationIssueDTO, ...],
+        info: tuple[ValidationIssueDTO, ...],
+        evaluated_fields: tuple[str, ...],
+        failed_fields: tuple[str, ...],
+    ) -> "ValidationEvaluationResultDTO":
+        """Create successful validation result (may still have validation issues).
+
+        Args:
+            errors: ERROR severity issues
+            warnings: WARNING severity issues
+            info: INFO severity issues
+            evaluated_fields: Field IDs that were evaluated
+            failed_fields: Field IDs with ERROR issues
+
+        Returns:
+            ValidationEvaluationResultDTO with blocking flag set based on errors
+        """
+        return ValidationEvaluationResultDTO(
+            success=True,
+            errors=errors,
+            warnings=warnings,
+            info=info,
+            blocking=len(errors) > 0,
+            evaluated_fields=evaluated_fields,
+            failed_fields=failed_fields,
+            error_message=None,
+        )
+
+    @staticmethod
+    def failure(error_message: str) -> "ValidationEvaluationResultDTO":
+        """Create failure result due to exception.
+
+        ADR-050: Evaluation failures (exceptions) return empty results.
+        """
+        return ValidationEvaluationResultDTO(
+            success=False,
+            errors=(),
+            warnings=(),
+            info=(),
+            blocking=False,
+            evaluated_fields=(),
+            failed_fields=(),
+            error_message=error_message,
+        )

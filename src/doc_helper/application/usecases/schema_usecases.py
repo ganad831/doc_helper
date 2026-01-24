@@ -74,6 +74,7 @@ from doc_helper.application.dto.control_rule_dto import (
     ControlRuleType,
 )
 from doc_helper.application.dto.export_dto import (
+    ConstraintExportDTO,
     ControlRuleExportDTO,
     ExportResult,
     OutputMappingExportDTO,
@@ -693,6 +694,93 @@ class SchemaUseCases:
         """
         entities = self.get_all_entities()
         return tuple((entity.id, entity.name) for entity in entities)
+
+    # =========================================================================
+    # Constraint Query Operations (Phase R-2)
+    # =========================================================================
+
+    def list_constraints_for_field(
+        self,
+        entity_id: str,
+        field_id: str,
+    ) -> tuple[ConstraintExportDTO, ...]:
+        """List all constraints for a field (Phase R-2).
+
+        Args:
+            entity_id: Entity containing the field
+            field_id: Field to list constraints for
+
+        Returns:
+            Tuple of ConstraintExportDTO for the field.
+            Empty tuple if entity/field not found or has no constraints.
+            Severity is included in parameters dict.
+
+        Phase R-2 Compliance:
+            - Read-only query
+            - Returns DTOs only
+            - Severity included in parameters
+        """
+        from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
+
+        # Get entity
+        entity_id_obj = EntityDefinitionId(entity_id.strip())
+        if not self._schema_repository.exists(entity_id_obj):
+            return ()
+
+        load_result = self._schema_repository.get_by_id(entity_id_obj)
+        if load_result.is_failure():
+            return ()
+
+        entity = load_result.value
+
+        # Get field
+        field_id_obj = FieldDefinitionId(field_id.strip())
+        if field_id_obj not in entity.fields:
+            return ()
+
+        field = entity.fields[field_id_obj]
+
+        # Convert domain constraints to ConstraintExportDTOs with severity
+        constraint_dtos = []
+        for constraint in field.constraints:
+            # Get constraint type name
+            constraint_type = type(constraint).__name__
+            parameters: dict = {}
+
+            # Extract constraint-specific parameters
+            if isinstance(constraint, RequiredConstraint):
+                # No additional parameters for required constraint
+                pass
+            elif isinstance(constraint, MinLengthConstraint):
+                parameters["min_length"] = constraint.min_length
+            elif isinstance(constraint, MaxLengthConstraint):
+                parameters["max_length"] = constraint.max_length
+            elif isinstance(constraint, MinValueConstraint):
+                parameters["min_value"] = constraint.min_value
+            elif isinstance(constraint, MaxValueConstraint):
+                parameters["max_value"] = constraint.max_value
+            elif isinstance(constraint, PatternConstraint):
+                parameters["pattern"] = constraint.pattern
+                if constraint.description:
+                    parameters["description"] = constraint.description
+            elif isinstance(constraint, AllowedValuesConstraint):
+                parameters["allowed_values"] = list(constraint.allowed_values)
+            elif isinstance(constraint, FileExtensionConstraint):
+                parameters["allowed_extensions"] = list(constraint.allowed_extensions)
+            elif isinstance(constraint, MaxFileSizeConstraint):
+                parameters["max_size_bytes"] = constraint.max_size_bytes
+
+            # Always include severity (Phase R-2 requirement)
+            parameters["severity"] = constraint.severity.value
+
+            constraint_dtos.append(
+                ConstraintExportDTO(
+                    constraint_type=constraint_type,
+                    parameters=parameters,
+                )
+            )
+
+        return tuple(constraint_dtos)
 
     # =========================================================================
     # Control Rule Operations (Phase F-10)
