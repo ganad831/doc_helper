@@ -1,4 +1,4 @@
-"""Unit tests for FormulaEditorViewModel (Phase F-1, F-3).
+"""Unit tests for FormulaEditorViewModel (Phase F-1, F-3, F-4).
 
 Tests formula editor ViewModel behavior:
 - Formula editor shows error on invalid input
@@ -6,6 +6,7 @@ Tests formula editor ViewModel behavior:
 - Formula editor does NOT modify schema
 - Formula editor exposes dependencies (Phase F-3)
 - Formula editor exposes unknown_fields (Phase F-3)
+- Formula editor exposes cycle detection results (Phase F-4)
 
 PHASE F-1 CONSTRAINTS:
 - Read-only validation (no execution)
@@ -18,11 +19,19 @@ PHASE F-3 CONSTRAINTS (ADR-040):
 - No DAG/graph construction
 - No cycle detection
 - No execution logic
+
+PHASE F-4 CONSTRAINTS (ADR-041):
+- Read-only cycle analysis
+- Deterministic: same inputs → same output
+- No DAG execution or topological sorting
+- No cycle prevention (analysis-only)
+- Same-entity scope only
 """
 
 import pytest
 
 from doc_helper.application.dto.formula_dto import (
+    FormulaCycleDTO,
     FormulaDependencyDTO,
     SchemaFieldInfoDTO,
 )
@@ -606,3 +615,305 @@ class TestFormulaEditorViewModel:
 
         # Should be identical
         assert deps1 == deps2
+
+    # =========================================================================
+    # Phase F-4: Formula Cycle Detection (Read-Only)
+    # =========================================================================
+
+    def test_no_cycle_analysis_by_default(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """No cycle analysis result by default (Phase F-4)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1 + value2")
+
+        # Cycle analysis is entity-wide, not per-formula
+        # Should be None until analyze_entity_cycles is called
+        assert viewmodel.cycle_analysis_result is None
+        assert viewmodel.has_cycles is False
+        assert viewmodel.cycles == ()
+        assert viewmodel.cycle_count == 0
+
+    def test_analyze_entity_cycles_no_cycles(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """analyze_entity_cycles should report no cycles for acyclic graph (Phase F-4)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        # Linear chain: total → subtotal → base
+        result = viewmodel.analyze_entity_cycles({
+            "total": ("subtotal",),
+            "subtotal": ("base",),
+            "base": (),
+        })
+
+        assert result.has_cycles is False
+        assert viewmodel.has_cycles is False
+        assert viewmodel.cycle_count == 0
+        assert viewmodel.cycles == ()
+        assert viewmodel.analyzed_field_count == 3
+
+    def test_analyze_entity_cycles_detects_simple_cycle(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """analyze_entity_cycles should detect A → B → A cycle (Phase F-4)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        result = viewmodel.analyze_entity_cycles({
+            "field_a": ("field_b",),
+            "field_b": ("field_a",),
+        })
+
+        assert result.has_cycles is True
+        assert viewmodel.has_cycles is True
+        assert viewmodel.cycle_count == 1
+
+        cycle = viewmodel.cycles[0]
+        assert set(cycle.field_ids) == {"field_a", "field_b"}
+        assert cycle.severity == "ERROR"
+
+    def test_analyze_entity_cycles_detects_self_reference(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """analyze_entity_cycles should detect self-referential cycle (Phase F-4)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        result = viewmodel.analyze_entity_cycles({
+            "field_a": ("field_a",),  # Self-reference
+        })
+
+        assert result.has_cycles is True
+        assert viewmodel.has_cycles is True
+        assert viewmodel.cycle_count == 1
+
+        cycle = viewmodel.cycles[0]
+        assert cycle.field_ids == ("field_a",)
+        assert cycle.is_self_reference is True
+
+    def test_analyze_entity_cycles_detects_multi_node_cycle(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """analyze_entity_cycles should detect A → B → C → A cycle (Phase F-4)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        result = viewmodel.analyze_entity_cycles({
+            "field_a": ("field_c",),
+            "field_b": ("field_a",),
+            "field_c": ("field_b",),
+        })
+
+        assert result.has_cycles is True
+        assert viewmodel.has_cycles is True
+        assert viewmodel.cycle_count == 1
+
+        cycle = viewmodel.cycles[0]
+        assert set(cycle.field_ids) == {"field_a", "field_b", "field_c"}
+
+    def test_analyze_entity_cycles_detects_multiple_cycles(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """analyze_entity_cycles should detect multiple independent cycles (Phase F-4)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        result = viewmodel.analyze_entity_cycles({
+            "cycle1_a": ("cycle1_b",),
+            "cycle1_b": ("cycle1_a",),
+            "cycle2_x": ("cycle2_y",),
+            "cycle2_y": ("cycle2_x",),
+        })
+
+        assert result.has_cycles is True
+        assert viewmodel.cycle_count == 2
+
+        all_ids = set(viewmodel.all_cycle_field_ids)
+        assert all_ids == {"cycle1_a", "cycle1_b", "cycle2_x", "cycle2_y"}
+
+    def test_cycle_errors_property(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """cycle_errors should provide human-readable messages (Phase F-4)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        viewmodel.analyze_entity_cycles({
+            "field_a": ("field_b",),
+            "field_b": ("field_a",),
+        })
+
+        errors = viewmodel.cycle_errors
+        assert len(errors) == 1
+        assert "Circular dependency" in errors[0]
+        assert "→" in errors[0]
+
+    def test_all_cycle_field_ids_property(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """all_cycle_field_ids should return all fields in cycles (Phase F-4)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        viewmodel.analyze_entity_cycles({
+            "normal_field": (),
+            "cyclic_a": ("cyclic_b",),
+            "cyclic_b": ("cyclic_a",),
+        })
+
+        all_ids = set(viewmodel.all_cycle_field_ids)
+        assert "cyclic_a" in all_ids
+        assert "cyclic_b" in all_ids
+        assert "normal_field" not in all_ids
+
+    def test_clear_cycle_analysis(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """clear_cycle_analysis should reset cycle state (Phase F-4)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        viewmodel.analyze_entity_cycles({
+            "field_a": ("field_b",),
+            "field_b": ("field_a",),
+        })
+
+        assert viewmodel.has_cycles is True
+
+        viewmodel.clear_cycle_analysis()
+
+        assert viewmodel.cycle_analysis_result is None
+        assert viewmodel.has_cycles is False
+        assert viewmodel.cycles == ()
+        assert viewmodel.cycle_count == 0
+
+    def test_clear_formula_clears_cycle_analysis(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """clear_formula should also clear cycle analysis (Phase F-4)."""
+        viewmodel.set_schema_context(schema_fields)
+        viewmodel.set_formula("value1")
+
+        viewmodel.analyze_entity_cycles({
+            "field_a": ("field_b",),
+            "field_b": ("field_a",),
+        })
+
+        assert viewmodel.has_cycles is True
+
+        viewmodel.clear_formula()
+
+        assert viewmodel.cycle_analysis_result is None
+        assert viewmodel.has_cycles is False
+
+    def test_dispose_clears_cycle_state(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """dispose should clear cycle state (Phase F-4)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        viewmodel.analyze_entity_cycles({
+            "field_a": ("field_b",),
+            "field_b": ("field_a",),
+        })
+
+        assert viewmodel.has_cycles is True
+
+        viewmodel.dispose()
+
+        assert viewmodel.cycle_analysis_result is None
+        assert viewmodel.has_cycles is False
+
+    def test_cycle_analysis_deterministic(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Same dependencies should produce same cycle results (Phase F-4)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        deps = {
+            "field_a": ("field_b",),
+            "field_b": ("field_c",),
+            "field_c": ("field_a",),
+        }
+
+        # First analysis
+        result1 = viewmodel.analyze_entity_cycles(deps)
+
+        # Clear and re-analyze
+        viewmodel.clear_cycle_analysis()
+        result2 = viewmodel.analyze_entity_cycles(deps)
+
+        assert result1.has_cycles == result2.has_cycles
+        assert result1.cycles == result2.cycles
+        assert result1.all_cycle_field_ids == result2.all_cycle_field_ids
+
+    def test_cycle_notifications_triggered(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """analyze_entity_cycles should notify cycle subscribers (Phase F-4)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        notifications = []
+        viewmodel.subscribe("has_cycles", lambda: notifications.append("has_cycles"))
+        viewmodel.subscribe("cycles", lambda: notifications.append("cycles"))
+        viewmodel.subscribe("cycle_count", lambda: notifications.append("cycle_count"))
+
+        viewmodel.analyze_entity_cycles({
+            "field_a": ("field_b",),
+            "field_b": ("field_a",),
+        })
+
+        assert "has_cycles" in notifications
+        assert "cycles" in notifications
+        assert "cycle_count" in notifications
+
+    def test_empty_dependencies_no_cycles(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """Empty dependencies should report no cycles (Phase F-4)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        result = viewmodel.analyze_entity_cycles({})
+
+        assert result.has_cycles is False
+        assert viewmodel.cycle_count == 0
+        assert viewmodel.analyzed_field_count == 0
+
+    def test_cycle_analysis_returns_dto(
+        self,
+        viewmodel: FormulaEditorViewModel,
+        schema_fields: tuple[SchemaFieldInfoDTO, ...],
+    ) -> None:
+        """analyze_entity_cycles should return DTO result (Phase F-4)."""
+        viewmodel.set_schema_context(schema_fields)
+
+        result = viewmodel.analyze_entity_cycles({
+            "field_a": ("field_b",),
+            "field_b": ("field_a",),
+        })
+
+        # Should return the same result that's stored
+        assert result is viewmodel.cycle_analysis_result
+        assert result.has_cycles is True

@@ -1,4 +1,4 @@
-"""Formula Use Cases (Phase F-1 + F-2 + F-3: Validation, Execution, Dependency Discovery).
+"""Formula Use Cases (Phase F-1 + F-2 + F-3 + F-4).
 
 Application layer use-case class for formula operations.
 Presentation layer MUST use this class instead of directly accessing
@@ -28,6 +28,15 @@ PHASE F-3 CONSTRAINTS (Dependency Discovery - ADR-040):
 - Read-only schema access
 - Returns FormulaDependencyAnalysisResultDTO
 
+PHASE F-4 CONSTRAINTS (Cycle Detection - ADR-041):
+- Analysis only (no execution)
+- No persistence of cycle results
+- No schema mutation
+- Non-blocking (informs, does not prevent)
+- Deterministic: same input -> same output
+- Same-entity scope only
+- Returns FormulaCycleAnalysisResultDTO
+
 ARCHITECTURE COMPLIANCE:
 - FormulaUseCases is the composition root for formula operations
 - ViewModel calls ONLY use-case methods
@@ -39,6 +48,8 @@ ARCHITECTURE COMPLIANCE:
 from typing import Any, Callable
 
 from doc_helper.application.dto.formula_dto import (
+    FormulaCycleAnalysisResultDTO,
+    FormulaCycleDTO,
     FormulaDependencyAnalysisResultDTO,
     FormulaDependencyDTO,
     FormulaExecutionResultDTO,
@@ -227,10 +238,11 @@ BUILTIN_FUNCTIONS: dict[str, Callable[..., Any]] = {
 
 
 class FormulaUseCases:
-    """Use-case class for formula validation, execution, and dependency discovery.
+    """Use-case class for formula validation, execution, dependency discovery, and cycle detection.
 
     Provides formula parsing, validation, type inference (Phase F-1),
-    runtime execution (Phase F-2), and dependency discovery (Phase F-3).
+    runtime execution (Phase F-2), dependency discovery (Phase F-3),
+    and cycle detection (Phase F-4).
 
     PHASE F-1 SCOPE (Design-Time):
     - parse_formula(): Parse formula text into AST (internal)
@@ -243,13 +255,16 @@ class FormulaUseCases:
     PHASE F-3 SCOPE (Dependency Discovery - ADR-040):
     - analyze_dependencies(): Discover field dependencies (analysis only)
 
+    PHASE F-4 SCOPE (Cycle Detection - ADR-041):
+    - detect_cycles(): Detect circular dependencies (analysis only)
+
     FORBIDDEN OPERATIONS:
     - Schema mutation
-    - Persistence of computed values
+    - Persistence of computed values or cycle results
     - Dependency tracking / auto-recompute
     - Domain object exposure to Presentation
-    - DAG/graph construction
-    - Cycle detection
+    - DAG schedulers or topological sorting
+    - Blocking of saves or edits
 
     Usage in ViewModel (Validation):
         usecases = FormulaUseCases()
@@ -274,6 +289,17 @@ class FormulaUseCases:
         )
         # result is FormulaDependencyAnalysisResultDTO
         # result.dependencies == (price_dep, quantity_dep, tax_dep)
+
+    Usage in ViewModel (Cycle Detection):
+        usecases = FormulaUseCases()
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                "total": ("subtotal", "tax"),
+                "subtotal": ("price", "quantity"),
+            }
+        )
+        # result is FormulaCycleAnalysisResultDTO
+        # result.has_cycles == False
     """
 
     def validate_formula(
@@ -646,6 +672,149 @@ class FormulaUseCases:
             has_parse_error=False,
             parse_error=None,
         )
+
+    # =========================================================================
+    # PHASE F-4: Cycle Detection (Design-Time Analysis)
+    # =========================================================================
+
+    def detect_cycles(
+        self,
+        formula_dependencies: dict[str, tuple[str, ...]],
+    ) -> FormulaCycleAnalysisResultDTO:
+        """Detect circular dependencies in formula fields.
+
+        PHASE F-4 (ADR-041) - Pure, deterministic analysis:
+        - No execution
+        - No persistence of cycle results
+        - No schema mutation
+        - Non-blocking (informs, does not prevent saves/edits)
+        - Same-entity scope only
+
+        This method analyzes formula field dependencies to detect cycles.
+        A cycle exists when field A depends on field B, B depends on C,
+        and C depends on A (or any similar circular chain).
+
+        Args:
+            formula_dependencies: Mapping from formula field ID to dependency field IDs.
+                Key: field_id of the formula field
+                Value: tuple of field IDs that this formula depends on
+
+        Returns:
+            FormulaCycleAnalysisResultDTO with:
+            - has_cycles: Whether any cycle was detected
+            - cycles: All detected cycles as FormulaCycleDTO
+            - analyzed_field_count: Number of formula fields analyzed
+
+        Example:
+            result = usecases.detect_cycles({
+                "total": ("subtotal", "tax"),
+                "subtotal": ("price", "quantity"),
+            })
+            # result.has_cycles == False (no cycles)
+
+            result = usecases.detect_cycles({
+                "a": ("b",),
+                "b": ("a",),  # Cycle: a → b → a
+            })
+            # result.has_cycles == True
+            # result.cycles[0].cycle_path == "a → b → a"
+
+        Phase F-4 Compliance (ADR-041):
+            - Read-only analysis (no mutation)
+            - No schema modification
+            - No blocking behavior
+            - Deterministic: same input → same output
+            - Returns DTO only
+        """
+        # Handle empty input
+        if not formula_dependencies:
+            return FormulaCycleAnalysisResultDTO(
+                has_cycles=False,
+                cycles=(),
+                analyzed_field_count=0,
+            )
+
+        # Detect all cycles using DFS
+        detected_cycles = self._find_all_cycles(formula_dependencies)
+
+        # Build cycle DTOs
+        cycle_dtos: list[FormulaCycleDTO] = []
+        for cycle_fields in detected_cycles:
+            # Build human-readable path (A → B → C → A)
+            cycle_path = " → ".join(cycle_fields) + " → " + cycle_fields[0]
+            cycle_dtos.append(
+                FormulaCycleDTO(
+                    field_ids=tuple(cycle_fields),
+                    cycle_path=cycle_path,
+                    severity="ERROR",
+                )
+            )
+
+        # Sort cycles for deterministic output
+        cycle_dtos.sort(key=lambda c: c.cycle_path)
+
+        return FormulaCycleAnalysisResultDTO(
+            has_cycles=len(cycle_dtos) > 0,
+            cycles=tuple(cycle_dtos),
+            analyzed_field_count=len(formula_dependencies),
+        )
+
+    def _find_all_cycles(
+        self,
+        dependencies: dict[str, tuple[str, ...]],
+    ) -> list[list[str]]:
+        """Find all cycles in the dependency graph using DFS.
+
+        Args:
+            dependencies: Mapping from field to its dependencies
+
+        Returns:
+            List of cycles, where each cycle is a list of field IDs in order
+        """
+        cycles: list[list[str]] = []
+        visited: set[str] = set()
+        rec_stack: set[str] = set()
+        path: list[str] = []
+
+        def dfs(node: str) -> None:
+            """DFS to find cycles."""
+            if node in rec_stack:
+                # Found a cycle - extract the cycle from path
+                cycle_start = path.index(node)
+                cycle = path[cycle_start:]
+                # Normalize cycle to start with smallest field_id for determinism
+                if cycle:
+                    min_idx = cycle.index(min(cycle))
+                    normalized = cycle[min_idx:] + cycle[:min_idx]
+                    # Avoid duplicates (same cycle found from different starting points)
+                    if normalized not in cycles:
+                        cycles.append(normalized)
+                return
+
+            if node in visited:
+                return
+
+            visited.add(node)
+            rec_stack.add(node)
+            path.append(node)
+
+            # Get dependencies, filtering to only formula fields in our graph
+            node_deps = dependencies.get(node, ())
+            for dep in node_deps:
+                # Only traverse to nodes that are formula fields (in our dependency map)
+                # or to nodes that would create a back-edge to our current path
+                if dep in dependencies or dep in rec_stack:
+                    dfs(dep)
+
+            path.pop()
+            rec_stack.remove(node)
+
+        # Start DFS from each formula field
+        for field_id in sorted(dependencies.keys()):  # Sort for determinism
+            if field_id not in visited:
+                dfs(field_id)
+
+        return cycles
 
     # =========================================================================
     # Internal Methods (Domain Logic Coordination)

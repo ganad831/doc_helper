@@ -68,6 +68,8 @@ from doc_helper.application.dto.formula_dto import (
     FormulaExecutionResultDTO,
     FormulaDependencyDTO,
     FormulaDependencyAnalysisResultDTO,
+    FormulaCycleDTO,
+    FormulaCycleAnalysisResultDTO,
     SchemaFieldInfoDTO,
     FormulaResultType,
 )
@@ -112,11 +114,13 @@ __all__ = [
     "InterchangeFormatInfoDTO",
     # AppType DTOs
     "AppTypeDTO",
-    # Formula DTOs (Phase F-1 + F-2 + F-3)
+    # Formula DTOs (Phase F-1 + F-2 + F-3 + F-4)
     "FormulaValidationResultDTO",
     "FormulaExecutionResultDTO",
     "FormulaDependencyDTO",
     "FormulaDependencyAnalysisResultDTO",
+    "FormulaCycleDTO",
+    "FormulaCycleAnalysisResultDTO",
     "SchemaFieldInfoDTO",
     "FormulaResultType",
 ]

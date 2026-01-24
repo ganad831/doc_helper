@@ -3,6 +3,7 @@
 Phase F-1: Formula Editor (Read-Only, Design-Time)
 Phase F-2: Formula Runtime Execution
 Phase F-3: Formula Dependency Discovery (Analysis-Only)
+Phase F-4: Formula Cycle Detection (Design-Time Analysis)
 
 RULES (AGENT_RULES.md Section 3-4, unified_upgrade_plan.md H2):
 - DTOs are immutable (frozen dataclasses)
@@ -29,6 +30,14 @@ PHASE F-3 CONSTRAINTS (ADR-040):
 - No DAG/graph construction
 - No cycle detection
 - Read-only schema access
+
+PHASE F-4 CONSTRAINTS (ADR-041):
+- Analysis only (no execution)
+- No persistence of cycle results
+- No schema mutation
+- No blocking of saves or edits
+- Cycles reported, not prevented
+- Deterministic: same input -> same output
 """
 
 from dataclasses import dataclass
@@ -227,3 +236,91 @@ class FormulaDependencyAnalysisResultDTO:
     def field_ids(self) -> tuple[str, ...]:
         """Get all referenced field IDs."""
         return tuple(d.field_id for d in self.dependencies)
+
+
+# =============================================================================
+# PHASE F-4: Formula Cycle Detection (Design-Time Analysis)
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class FormulaCycleDTO:
+    """UI-facing formula cycle information (Phase F-4).
+
+    Represents a single dependency cycle detected in formula fields.
+
+    PHASE F-4 CONSTRAINTS (ADR-041):
+    - Analysis result only (no execution)
+    - No persistence
+    - No schema mutation
+    - Non-blocking (informs, does not prevent)
+    - Deterministic output
+
+    FORBIDDEN in this DTO:
+    - AST nodes
+    - Domain value objects
+    - Graph edges or pointers
+    - Execution results
+    - Blocking logic
+    """
+
+    field_ids: tuple[str, ...]  # Fields forming the cycle, in order
+    cycle_path: str  # Human-readable path (e.g., "A → B → C → A")
+    severity: str  # Always "ERROR" for cycles
+
+    @property
+    def cycle_length(self) -> int:
+        """Get number of fields in the cycle."""
+        return len(self.field_ids)
+
+    @property
+    def is_self_reference(self) -> bool:
+        """Check if this is a self-referential cycle (A → A)."""
+        return len(self.field_ids) == 1
+
+
+@dataclass(frozen=True)
+class FormulaCycleAnalysisResultDTO:
+    """UI-facing formula cycle analysis result (Phase F-4).
+
+    Represents the complete cycle analysis of formula dependencies
+    within a single entity.
+
+    PHASE F-4 CONSTRAINTS (ADR-041):
+    - Analysis result only (no execution)
+    - Deterministic: same input -> same output
+    - No persistence
+    - No schema mutation
+    - Non-blocking (informs, does not prevent saves)
+    - Same-entity scope only (no cross-entity cycles)
+
+    FORBIDDEN in this DTO:
+    - AST objects
+    - Domain value objects
+    - Graph structures (stored)
+    - Cached results
+    - Execution results
+    - Blocking flags
+    """
+
+    has_cycles: bool  # Whether any cycle was detected
+    cycles: tuple[FormulaCycleDTO, ...]  # All detected cycles
+    analyzed_field_count: int  # Number of formula fields analyzed
+
+    @property
+    def cycle_count(self) -> int:
+        """Get number of cycles detected."""
+        return len(self.cycles)
+
+    @property
+    def all_cycle_field_ids(self) -> tuple[str, ...]:
+        """Get all field IDs involved in any cycle."""
+        all_ids: set[str] = set()
+        for cycle in self.cycles:
+            all_ids.update(cycle.field_ids)
+        return tuple(sorted(all_ids))
+
+    @property
+    def cycle_errors(self) -> tuple[str, ...]:
+        """Get all cycle paths as error messages."""
+        return tuple(f"Circular dependency: {c.cycle_path}" for c in self.cycles)

@@ -1,4 +1,4 @@
-"""Unit tests for FormulaUseCases (Phase F-1 + F-2 + F-3).
+"""Unit tests for FormulaUseCases (Phase F-1 + F-2 + F-3 + F-4).
 
 Tests formula validation use-case methods (Phase F-1):
 - validate_formula: Validates syntax, field references, functions
@@ -10,6 +10,9 @@ Tests formula execution use-case methods (Phase F-2):
 
 Tests formula dependency analysis use-case methods (Phase F-3):
 - analyze_dependencies: Discovers field dependencies (analysis only)
+
+Tests formula cycle detection use-case methods (Phase F-4):
+- detect_cycles: Detects circular dependencies in formula fields
 
 PHASE F-1 CONSTRAINTS:
 - Read-only validation (no execution)
@@ -28,11 +31,21 @@ PHASE F-3 CONSTRAINTS (ADR-040):
 - No DAG/graph construction
 - No cycle detection
 - Read-only schema access
+
+PHASE F-4 CONSTRAINTS (ADR-041):
+- Analysis only (design-time cycle detection)
+- No DAG execution or topological sorting
+- No persistence of cycle results
+- No blocking of saves/edits
+- Same-entity scope only
+- Deterministic output
 """
 
 import pytest
 
 from doc_helper.application.dto.formula_dto import (
+    FormulaCycleAnalysisResultDTO,
+    FormulaCycleDTO,
     FormulaDependencyAnalysisResultDTO,
     FormulaDependencyDTO,
     FormulaExecutionResultDTO,
@@ -1535,3 +1548,490 @@ class TestFormulaDependencyAnalysis:
         # Schema should be unchanged
         assert schema_fields == original_schema
         assert len(schema_fields) == len(original_schema)
+
+
+# =============================================================================
+# PHASE F-4: Formula Cycle Detection Tests
+# =============================================================================
+
+
+class TestFormulaCycleDetection:
+    """Tests for FormulaUseCases.detect_cycles() (Phase F-4).
+
+    PHASE F-4 CONSTRAINTS (ADR-041):
+    - Analysis only (design-time cycle detection)
+    - No DAG execution or topological sorting
+    - No persistence of cycle results
+    - No blocking of saves/edits
+    - Same-entity scope only
+    - Deterministic output
+    """
+
+    @pytest.fixture
+    def usecases(self) -> FormulaUseCases:
+        """Create FormulaUseCases instance."""
+        return FormulaUseCases()
+
+    # -------------------------------------------------------------------------
+    # Empty Input
+    # -------------------------------------------------------------------------
+
+    def test_empty_dependencies_no_cycles(self, usecases: FormulaUseCases) -> None:
+        """Empty formula dependencies should report no cycles."""
+        result = usecases.detect_cycles(formula_dependencies={})
+
+        assert result.has_cycles is False
+        assert result.cycle_count == 0
+        assert len(result.cycles) == 0
+        assert result.analyzed_field_count == 0
+
+    # -------------------------------------------------------------------------
+    # No Cycles (Linear Chain)
+    # -------------------------------------------------------------------------
+
+    def test_single_field_no_dependencies_no_cycle(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """Single formula field with no dependencies should have no cycles."""
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                "total": (),  # No dependencies
+            }
+        )
+
+        assert result.has_cycles is False
+        assert result.cycle_count == 0
+        assert result.analyzed_field_count == 1
+
+    def test_linear_chain_no_cycle(self, usecases: FormulaUseCases) -> None:
+        """Linear chain A → B → C should have no cycles."""
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                "field_c": ("field_b",),  # C depends on B
+                "field_b": ("field_a",),  # B depends on A
+                "field_a": (),  # A has no dependencies
+            }
+        )
+
+        assert result.has_cycles is False
+        assert result.cycle_count == 0
+        assert result.analyzed_field_count == 3
+
+    def test_diamond_dependency_no_cycle(self, usecases: FormulaUseCases) -> None:
+        """Diamond dependency (A→B, A→C, B→D, C→D) should have no cycles."""
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                "field_d": ("field_b", "field_c"),  # D depends on B and C
+                "field_b": ("field_a",),  # B depends on A
+                "field_c": ("field_a",),  # C depends on A
+                "field_a": (),  # A has no dependencies
+            }
+        )
+
+        assert result.has_cycles is False
+        assert result.cycle_count == 0
+        assert result.analyzed_field_count == 4
+
+    def test_multiple_independent_chains_no_cycle(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """Multiple independent chains should have no cycles."""
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                "chain1_b": ("chain1_a",),
+                "chain1_a": (),
+                "chain2_b": ("chain2_a",),
+                "chain2_a": (),
+            }
+        )
+
+        assert result.has_cycles is False
+        assert result.cycle_count == 0
+        assert result.analyzed_field_count == 4
+
+    # -------------------------------------------------------------------------
+    # Self-Reference Cycle (A → A)
+    # -------------------------------------------------------------------------
+
+    def test_self_reference_cycle(self, usecases: FormulaUseCases) -> None:
+        """Self-referential formula (A → A) should be detected as a cycle."""
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                "field_a": ("field_a",),  # A references itself
+            }
+        )
+
+        assert result.has_cycles is True
+        assert result.cycle_count == 1
+        assert len(result.cycles) == 1
+
+        cycle = result.cycles[0]
+        assert cycle.field_ids == ("field_a",)
+        assert cycle.is_self_reference is True
+        assert cycle.cycle_length == 1
+        assert cycle.severity == "ERROR"
+        assert "field_a" in cycle.cycle_path
+
+    # -------------------------------------------------------------------------
+    # Simple 2-Node Cycle (A → B → A)
+    # -------------------------------------------------------------------------
+
+    def test_two_node_cycle(self, usecases: FormulaUseCases) -> None:
+        """Two-node cycle (A → B → A) should be detected."""
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                "field_a": ("field_b",),  # A depends on B
+                "field_b": ("field_a",),  # B depends on A
+            }
+        )
+
+        assert result.has_cycles is True
+        assert result.cycle_count == 1
+        assert len(result.cycles) == 1
+
+        cycle = result.cycles[0]
+        assert set(cycle.field_ids) == {"field_a", "field_b"}
+        assert cycle.cycle_length == 2
+        assert cycle.is_self_reference is False
+        assert cycle.severity == "ERROR"
+        # Cycle path should show the loop
+        assert "→" in cycle.cycle_path
+
+    # -------------------------------------------------------------------------
+    # Multi-Node Cycle (A → B → C → A)
+    # -------------------------------------------------------------------------
+
+    def test_three_node_cycle(self, usecases: FormulaUseCases) -> None:
+        """Three-node cycle (A → B → C → A) should be detected."""
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                "field_a": ("field_c",),  # A depends on C
+                "field_b": ("field_a",),  # B depends on A
+                "field_c": ("field_b",),  # C depends on B
+            }
+        )
+
+        assert result.has_cycles is True
+        assert result.cycle_count == 1
+        assert len(result.cycles) == 1
+
+        cycle = result.cycles[0]
+        assert set(cycle.field_ids) == {"field_a", "field_b", "field_c"}
+        assert cycle.cycle_length == 3
+        assert cycle.severity == "ERROR"
+
+    def test_four_node_cycle(self, usecases: FormulaUseCases) -> None:
+        """Four-node cycle (A → B → C → D → A) should be detected."""
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                "field_a": ("field_d",),  # A depends on D
+                "field_b": ("field_a",),  # B depends on A
+                "field_c": ("field_b",),  # C depends on B
+                "field_d": ("field_c",),  # D depends on C
+            }
+        )
+
+        assert result.has_cycles is True
+        assert result.cycle_count == 1
+
+        cycle = result.cycles[0]
+        assert set(cycle.field_ids) == {"field_a", "field_b", "field_c", "field_d"}
+        assert cycle.cycle_length == 4
+
+    # -------------------------------------------------------------------------
+    # Multiple Independent Cycles
+    # -------------------------------------------------------------------------
+
+    def test_multiple_independent_cycles(self, usecases: FormulaUseCases) -> None:
+        """Multiple independent cycles should all be detected."""
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                # Cycle 1: X → Y → X
+                "field_x": ("field_y",),
+                "field_y": ("field_x",),
+                # Cycle 2: P → Q → P
+                "field_p": ("field_q",),
+                "field_q": ("field_p",),
+            }
+        )
+
+        assert result.has_cycles is True
+        assert result.cycle_count == 2
+        assert len(result.cycles) == 2
+
+        # Both cycles should be ERROR severity
+        for cycle in result.cycles:
+            assert cycle.severity == "ERROR"
+            assert cycle.cycle_length == 2
+
+        # Check that all_cycle_field_ids contains all fields from all cycles
+        all_ids = set(result.all_cycle_field_ids)
+        assert all_ids == {"field_x", "field_y", "field_p", "field_q"}
+
+    def test_self_reference_and_two_node_cycle(self, usecases: FormulaUseCases) -> None:
+        """Self-reference and 2-node cycle should both be detected."""
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                # Self-reference
+                "field_self": ("field_self",),
+                # 2-node cycle
+                "field_a": ("field_b",),
+                "field_b": ("field_a",),
+            }
+        )
+
+        assert result.has_cycles is True
+        assert result.cycle_count == 2
+        assert len(result.cycles) == 2
+
+        # One should be self-reference
+        self_refs = [c for c in result.cycles if c.is_self_reference]
+        assert len(self_refs) == 1
+        assert self_refs[0].field_ids == ("field_self",)
+
+    # -------------------------------------------------------------------------
+    # Mixed: Cyclic and Non-Cyclic Fields
+    # -------------------------------------------------------------------------
+
+    def test_mixed_cyclic_and_acyclic_fields(self, usecases: FormulaUseCases) -> None:
+        """Mix of cyclic and non-cyclic fields should only report cycles."""
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                # Non-cyclic chain
+                "total": ("subtotal", "tax"),
+                "subtotal": ("price", "quantity"),
+                "tax": ("subtotal",),
+                "price": (),
+                "quantity": (),
+                # Cyclic pair
+                "cyclic_a": ("cyclic_b",),
+                "cyclic_b": ("cyclic_a",),
+            }
+        )
+
+        assert result.has_cycles is True
+        assert result.cycle_count == 1
+        assert result.analyzed_field_count == 7
+
+        # Only the cyclic fields should be in cycles
+        cycle = result.cycles[0]
+        assert set(cycle.field_ids) == {"cyclic_a", "cyclic_b"}
+
+        # Non-cyclic fields should not be in cycle_field_ids
+        all_cycle_ids = set(result.all_cycle_field_ids)
+        assert "total" not in all_cycle_ids
+        assert "subtotal" not in all_cycle_ids
+        assert "tax" not in all_cycle_ids
+
+    def test_cycle_in_larger_graph(self, usecases: FormulaUseCases) -> None:
+        """Cycle embedded in larger dependency graph should be found."""
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                # Entry point
+                "result": ("calc1", "calc2"),
+                # calc1 has no issues
+                "calc1": ("input1",),
+                "input1": (),
+                # calc2 leads to a cycle
+                "calc2": ("intermediate",),
+                "intermediate": ("cyclic_start",),
+                "cyclic_start": ("cyclic_end",),
+                "cyclic_end": ("cyclic_start",),  # Cycle!
+            }
+        )
+
+        assert result.has_cycles is True
+        assert result.cycle_count == 1
+
+        cycle = result.cycles[0]
+        assert set(cycle.field_ids) == {"cyclic_start", "cyclic_end"}
+
+    # -------------------------------------------------------------------------
+    # Dependency on Non-Formula Fields
+    # -------------------------------------------------------------------------
+
+    def test_dependency_on_non_formula_field(self, usecases: FormulaUseCases) -> None:
+        """Dependencies on fields not in the formula set should not cause issues."""
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                # Formula field depends on non-formula fields (not in dict keys)
+                "calculated_total": ("raw_price", "raw_quantity"),
+            }
+        )
+
+        # raw_price and raw_quantity are not formula fields (not in keys)
+        # So no cycles possible
+        assert result.has_cycles is False
+        assert result.cycle_count == 0
+        assert result.analyzed_field_count == 1
+
+    # -------------------------------------------------------------------------
+    # Determinism (Same inputs -> Same output)
+    # -------------------------------------------------------------------------
+
+    def test_cycle_detection_is_deterministic(self, usecases: FormulaUseCases) -> None:
+        """Same inputs should produce same outputs."""
+        dependencies = {
+            "field_a": ("field_b",),
+            "field_b": ("field_c",),
+            "field_c": ("field_a",),
+        }
+
+        result1 = usecases.detect_cycles(dependencies)
+        result2 = usecases.detect_cycles(dependencies)
+        result3 = usecases.detect_cycles(dependencies)
+
+        # All results should be identical
+        assert result1.has_cycles == result2.has_cycles == result3.has_cycles
+        assert result1.cycle_count == result2.cycle_count == result3.cycle_count
+        assert result1.cycles == result2.cycles == result3.cycles
+        assert (
+            result1.all_cycle_field_ids
+            == result2.all_cycle_field_ids
+            == result3.all_cycle_field_ids
+        )
+
+    def test_cycle_path_is_deterministic(self, usecases: FormulaUseCases) -> None:
+        """Cycle path should be deterministic regardless of input order."""
+        # Same cycle described with different key ordering
+        deps1 = {
+            "field_a": ("field_b",),
+            "field_b": ("field_a",),
+        }
+        deps2 = {
+            "field_b": ("field_a",),
+            "field_a": ("field_b",),
+        }
+
+        result1 = usecases.detect_cycles(deps1)
+        result2 = usecases.detect_cycles(deps2)
+
+        # Both should find the same cycle with same path
+        assert result1.has_cycles is True
+        assert result2.has_cycles is True
+        assert result1.cycles[0].cycle_path == result2.cycles[0].cycle_path
+        assert result1.cycles[0].field_ids == result2.cycles[0].field_ids
+
+    # -------------------------------------------------------------------------
+    # DTO Immutability
+    # -------------------------------------------------------------------------
+
+    def test_result_dto_is_frozen(self, usecases: FormulaUseCases) -> None:
+        """FormulaCycleAnalysisResultDTO should be frozen (immutable)."""
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                "field_a": ("field_b",),
+                "field_b": ("field_a",),
+            }
+        )
+
+        # Attempting to modify should raise an error
+        with pytest.raises(AttributeError):
+            result.has_cycles = False  # type: ignore
+
+        with pytest.raises(AttributeError):
+            result.cycles = ()  # type: ignore
+
+    def test_cycle_dto_is_frozen(self, usecases: FormulaUseCases) -> None:
+        """FormulaCycleDTO should be frozen (immutable)."""
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                "field_a": ("field_a",),
+            }
+        )
+
+        cycle = result.cycles[0]
+
+        # Attempting to modify should raise an error
+        with pytest.raises(AttributeError):
+            cycle.field_ids = ("other",)  # type: ignore
+
+        with pytest.raises(AttributeError):
+            cycle.severity = "WARNING"  # type: ignore
+
+    # -------------------------------------------------------------------------
+    # Cycle Error Messages
+    # -------------------------------------------------------------------------
+
+    def test_cycle_errors_property(self, usecases: FormulaUseCases) -> None:
+        """cycle_errors should provide human-readable error messages."""
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                "field_a": ("field_b",),
+                "field_b": ("field_a",),
+            }
+        )
+
+        assert len(result.cycle_errors) == 1
+        error_msg = result.cycle_errors[0]
+        assert "Circular dependency" in error_msg
+        assert "→" in error_msg
+
+    def test_multiple_cycle_errors(self, usecases: FormulaUseCases) -> None:
+        """Multiple cycles should produce multiple error messages."""
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                "field_a": ("field_a",),  # Self-reference
+                "field_x": ("field_y",),
+                "field_y": ("field_x",),  # 2-node cycle
+            }
+        )
+
+        assert len(result.cycle_errors) == 2
+        for error_msg in result.cycle_errors:
+            assert "Circular dependency" in error_msg
+
+    # -------------------------------------------------------------------------
+    # No Side Effects (Pure Analysis)
+    # -------------------------------------------------------------------------
+
+    def test_input_not_mutated(self, usecases: FormulaUseCases) -> None:
+        """Input dependencies dict should not be mutated."""
+        dependencies = {
+            "field_a": ("field_b",),
+            "field_b": ("field_a",),
+        }
+        original_deps = {k: v for k, v in dependencies.items()}
+
+        usecases.detect_cycles(dependencies)
+
+        # Input should be unchanged
+        assert dependencies == original_deps
+
+    # -------------------------------------------------------------------------
+    # Edge Cases
+    # -------------------------------------------------------------------------
+
+    def test_field_depends_on_itself_and_others(
+        self, usecases: FormulaUseCases
+    ) -> None:
+        """Field depending on itself and others should still detect self-cycle."""
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                "field_a": ("field_a", "field_b"),  # Self-ref + external dep
+                "field_b": (),
+            }
+        )
+
+        assert result.has_cycles is True
+        # Should find self-reference
+        self_refs = [c for c in result.cycles if c.is_self_reference]
+        assert len(self_refs) == 1
+
+    def test_complex_interconnected_cycles(self, usecases: FormulaUseCases) -> None:
+        """Complex graph with multiple interconnected cycles."""
+        result = usecases.detect_cycles(
+            formula_dependencies={
+                # Two overlapping cycles sharing a node
+                # Cycle 1: A → B → C → A
+                # Cycle 2: C → D → C
+                "field_a": ("field_c",),
+                "field_b": ("field_a",),
+                "field_c": ("field_b", "field_d"),
+                "field_d": ("field_c",),
+            }
+        )
+
+        assert result.has_cycles is True
+        # Should find cycles
+        assert result.cycle_count >= 1
