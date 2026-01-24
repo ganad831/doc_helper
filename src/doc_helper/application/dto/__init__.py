@@ -80,6 +80,14 @@ from doc_helper.application.dto.formula_dto import (
     FormulaBindingDTO,
     FormulaBindingResultDTO,
 )
+from doc_helper.application.dto.control_rule_dto import (
+    # Phase F-8: Control Rules (Boolean Formulas Only)
+    ControlRuleType,
+    ControlRuleStatus,
+    ControlRuleDiagnosticsDTO,
+    ControlRuleDTO,
+    ControlRuleResultDTO,
+)
 
 __all__ = [
     # Project DTOs
@@ -138,4 +146,10 @@ __all__ = [
     "FormulaBindingStatus",
     "FormulaBindingDTO",
     "FormulaBindingResultDTO",
+    # Control Rule DTOs (Phase F-8)
+    "ControlRuleType",
+    "ControlRuleStatus",
+    "ControlRuleDiagnosticsDTO",
+    "ControlRuleDTO",
+    "ControlRuleResultDTO",
 ]
