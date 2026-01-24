@@ -1,4 +1,4 @@
-"""Runtime Evaluation DTOs (Phase R-1, R-2, R-3, R-4, R-4.5).
+"""Runtime Evaluation DTOs (Phase R-1, R-2, R-3, R-4, R-4.5, R-5).
 
 Data Transfer Objects for runtime evaluation:
 - Control rule evaluation (Phase R-1)
@@ -7,6 +7,7 @@ Data Transfer Objects for runtime evaluation:
 - Orchestrated runtime evaluation (Phase R-3)
 - Entity-level control rules aggregation (Phase R-4)
 - Form runtime state adapter (Phase R-4.5)
+- Entity-level output mappings aggregation (Phase R-5)
 
 ADR-050 Compliance:
 - Pull-based evaluation (caller provides all inputs)
@@ -692,4 +693,155 @@ class FormRuntimeStateDTO:
             entity_id=entity_id,
             fields=(),
             has_blocking_errors=False,
+        )
+
+
+# ============================================================================
+# Entity-Level Output Mappings Aggregation DTOs (Phase R-5)
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class EntityOutputMappingResultDTO:
+    """Result of entity-level output mapping evaluation (Phase R-5).
+
+    Contains aggregated output values ready for document generation.
+
+    ADR-050 Compliance:
+        - Immutable result
+        - Blocking on any failure
+        - No silent coercion
+        - Dictionary of target → value mappings
+    """
+
+    success: bool
+    """Whether all output mapping evaluations succeeded."""
+
+    values: dict[str, Any]
+    """Aggregated output values: {target → value}.
+    Example: {"TEXT": "5.0 - 10.0", "NUMBER": 7.5, "BOOLEAN": True}
+    Empty dict if no output mappings or if failed."""
+
+    error: Optional[str] = None
+    """Error message if any output mapping failed (None if success)."""
+
+    @staticmethod
+    def success_result(values: dict[str, Any]) -> "EntityOutputMappingResultDTO":
+        """Create successful result with aggregated values.
+
+        Args:
+            values: Aggregated output values {target → value}
+
+        Returns:
+            EntityOutputMappingResultDTO with success=True
+        """
+        return EntityOutputMappingResultDTO(
+            success=True,
+            values=values,
+            error=None,
+        )
+
+    @staticmethod
+    def failure(error: str) -> "EntityOutputMappingResultDTO":
+        """Create failure result.
+
+        ADR-050: Output mapping failures BLOCK document generation.
+
+        Args:
+            error: Error message describing the failure
+
+        Returns:
+            EntityOutputMappingResultDTO with success=False
+        """
+        return EntityOutputMappingResultDTO(
+            success=False,
+            values={},
+            error=error,
+        )
+
+    @staticmethod
+    def empty() -> "EntityOutputMappingResultDTO":
+        """Create empty success result (no output mappings).
+
+        Returns:
+            EntityOutputMappingResultDTO with success=True and empty values
+        """
+        return EntityOutputMappingResultDTO(
+            success=True,
+            values={},
+            error=None,
+        )
+
+
+@dataclass(frozen=True)
+class EntityOutputMappingsEvaluationDTO:
+    """Entity-level output mappings evaluation result (Phase R-5).
+
+    Aggregates output mapping evaluation for all fields in an entity.
+
+    ADR-050 Compliance:
+        - Immutable entity-level aggregation
+        - Pull-based (derived from field-level evaluations)
+        - Deterministic (same inputs → same outputs)
+        - Read-only (no persistence)
+        - Blocking on any failure
+        - Single-entity scope only
+
+    Phase R-5: Bridges field-level output mappings (R-1) with runtime orchestration (R-3).
+    """
+
+    entity_id: str
+    """Entity whose output mappings were evaluated."""
+
+    result: EntityOutputMappingResultDTO
+    """Aggregated output mapping result (success or failure)."""
+
+    @staticmethod
+    def success_result(
+        entity_id: str,
+        values: dict[str, Any],
+    ) -> "EntityOutputMappingsEvaluationDTO":
+        """Create successful evaluation result.
+
+        Args:
+            entity_id: Entity identifier
+            values: Aggregated output values {target → value}
+
+        Returns:
+            EntityOutputMappingsEvaluationDTO with success result
+        """
+        return EntityOutputMappingsEvaluationDTO(
+            entity_id=entity_id,
+            result=EntityOutputMappingResultDTO.success_result(values),
+        )
+
+    @staticmethod
+    def failure(entity_id: str, error: str) -> "EntityOutputMappingsEvaluationDTO":
+        """Create failure result.
+
+        Args:
+            entity_id: Entity identifier
+            error: Error message describing the failure
+
+        Returns:
+            EntityOutputMappingsEvaluationDTO with failure result
+        """
+        return EntityOutputMappingsEvaluationDTO(
+            entity_id=entity_id,
+            result=EntityOutputMappingResultDTO.failure(error),
+        )
+
+    @staticmethod
+    def empty(entity_id: str) -> "EntityOutputMappingsEvaluationDTO":
+        """Create empty success result (no output mappings).
+
+        Args:
+            entity_id: Entity identifier
+
+        Returns:
+            EntityOutputMappingsEvaluationDTO with empty success result
+        """
+        return EntityOutputMappingsEvaluationDTO(
+            entity_id=entity_id,
+            result=EntityOutputMappingResultDTO.empty(),
         )
