@@ -559,3 +559,250 @@ class TestSchemaUseCasesConstraintOperations:
 
         assert result.success is False
         assert "unsupported" in result.error.lower() or "unknown" in result.error.lower()
+
+    # =========================================================================
+    # Phase SD-6: Advanced Constraint Tests
+    # =========================================================================
+
+    def test_add_constraint_pattern_success(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_field: Mock,
+    ) -> None:
+        """Should add PATTERN constraint successfully (Phase SD-6)."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_field)
+        mock_schema_repository.save.return_value = Success(None)
+
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="test_field",
+            constraint_type="PATTERN",
+            severity="ERROR",
+            pattern=r"^[A-Z]{2}\d{4}$",
+            pattern_description="Must be 2 letters followed by 4 digits",
+        )
+
+        assert result.success is True
+
+    def test_add_constraint_pattern_failure_missing_pattern(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_field: Mock,
+    ) -> None:
+        """Should fail PATTERN constraint when pattern is missing."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_field)
+
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="test_field",
+            constraint_type="PATTERN",
+            severity="ERROR",
+            pattern=None,  # Missing pattern
+        )
+
+        assert result.success is False
+        assert "pattern" in result.error.lower()
+
+    def test_add_constraint_allowed_values_success(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_field: Mock,
+    ) -> None:
+        """Should add ALLOWED_VALUES constraint successfully (Phase SD-6)."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_field)
+        mock_schema_repository.save.return_value = Success(None)
+
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="test_field",
+            constraint_type="ALLOWED_VALUES",
+            severity="ERROR",
+            allowed_values=("value1", "value2", "value3"),
+        )
+
+        assert result.success is True
+
+    def test_add_constraint_allowed_values_failure_empty(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_field: Mock,
+    ) -> None:
+        """Should fail ALLOWED_VALUES constraint when values are empty."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_field)
+
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="test_field",
+            constraint_type="ALLOWED_VALUES",
+            severity="ERROR",
+            allowed_values=None,  # Missing values
+        )
+
+        assert result.success is False
+        assert "values" in result.error.lower()
+
+    def test_add_constraint_file_extension_success(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+    ) -> None:
+        """Should add FILE_EXTENSION constraint successfully (Phase SD-6)."""
+        from doc_helper.domain.schema.entity_definition import EntityDefinition
+        from doc_helper.domain.schema.field_definition import FieldDefinition
+        from doc_helper.domain.schema.field_type import FieldType
+        from doc_helper.domain.common.i18n import TranslationKey
+
+        # Create entity with FILE field
+        field = FieldDefinition(
+            id=FieldDefinitionId("file_field"),
+            field_type=FieldType.FILE,
+            label_key=TranslationKey("field.file"),
+            required=False,
+        )
+
+        entity = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            description_key=None,
+            fields={field.id: field},
+            is_root_entity=False,
+            parent_entity_id=None,
+        )
+
+        mock_schema_repository.get_by_id.return_value = Success(entity)
+        mock_schema_repository.save.return_value = Success(None)
+
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="file_field",
+            constraint_type="FILE_EXTENSION",
+            severity="ERROR",
+            allowed_extensions=(".pdf", ".doc", ".docx"),
+        )
+
+        assert result.success is True
+
+    def test_add_constraint_file_extension_failure_missing_extensions(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+    ) -> None:
+        """Should fail FILE_EXTENSION constraint when extensions are missing."""
+        from doc_helper.domain.schema.entity_definition import EntityDefinition
+        from doc_helper.domain.schema.field_definition import FieldDefinition
+        from doc_helper.domain.schema.field_type import FieldType
+        from doc_helper.domain.common.i18n import TranslationKey
+
+        field = FieldDefinition(
+            id=FieldDefinitionId("file_field"),
+            field_type=FieldType.FILE,
+            label_key=TranslationKey("field.file"),
+            required=False,
+        )
+
+        entity = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            description_key=None,
+            fields={field.id: field},
+            is_root_entity=False,
+            parent_entity_id=None,
+        )
+
+        mock_schema_repository.get_by_id.return_value = Success(entity)
+
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="file_field",
+            constraint_type="FILE_EXTENSION",
+            severity="ERROR",
+            allowed_extensions=None,  # Missing extensions
+        )
+
+        assert result.success is False
+        assert "extension" in result.error.lower()
+
+    def test_add_constraint_max_file_size_success(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+    ) -> None:
+        """Should add MAX_FILE_SIZE constraint successfully (Phase SD-6)."""
+        from doc_helper.domain.schema.entity_definition import EntityDefinition
+        from doc_helper.domain.schema.field_definition import FieldDefinition
+        from doc_helper.domain.schema.field_type import FieldType
+        from doc_helper.domain.common.i18n import TranslationKey
+
+        # Create entity with FILE field
+        field = FieldDefinition(
+            id=FieldDefinitionId("file_field"),
+            field_type=FieldType.FILE,
+            label_key=TranslationKey("field.file"),
+            required=False,
+        )
+
+        entity = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            description_key=None,
+            fields={field.id: field},
+            is_root_entity=False,
+            parent_entity_id=None,
+        )
+
+        mock_schema_repository.get_by_id.return_value = Success(entity)
+        mock_schema_repository.save.return_value = Success(None)
+
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="file_field",
+            constraint_type="MAX_FILE_SIZE",
+            severity="ERROR",
+            max_size_bytes=10 * 1024 * 1024,  # 10 MB
+        )
+
+        assert result.success is True
+
+    def test_add_constraint_max_file_size_failure_missing_size(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+    ) -> None:
+        """Should fail MAX_FILE_SIZE constraint when size is missing."""
+        from doc_helper.domain.schema.entity_definition import EntityDefinition
+        from doc_helper.domain.schema.field_definition import FieldDefinition
+        from doc_helper.domain.schema.field_type import FieldType
+        from doc_helper.domain.common.i18n import TranslationKey
+
+        field = FieldDefinition(
+            id=FieldDefinitionId("file_field"),
+            field_type=FieldType.FILE,
+            label_key=TranslationKey("field.file"),
+            required=False,
+        )
+
+        entity = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            description_key=None,
+            fields={field.id: field},
+            is_root_entity=False,
+            parent_entity_id=None,
+        )
+
+        mock_schema_repository.get_by_id.return_value = Success(entity)
+
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="file_field",
+            constraint_type="MAX_FILE_SIZE",
+            severity="ERROR",
+            max_size_bytes=None,  # Missing size
+        )
+
+        assert result.success is False
+        assert "size" in result.error.lower()

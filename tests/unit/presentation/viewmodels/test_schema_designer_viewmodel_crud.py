@@ -451,3 +451,156 @@ class TestSchemaDesignerViewModelConstraintOperations:
         )
 
         assert "validation_rules" in changes_notified
+
+
+class TestSchemaDesignerViewModelAdvancedConstraints:
+    """Tests for Phase SD-6 advanced constraint operations."""
+
+    @pytest.fixture
+    def mock_schema_usecases(self) -> MagicMock:
+        """Create mock SchemaUseCases (Rule 0 compliant)."""
+        usecases = MagicMock(spec=SchemaUseCases)
+        usecases.get_all_entities.return_value = ()
+        usecases.get_all_relationships.return_value = ()
+        usecases.get_field_validation_rules.return_value = ()
+        usecases.get_entity_list_for_selection.return_value = ()
+        return usecases
+
+    @pytest.fixture
+    def viewmodel(
+        self,
+        mock_schema_usecases: MagicMock,
+    ) -> SchemaDesignerViewModel:
+        """Create viewmodel with SchemaUseCases dependency."""
+        return SchemaDesignerViewModel(
+            schema_usecases=mock_schema_usecases,
+        )
+
+    def test_add_pattern_constraint_passes_parameters(
+        self,
+        viewmodel: SchemaDesignerViewModel,
+        mock_schema_usecases: MagicMock,
+    ) -> None:
+        """add_constraint should pass pattern parameters to use-case (Phase SD-6)."""
+        mock_schema_usecases.add_constraint.return_value = OperationResult.ok(None)
+
+        viewmodel._selected_entity_id = "test_entity"
+        viewmodel._selected_field_id = "test_field"
+
+        viewmodel.add_constraint(
+            entity_id="test_entity",
+            field_id="test_field",
+            constraint_type="PATTERN",
+            severity="ERROR",
+            pattern=r"^[A-Z]{2}\d{4}$",
+            pattern_description="2 letters + 4 digits",
+        )
+
+        mock_schema_usecases.add_constraint.assert_called_once_with(
+            entity_id="test_entity",
+            field_id="test_field",
+            constraint_type="PATTERN",
+            value=None,
+            severity="ERROR",
+            pattern=r"^[A-Z]{2}\d{4}$",
+            pattern_description="2 letters + 4 digits",
+            allowed_values=None,
+            allowed_extensions=None,
+            max_size_bytes=None,
+        )
+
+    def test_add_allowed_values_constraint_passes_parameters(
+        self,
+        viewmodel: SchemaDesignerViewModel,
+        mock_schema_usecases: MagicMock,
+    ) -> None:
+        """add_constraint should pass allowed_values to use-case (Phase SD-6)."""
+        mock_schema_usecases.add_constraint.return_value = OperationResult.ok(None)
+
+        viewmodel._selected_entity_id = "test_entity"
+        viewmodel._selected_field_id = "test_field"
+
+        viewmodel.add_constraint(
+            entity_id="test_entity",
+            field_id="test_field",
+            constraint_type="ALLOWED_VALUES",
+            severity="ERROR",
+            allowed_values=("value1", "value2", "value3"),
+        )
+
+        mock_schema_usecases.add_constraint.assert_called_once_with(
+            entity_id="test_entity",
+            field_id="test_field",
+            constraint_type="ALLOWED_VALUES",
+            value=None,
+            severity="ERROR",
+            pattern=None,
+            pattern_description=None,
+            allowed_values=("value1", "value2", "value3"),
+            allowed_extensions=None,
+            max_size_bytes=None,
+        )
+
+    def test_add_file_extension_constraint_passes_parameters(
+        self,
+        viewmodel: SchemaDesignerViewModel,
+        mock_schema_usecases: MagicMock,
+    ) -> None:
+        """add_constraint should pass allowed_extensions to use-case (Phase SD-6)."""
+        mock_schema_usecases.add_constraint.return_value = OperationResult.ok(None)
+
+        viewmodel._selected_entity_id = "test_entity"
+        viewmodel._selected_field_id = "test_field"
+
+        viewmodel.add_constraint(
+            entity_id="test_entity",
+            field_id="test_field",
+            constraint_type="FILE_EXTENSION",
+            severity="ERROR",
+            allowed_extensions=(".pdf", ".doc", ".docx"),
+        )
+
+        mock_schema_usecases.add_constraint.assert_called_once_with(
+            entity_id="test_entity",
+            field_id="test_field",
+            constraint_type="FILE_EXTENSION",
+            value=None,
+            severity="ERROR",
+            pattern=None,
+            pattern_description=None,
+            allowed_values=None,
+            allowed_extensions=(".pdf", ".doc", ".docx"),
+            max_size_bytes=None,
+        )
+
+    def test_add_max_file_size_constraint_passes_parameters(
+        self,
+        viewmodel: SchemaDesignerViewModel,
+        mock_schema_usecases: MagicMock,
+    ) -> None:
+        """add_constraint should pass max_size_bytes to use-case (Phase SD-6)."""
+        mock_schema_usecases.add_constraint.return_value = OperationResult.ok(None)
+
+        viewmodel._selected_entity_id = "test_entity"
+        viewmodel._selected_field_id = "test_field"
+
+        viewmodel.add_constraint(
+            entity_id="test_entity",
+            field_id="test_field",
+            constraint_type="MAX_FILE_SIZE",
+            severity="ERROR",
+            max_size_bytes=10485760,  # 10 MB
+        )
+
+        mock_schema_usecases.add_constraint.assert_called_once_with(
+            entity_id="test_entity",
+            field_id="test_field",
+            constraint_type="MAX_FILE_SIZE",
+            value=None,
+            severity="ERROR",
+            pattern=None,
+            pattern_description=None,
+            allowed_values=None,
+            allowed_extensions=None,
+            max_size_bytes=10485760,
+        )

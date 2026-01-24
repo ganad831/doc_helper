@@ -613,6 +613,7 @@ class SchemaDesignerViewModel(BaseViewModel):
 
     # -------------------------------------------------------------------------
     # Phase SD-2: Constraint Operations
+    # Phase SD-6: Extended with advanced constraint parameters
     # -------------------------------------------------------------------------
 
     def add_constraint(
@@ -622,8 +623,14 @@ class SchemaDesignerViewModel(BaseViewModel):
         constraint_type: str,
         value: Optional[float] = None,
         severity: str = "ERROR",
+        # Phase SD-6: Advanced constraint parameters
+        pattern: Optional[str] = None,
+        pattern_description: Optional[str] = None,
+        allowed_values: Optional[tuple] = None,
+        allowed_extensions: Optional[tuple] = None,
+        max_size_bytes: Optional[int] = None,
     ) -> OperationResult:
-        """Add a validation constraint to a field (Phase SD-2).
+        """Add a validation constraint to a field (Phase SD-2, SD-6).
 
         Delegates to SchemaUseCases which handles domain object construction
         and command execution.
@@ -635,6 +642,13 @@ class SchemaDesignerViewModel(BaseViewModel):
             value: Constraint value (required for MIN/MAX types)
             severity: Severity level (ERROR, WARNING, INFO)
 
+            Phase SD-6 additional parameters:
+            pattern: Regex pattern (for PATTERN constraint)
+            pattern_description: Human-readable pattern description
+            allowed_values: Tuple of allowed values (for ALLOWED_VALUES)
+            allowed_extensions: Tuple of file extensions (for FILE_EXTENSION)
+            max_size_bytes: Maximum file size in bytes (for MAX_FILE_SIZE)
+
         Returns:
             OperationResult with field ID on success, error message on failure
         """
@@ -644,6 +658,12 @@ class SchemaDesignerViewModel(BaseViewModel):
             constraint_type=constraint_type,
             value=value,
             severity=severity,
+            # Phase SD-6: Pass advanced constraint parameters
+            pattern=pattern,
+            pattern_description=pattern_description,
+            allowed_values=allowed_values,
+            allowed_extensions=allowed_extensions,
+            max_size_bytes=max_size_bytes,
         )
 
         if result.success:

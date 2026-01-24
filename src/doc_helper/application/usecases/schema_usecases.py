@@ -74,10 +74,14 @@ from doc_helper.application.queries.schema.get_schema_entities_query import (
 from doc_helper.domain.schema.relationship_repository import IRelationshipRepository
 from doc_helper.domain.schema.schema_repository import ISchemaRepository
 from doc_helper.domain.validation.constraints import (
+    AllowedValuesConstraint,
+    FileExtensionConstraint,
+    MaxFileSizeConstraint,
     MaxLengthConstraint,
     MaxValueConstraint,
     MinLengthConstraint,
     MinValueConstraint,
+    PatternConstraint,
     RequiredConstraint,
 )
 from doc_helper.domain.validation.severity import Severity
@@ -523,6 +527,12 @@ class SchemaUseCases:
         constraint_type: str,
         value: Optional[float] = None,
         severity: str = "ERROR",
+        # Phase SD-6: Additional parameters for advanced constraints
+        pattern: Optional[str] = None,
+        pattern_description: Optional[str] = None,
+        allowed_values: Optional[tuple] = None,
+        allowed_extensions: Optional[tuple] = None,
+        max_size_bytes: Optional[int] = None,
     ) -> OperationResult:
         """Add a validation constraint to a field.
 
@@ -535,8 +545,17 @@ class SchemaUseCases:
                 - "MAX_VALUE": Field value must be <= value
                 - "MIN_LENGTH": Field value must have >= value characters
                 - "MAX_LENGTH": Field value must have <= value characters
-            value: Constraint value (required for MIN/MAX types, ignored for REQUIRED)
+                - "PATTERN": Field value must match regex pattern
+                - "ALLOWED_VALUES": Field value must be one of allowed values
+                - "FILE_EXTENSION": File must have one of allowed extensions
+                - "MAX_FILE_SIZE": File size must not exceed max_size_bytes
+            value: Numeric value (for MIN/MAX types)
             severity: Severity level ("ERROR", "WARNING", "INFO"), defaults to "ERROR"
+            pattern: Regex pattern string (for PATTERN constraint)
+            pattern_description: Human-readable description of pattern (for PATTERN)
+            allowed_values: Tuple of allowed values (for ALLOWED_VALUES constraint)
+            allowed_extensions: Tuple of allowed file extensions (for FILE_EXTENSION)
+            max_size_bytes: Maximum file size in bytes (for MAX_FILE_SIZE)
 
         Returns:
             OperationResult with field ID string on success, error message on failure
@@ -554,26 +573,76 @@ class SchemaUseCases:
         try:
             if constraint_type_upper == "REQUIRED":
                 constraint = RequiredConstraint(severity=severity_enum)
+
             elif constraint_type_upper == "MIN_VALUE":
                 if value is None:
                     return OperationResult.fail("value is required for MIN_VALUE constraint")
                 constraint = MinValueConstraint(min_value=float(value), severity=severity_enum)
+
             elif constraint_type_upper == "MAX_VALUE":
                 if value is None:
                     return OperationResult.fail("value is required for MAX_VALUE constraint")
                 constraint = MaxValueConstraint(max_value=float(value), severity=severity_enum)
+
             elif constraint_type_upper == "MIN_LENGTH":
                 if value is None:
                     return OperationResult.fail("value is required for MIN_LENGTH constraint")
                 constraint = MinLengthConstraint(min_length=int(value), severity=severity_enum)
+
             elif constraint_type_upper == "MAX_LENGTH":
                 if value is None:
                     return OperationResult.fail("value is required for MAX_LENGTH constraint")
                 constraint = MaxLengthConstraint(max_length=int(value), severity=severity_enum)
+
+            # Phase SD-6: Advanced constraints
+            elif constraint_type_upper == "PATTERN":
+                if not pattern:
+                    return OperationResult.fail("pattern is required for PATTERN constraint")
+                constraint = PatternConstraint(
+                    pattern=pattern,
+                    description=pattern_description,
+                    severity=severity_enum,
+                )
+
+            elif constraint_type_upper == "ALLOWED_VALUES":
+                if not allowed_values:
+                    return OperationResult.fail(
+                        "allowed_values is required for ALLOWED_VALUES constraint"
+                    )
+                if not isinstance(allowed_values, tuple):
+                    return OperationResult.fail("allowed_values must be a tuple")
+                constraint = AllowedValuesConstraint(
+                    allowed_values=allowed_values,
+                    severity=severity_enum,
+                )
+
+            elif constraint_type_upper == "FILE_EXTENSION":
+                if not allowed_extensions:
+                    return OperationResult.fail(
+                        "allowed_extensions is required for FILE_EXTENSION constraint"
+                    )
+                if not isinstance(allowed_extensions, tuple):
+                    return OperationResult.fail("allowed_extensions must be a tuple")
+                constraint = FileExtensionConstraint(
+                    allowed_extensions=allowed_extensions,
+                    severity=severity_enum,
+                )
+
+            elif constraint_type_upper == "MAX_FILE_SIZE":
+                if max_size_bytes is None:
+                    return OperationResult.fail(
+                        "max_size_bytes is required for MAX_FILE_SIZE constraint"
+                    )
+                constraint = MaxFileSizeConstraint(
+                    max_size_bytes=int(max_size_bytes),
+                    severity=severity_enum,
+                )
+
             else:
                 return OperationResult.fail(
                     f"Unknown constraint type: {constraint_type}. "
-                    "Supported types: REQUIRED, MIN_VALUE, MAX_VALUE, MIN_LENGTH, MAX_LENGTH"
+                    "Supported types: REQUIRED, MIN_VALUE, MAX_VALUE, MIN_LENGTH, MAX_LENGTH, "
+                    "PATTERN, ALLOWED_VALUES, FILE_EXTENSION, MAX_FILE_SIZE"
                 )
         except ValueError as e:
             return OperationResult.fail(f"Invalid constraint value: {e}")
