@@ -1,4 +1,4 @@
-"""Schema Designer ViewModel (Phase 2 + Phase 6B + Phase 7 + Phase F-1 + Phase F-9).
+"""Schema Designer ViewModel (Phase 2 + Phase 6B + Phase 7 + Phase F-1 + Phase F-9 + Phase F-13).
 
 Manages presentation state for Schema Designer UI.
 Loads entities, fields, validation rules, and relationships from application use-cases.
@@ -61,6 +61,14 @@ Phase F-9 Scope (Control Rules Preview - UI-Only):
 - NO schema mutation
 - NO persistence
 
+Phase F-13 Scope (Output Mapping Formula UI - Design-Time Only):
+- View persisted output mappings for selected field
+- Add new output mapping (target type + formula)
+- Update existing output mapping formula
+- Delete output mapping by target type
+- Design-time only, NO runtime execution
+- NO preview or formula evaluation
+
 ARCHITECTURE ENFORCEMENT (Rule 0 Compliance):
 - ViewModel depends ONLY on SchemaUseCases (Application layer use-case)
 - NO command imports
@@ -80,7 +88,11 @@ from doc_helper.application.dto.control_rule_preview_dto import (
     FieldPreviewStateDTO,
     PreviewModeStateDTO,
 )
-from doc_helper.application.dto.export_dto import ControlRuleExportDTO, ExportResult
+from doc_helper.application.dto.export_dto import (
+    ControlRuleExportDTO,
+    ExportResult,
+    OutputMappingExportDTO,
+)
 from doc_helper.application.dto.formula_dto import SchemaFieldInfoDTO
 from doc_helper.application.dto.import_dto import (
     EnforcementPolicy,
@@ -170,6 +182,9 @@ class SchemaDesignerViewModel(BaseViewModel):
 
         # Phase F-11: Persisted control rules for selected field (design-time only)
         self._control_rules: tuple[ControlRuleExportDTO, ...] = ()
+
+        # Phase F-13: Persisted output mappings for selected field (design-time only)
+        self._output_mappings: tuple[OutputMappingExportDTO, ...] = ()
 
     # -------------------------------------------------------------------------
     # Properties (Observable)
@@ -394,6 +409,33 @@ class SchemaDesignerViewModel(BaseViewModel):
         return len(self._control_rules) > 0
 
     # -------------------------------------------------------------------------
+    # Phase F-13: Persisted Output Mappings Properties
+    # -------------------------------------------------------------------------
+
+    @property
+    def output_mappings(self) -> tuple[OutputMappingExportDTO, ...]:
+        """Get persisted output mappings for currently selected field (Phase F-13).
+
+        Returns:
+            Tuple of OutputMappingExportDTO for selected field, empty if no field selected
+
+        Phase F-13 Compliance:
+            - Design-time only, no runtime execution
+            - Loaded from schema via SchemaUseCases
+            - Updated via add/update/delete methods
+        """
+        return self._output_mappings
+
+    @property
+    def has_output_mappings(self) -> bool:
+        """Check if selected field has persisted output mappings (Phase F-13).
+
+        Returns:
+            True if selected field has output mappings, False otherwise
+        """
+        return len(self._output_mappings) > 0
+
+    # -------------------------------------------------------------------------
     # Commands (User Actions)
     # -------------------------------------------------------------------------
 
@@ -464,6 +506,9 @@ class SchemaDesignerViewModel(BaseViewModel):
 
             # Phase F-11: Load control rules for selected field
             self.load_control_rules()
+
+            # Phase F-13: Load output mappings for selected field
+            self.load_output_mappings()
 
     def clear_selection(self) -> None:
         """Clear entity and field selection."""
@@ -1412,6 +1457,150 @@ class SchemaDesignerViewModel(BaseViewModel):
 
         return result
 
+    # -------------------------------------------------------------------------
+    # Phase F-13: Persisted Output Mappings Commands (DESIGN-TIME ONLY)
+    # -------------------------------------------------------------------------
+
+    def load_output_mappings(self) -> None:
+        """Load persisted output mappings for currently selected field (Phase F-13).
+
+        Phase F-13 Compliance:
+            - Calls SchemaUseCases.list_output_mappings_for_field()
+            - Design-time only, no runtime execution
+            - Updates _output_mappings and notifies UI
+        """
+        if not self._selected_entity_id or not self._selected_field_id:
+            self._output_mappings = ()
+            self.notify_change("output_mappings")
+            self.notify_change("has_output_mappings")
+            return
+
+        # Load output mappings from SchemaUseCases
+        self._output_mappings = self._schema_usecases.list_output_mappings_for_field(
+            entity_id=self._selected_entity_id,
+            field_id=self._selected_field_id,
+        )
+
+        self.notify_change("output_mappings")
+        self.notify_change("has_output_mappings")
+
+    def add_output_mapping(
+        self,
+        target: str,
+        formula_text: str,
+    ) -> OperationResult:
+        """Add a persisted output mapping to selected field (Phase F-13).
+
+        Args:
+            target: Output target type (TEXT, NUMBER, BOOLEAN)
+            formula_text: Formula expression for output transformation
+
+        Returns:
+            OperationResult with success status and message
+
+        Phase F-13 Compliance:
+            - Delegates to SchemaUseCases.add_output_mapping()
+            - Reloads output mappings on success
+            - Design-time only, no runtime execution
+        """
+        if not self._selected_entity_id or not self._selected_field_id:
+            return OperationResult(
+                success=False,
+                error="No field selected",
+            )
+
+        result = self._schema_usecases.add_output_mapping(
+            entity_id=self._selected_entity_id,
+            field_id=self._selected_field_id,
+            target=target,
+            formula_text=formula_text,
+        )
+
+        if result.success:
+            # Reload output mappings to show new mapping
+            self.load_output_mappings()
+            # Reload entities to update field metadata
+            self.load_entities()
+
+        return result
+
+    def update_output_mapping(
+        self,
+        target: str,
+        formula_text: str,
+    ) -> OperationResult:
+        """Update an existing persisted output mapping (Phase F-13).
+
+        Args:
+            target: Output target type to update (TEXT, NUMBER, BOOLEAN)
+            formula_text: New formula expression
+
+        Returns:
+            OperationResult with success status and message
+
+        Phase F-13 Compliance:
+            - Delegates to SchemaUseCases.update_output_mapping()
+            - Reloads output mappings on success
+            - Design-time only, no runtime execution
+        """
+        if not self._selected_entity_id or not self._selected_field_id:
+            return OperationResult(
+                success=False,
+                error="No field selected",
+            )
+
+        result = self._schema_usecases.update_output_mapping(
+            entity_id=self._selected_entity_id,
+            field_id=self._selected_field_id,
+            target=target,
+            formula_text=formula_text,
+        )
+
+        if result.success:
+            # Reload output mappings to show updated mapping
+            self.load_output_mappings()
+            # Reload entities to update field metadata
+            self.load_entities()
+
+        return result
+
+    def delete_output_mapping(
+        self,
+        target: str,
+    ) -> OperationResult:
+        """Delete a persisted output mapping from selected field (Phase F-13).
+
+        Args:
+            target: Output target type to delete (TEXT, NUMBER, BOOLEAN)
+
+        Returns:
+            OperationResult with success status and message
+
+        Phase F-13 Compliance:
+            - Delegates to SchemaUseCases.delete_output_mapping()
+            - Reloads output mappings on success
+            - Design-time only, no runtime execution
+        """
+        if not self._selected_entity_id or not self._selected_field_id:
+            return OperationResult(
+                success=False,
+                error="No field selected",
+            )
+
+        result = self._schema_usecases.delete_output_mapping(
+            entity_id=self._selected_entity_id,
+            field_id=self._selected_field_id,
+            target=target,
+        )
+
+        if result.success:
+            # Reload output mappings to reflect deletion
+            self.load_output_mappings()
+            # Reload entities to update field metadata
+            self.load_entities()
+
+        return result
+
     def dispose(self) -> None:
         """Clean up resources."""
         # Phase F-1: Dispose formula editor viewmodel
@@ -1425,6 +1614,9 @@ class SchemaDesignerViewModel(BaseViewModel):
 
         # Phase F-11: Clear control rules
         self._control_rules = ()
+
+        # Phase F-13: Clear output mappings
+        self._output_mappings = ()
 
         super().dispose()
         self._entities = ()

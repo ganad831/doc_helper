@@ -1,4 +1,4 @@
-"""Schema Designer View (Phase 2 + Phase 6B + Phase 7 + Phase F-1 + Phase F-9 + Phase F-12).
+"""Schema Designer View (Phase 2 + Phase 6B + Phase 7 + Phase F-1 + Phase F-9 + Phase F-12 + Phase F-13).
 
 UI component for viewing and creating schema definitions.
 Displays entities, fields, validation rules, relationships, formula editor,
@@ -86,6 +86,16 @@ Phase F-12: Control Rules UI (Persisted, Design-Time)
 - Display rule type, target field, formula
 - Route all operations through SchemaDesignerViewModel
 - Design-time only (no runtime enforcement)
+- NO business logic in UI
+- NO validation logic in UI
+- NO formula execution in UI
+
+Phase F-13: Output Mapping Formula UI (Persisted, Design-Time)
+- Output Mappings section in validation panel
+- Add/Edit/Delete persisted output mappings
+- Display target type (TEXT/NUMBER/BOOLEAN), formula
+- Route all operations through SchemaDesignerViewModel
+- Design-time only (no runtime execution)
 - NO business logic in UI
 - NO validation logic in UI
 - NO formula execution in UI
@@ -382,6 +392,8 @@ class SchemaDesignerView(BaseView):
         self._viewmodel.subscribe("preview_results", self._on_preview_results_changed)
         # Phase F-12: Subscribe to control rules changes
         self._viewmodel.subscribe("control_rules", self._on_control_rules_changed)
+        # Phase F-13: Subscribe to output mappings changes
+        self._viewmodel.subscribe("output_mappings", self._on_output_mappings_changed)
 
         # Load entities
         self._load_entities()
@@ -670,6 +682,47 @@ class SchemaDesignerView(BaseView):
         self._control_rules_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._control_rules_list.customContextMenuRequested.connect(self._on_control_rule_context_menu)
         layout.addWidget(self._control_rules_list)
+
+        # Phase F-13: Output Mappings Section (Persisted)
+        # Separator line
+        separator2 = QFrame()
+        separator2.setFrameShape(QFrame.Shape.HLine)
+        separator2.setFrameShadow(QFrame.Shadow.Sunken)
+        separator2.setStyleSheet("color: #d0d8e0; margin: 10px 0px;")
+        layout.addWidget(separator2)
+
+        # Output Mappings header with Add button
+        output_mappings_header = QHBoxLayout()
+        output_mappings_title = QLabel("Output Mappings (Persisted)")
+        output_mappings_title.setStyleSheet("font-weight: bold; font-size: 11pt; padding: 5px;")
+        output_mappings_header.addWidget(output_mappings_title)
+        output_mappings_header.addStretch()
+
+        # Add Output Mapping button (Phase F-13)
+        self._add_output_mapping_button = QPushButton("+ Add Output Mapping")
+        self._add_output_mapping_button.setStyleSheet("font-size: 9pt; padding: 3px 8px;")
+        self._add_output_mapping_button.clicked.connect(self._on_add_output_mapping_clicked)
+        self._add_output_mapping_button.setEnabled(False)  # Disabled until field selected
+        output_mappings_header.addWidget(self._add_output_mapping_button)
+
+        layout.addLayout(output_mappings_header)
+
+        # Info label (shows when no field selected)
+        self._output_mappings_info_label = QLabel(
+            "Select a field to view its output mappings.\n"
+            "Output mappings define how field values are transformed for document output."
+        )
+        self._output_mappings_info_label.setStyleSheet("color: gray; font-style: italic; padding: 10px;")
+        self._output_mappings_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._output_mappings_info_label)
+
+        # Output mappings list
+        self._output_mappings_list = QListWidget()
+        self._output_mappings_list.setVisible(False)  # Hidden until field selected
+        self._output_mappings_list.itemDoubleClicked.connect(self._on_output_mapping_double_clicked)
+        self._output_mappings_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._output_mappings_list.customContextMenuRequested.connect(self._on_output_mapping_context_menu)
+        layout.addWidget(self._output_mappings_list)
 
         return panel
 
@@ -1360,6 +1413,57 @@ class SchemaDesignerView(BaseView):
             item = QListWidgetItem("No control rules defined")
             item.setForeground(Qt.GlobalColor.gray)
             self._control_rules_list.addItem(item)
+
+    def _on_output_mappings_changed(self) -> None:
+        """Handle output mappings list change (Phase F-13).
+
+        Updates the output mappings list when a field is selected or when mappings change.
+        Manages Add Output Mapping button state based on field selection.
+        """
+        if not self._output_mappings_list:
+            return
+
+        self._output_mappings_list.clear()
+
+        mappings = self._viewmodel.output_mappings
+        field_selected = self._viewmodel.selected_field_id is not None
+
+        # Manage visibility of info label and list
+        if self._output_mappings_info_label:
+            self._output_mappings_info_label.setVisible(not field_selected)
+
+        # Manage Add Output Mapping button state
+        if self._add_output_mapping_button:
+            self._add_output_mapping_button.setEnabled(field_selected)
+
+        if not field_selected:
+            self._output_mappings_list.setVisible(False)
+            return
+
+        # Field is selected - show the list
+        self._output_mappings_list.setVisible(True)
+
+        if mappings:
+            for mapping_dto in mappings:
+                # Format: "TEXT → {{depth_from}} - {{depth_to}}"
+                mapping_display = f"{mapping_dto.target} → {mapping_dto.formula_text}"
+                item = QListWidgetItem(mapping_display)
+                # Store the full DTO in UserRole for Edit/Delete operations
+                item.setData(Qt.ItemDataRole.UserRole, mapping_dto)
+
+                # Add tooltip
+                tooltip = (
+                    f"Target: {mapping_dto.target}\n"
+                    f"Formula: {mapping_dto.formula_text}"
+                )
+                item.setToolTip(tooltip)
+
+                self._output_mappings_list.addItem(item)
+        else:
+            # Show message if no mappings defined
+            item = QListWidgetItem("No output mappings defined")
+            item.setForeground(Qt.GlobalColor.gray)
+            self._output_mappings_list.addItem(item)
 
     def _on_error_changed(self) -> None:
         """Handle error message change."""
@@ -2181,6 +2285,204 @@ class SchemaDesignerView(BaseView):
                     self._root,
                     "Error Deleting Control Rule",
                     f"Failed to delete control rule:\n\n{delete_result.error}",
+                )
+
+    # -------------------------------------------------------------------------
+    # Phase F-13: Output Mapping Operations
+    # -------------------------------------------------------------------------
+
+    def _on_add_output_mapping_clicked(self) -> None:
+        """Handle Add Output Mapping button click (Phase F-13).
+
+        Opens dialog to add a persisted output mapping to the selected field.
+        """
+        # Verify field is selected
+        if not self._viewmodel.selected_field_id:
+            QMessageBox.warning(
+                self._root,
+                "No Field Selected",
+                "Please select a field first before adding an output mapping.",
+            )
+            return
+
+        if not self._viewmodel.selected_entity_id:
+            QMessageBox.warning(
+                self._root,
+                "No Entity Selected",
+                "Please select an entity and field first.",
+            )
+            return
+
+        from doc_helper.presentation.dialogs.output_mapping_dialog import (
+            OutputMappingDialog,
+        )
+
+        dialog = OutputMappingDialog(
+            parent=self._root,
+            existing_mapping=None,  # Add mode
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            target = dialog.get_target()
+            formula_text = dialog.get_formula_text()
+
+            if not formula_text.strip():
+                QMessageBox.warning(
+                    self._root,
+                    "Invalid Formula",
+                    "Formula text cannot be empty.",
+                )
+                return
+
+            # Add output mapping via ViewModel
+            result = self._viewmodel.add_output_mapping(
+                target=target,
+                formula_text=formula_text,
+            )
+
+            if result.success:
+                # Mark as having unsaved changes
+                self._set_unsaved_changes(True)
+
+                QMessageBox.information(
+                    self._root,
+                    "Output Mapping Added",
+                    f"Output mapping for '{target}' added successfully!",
+                )
+            else:
+                QMessageBox.critical(
+                    self._root,
+                    "Error Adding Output Mapping",
+                    f"Failed to add output mapping:\n\n{result.error}",
+                )
+
+    def _on_output_mapping_double_clicked(self, item: QListWidgetItem) -> None:
+        """Handle output mapping list item double-click (Phase F-13).
+
+        Opens edit dialog for the selected output mapping.
+
+        Args:
+            item: The list item that was double-clicked
+        """
+        # Get the mapping DTO from the item
+        mapping_dto = item.data(Qt.ItemDataRole.UserRole)
+        if not mapping_dto:
+            return  # Empty state item
+
+        from doc_helper.presentation.dialogs.output_mapping_dialog import (
+            OutputMappingDialog,
+        )
+
+        dialog = OutputMappingDialog(
+            parent=self._root,
+            existing_mapping=mapping_dto,  # Edit mode
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            formula_text = dialog.get_formula_text()
+
+            if not formula_text.strip():
+                QMessageBox.warning(
+                    self._root,
+                    "Invalid Formula",
+                    "Formula text cannot be empty.",
+                )
+                return
+
+            # Update output mapping via ViewModel (target identifies the mapping)
+            result = self._viewmodel.update_output_mapping(
+                target=mapping_dto.target,
+                formula_text=formula_text,
+            )
+
+            if result.success:
+                # Mark as having unsaved changes
+                self._set_unsaved_changes(True)
+
+                QMessageBox.information(
+                    self._root,
+                    "Output Mapping Updated",
+                    f"Output mapping for '{mapping_dto.target}' updated successfully!",
+                )
+            else:
+                QMessageBox.critical(
+                    self._root,
+                    "Error Updating Output Mapping",
+                    f"Failed to update output mapping:\n\n{result.error}",
+                )
+
+    def _on_output_mapping_context_menu(self, position) -> None:
+        """Handle output mapping list context menu request (Phase F-13).
+
+        Shows Edit and Delete options for the selected output mapping.
+
+        Args:
+            position: The position where the context menu was requested
+        """
+        from PyQt6.QtWidgets import QMenu
+
+        # Get the item at the position
+        item = self._output_mappings_list.itemAt(position)
+        if not item:
+            return
+
+        mapping_dto = item.data(Qt.ItemDataRole.UserRole)
+        if not mapping_dto:
+            return  # Empty state item
+
+        # Create context menu
+        menu = QMenu(self._output_mappings_list)
+
+        # Edit action
+        edit_action = menu.addAction("Edit...")
+        edit_action.triggered.connect(lambda: self._on_output_mapping_double_clicked(item))
+
+        # Delete action
+        delete_action = menu.addAction("Delete")
+        delete_action.triggered.connect(lambda: self._on_delete_output_mapping(mapping_dto))
+
+        # Show menu
+        menu.exec(self._output_mappings_list.mapToGlobal(position))
+
+    def _on_delete_output_mapping(self, mapping_dto) -> None:
+        """Handle output mapping deletion (Phase F-13).
+
+        Shows confirmation dialog and deletes the output mapping if confirmed.
+
+        Args:
+            mapping_dto: The OutputMappingExportDTO to delete
+        """
+        # Confirmation dialog
+        result = QMessageBox.question(
+            self._root,
+            "Delete Output Mapping",
+            f"Are you sure you want to delete the output mapping for '{mapping_dto.target}'?\n\n"
+            f"Formula: {mapping_dto.formula_text}\n\n"
+            "This action cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if result == QMessageBox.StandardButton.Yes:
+            # Delete output mapping via ViewModel
+            delete_result = self._viewmodel.delete_output_mapping(
+                target=mapping_dto.target
+            )
+
+            if delete_result.success:
+                # Mark as having unsaved changes
+                self._set_unsaved_changes(True)
+
+                QMessageBox.information(
+                    self._root,
+                    "Output Mapping Deleted",
+                    f"Output mapping for '{mapping_dto.target}' deleted successfully!",
+                )
+            else:
+                QMessageBox.critical(
+                    self._root,
+                    "Error Deleting Output Mapping",
+                    f"Failed to delete output mapping:\n\n{delete_result.error}",
                 )
 
     # -------------------------------------------------------------------------
