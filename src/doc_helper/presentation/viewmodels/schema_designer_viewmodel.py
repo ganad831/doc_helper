@@ -39,6 +39,10 @@ Phase SD-3 Scope:
 - Update entity metadata
 - Delete entity (with dependency check)
 
+Phase SD-4 Scope:
+- Update field metadata
+- Delete field (with dependency check)
+
 NOT in scope:
 - No formulas/controls/output mappings display
 
@@ -401,6 +405,86 @@ class SchemaDesignerViewModel(BaseViewModel):
             # Re-select the entity to update field list
             if self._selected_entity_id == entity_id:
                 self.select_entity(entity_id)
+
+        return result
+
+    def update_field(
+        self,
+        entity_id: str,
+        field_id: str,
+        label_key: Optional[str] = None,
+        help_text_key: Optional[str] = None,
+        required: Optional[bool] = None,
+        default_value: Optional[str] = None,
+        formula: Optional[str] = None,
+        lookup_entity_id: Optional[str] = None,
+        lookup_display_field: Optional[str] = None,
+        child_entity_id: Optional[str] = None,
+    ) -> OperationResult:
+        """Update field metadata (Phase SD-4).
+
+        Args:
+            entity_id: Parent entity ID
+            field_id: Field ID to update (immutable)
+            label_key: New label translation key (optional)
+            help_text_key: New help text translation key (optional)
+            required: New required flag (optional)
+            default_value: New default value (optional)
+            formula: New formula expression (CALCULATED fields only)
+            lookup_entity_id: New lookup entity ID (LOOKUP fields only)
+            lookup_display_field: New lookup display field (LOOKUP fields only)
+            child_entity_id: New child entity ID (TABLE fields only)
+
+        Returns:
+            OperationResult with field ID on success, error message on failure.
+            Note: Field type is immutable and cannot be changed.
+        """
+        result = self._schema_usecases.update_field(
+            entity_id=entity_id,
+            field_id=field_id,
+            label_key=label_key,
+            help_text_key=help_text_key,
+            required=required,
+            default_value=default_value,
+            formula=formula,
+            lookup_entity_id=lookup_entity_id,
+            lookup_display_field=lookup_display_field,
+            child_entity_id=child_entity_id,
+        )
+
+        if result.success:
+            # Reload entities to show updated field
+            self.load_entities()
+            # Re-select the entity to update field list
+            if self._selected_entity_id == entity_id:
+                self.select_entity(entity_id)
+
+        return result
+
+    def delete_field(self, entity_id: str, field_id: str) -> OperationResult:
+        """Delete a field from an entity (Phase SD-4).
+
+        Args:
+            entity_id: Parent entity ID
+            field_id: Field ID to delete
+
+        Returns:
+            OperationResult with None on success, error message on failure.
+            Failure includes dependency details if field is referenced.
+        """
+        result = self._schema_usecases.delete_field(
+            entity_id=entity_id,
+            field_id=field_id,
+        )
+
+        if result.success:
+            # Clear field selection if deleted field was selected
+            if self._selected_field_id == field_id:
+                self._selected_field_id = None
+                self.notify_change("selected_field_id")
+                self.notify_change("validation_rules")
+            # Reload entities to reflect deletion
+            self.load_entities()
 
         return result
 

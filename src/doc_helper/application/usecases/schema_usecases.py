@@ -17,6 +17,8 @@ This class wraps:
 - UpdateEntityCommand (update entity metadata)
 - DeleteEntityCommand (delete entity with dependency check)
 - AddFieldCommand (add field)
+- UpdateFieldCommand (update field metadata)
+- DeleteFieldCommand (delete field with dependency check)
 - AddFieldConstraintCommand (add constraint to field)
 - CreateRelationshipCommand (create relationship)
 - ExportSchemaCommand (export schema)
@@ -29,6 +31,12 @@ from typing import Optional
 from doc_helper.application.commands.schema.add_field_command import AddFieldCommand
 from doc_helper.application.commands.schema.add_field_constraint_command import (
     AddFieldConstraintCommand,
+)
+from doc_helper.application.commands.schema.delete_field_command import (
+    DeleteFieldCommand,
+)
+from doc_helper.application.commands.schema.update_field_command import (
+    UpdateFieldCommand,
 )
 from doc_helper.application.commands.schema.create_entity_command import (
     CreateEntityCommand,
@@ -145,6 +153,8 @@ class SchemaUseCases:
         self._add_constraint_command = AddFieldConstraintCommand(schema_repository)
         self._update_entity_command = UpdateEntityCommand(schema_repository)
         self._delete_entity_command = DeleteEntityCommand(schema_repository)
+        self._update_field_command = UpdateFieldCommand(schema_repository)
+        self._delete_field_command = DeleteFieldCommand(schema_repository)
 
     # =========================================================================
     # Query Operations (READ)
@@ -318,6 +328,80 @@ class SchemaUseCases:
         if result.is_success():
             # Unwrap domain ID to string HERE (not in Presentation)
             return OperationResult.ok(result.value.value)
+        else:
+            return OperationResult.fail(result.error)
+
+    def update_field(
+        self,
+        entity_id: str,
+        field_id: str,
+        label_key: Optional[str] = None,
+        help_text_key: Optional[str] = None,
+        required: Optional[bool] = None,
+        default_value: Optional[str] = None,
+        formula: Optional[str] = None,
+        lookup_entity_id: Optional[str] = None,
+        lookup_display_field: Optional[str] = None,
+        child_entity_id: Optional[str] = None,
+    ) -> OperationResult:
+        """Update field metadata.
+
+        Args:
+            entity_id: Parent entity ID (required)
+            field_id: Field ID to update (required)
+            label_key: New label translation key (optional)
+            help_text_key: New help text translation key (optional, empty string clears)
+            required: New required flag (optional)
+            default_value: New default value (optional, empty string clears)
+            formula: New formula expression (optional, only for CALCULATED fields)
+            lookup_entity_id: New lookup entity ID (optional, only for LOOKUP fields)
+            lookup_display_field: New lookup display field (optional, only for LOOKUP fields)
+            child_entity_id: New child entity ID (optional, only for TABLE fields)
+
+        Returns:
+            OperationResult with field ID string on success, error message on failure.
+            Note: Field type is immutable and cannot be changed.
+        """
+        result = self._update_field_command.execute(
+            entity_id=entity_id,
+            field_id=field_id,
+            label_key=label_key,
+            help_text_key=help_text_key,
+            required=required,
+            default_value=default_value,
+            formula=formula,
+            lookup_entity_id=lookup_entity_id,
+            lookup_display_field=lookup_display_field,
+            child_entity_id=child_entity_id,
+        )
+
+        if result.is_success():
+            # Unwrap domain ID to string HERE (not in Presentation)
+            return OperationResult.ok(result.value.value)
+        else:
+            return OperationResult.fail(result.error)
+
+    def delete_field(self, entity_id: str, field_id: str) -> OperationResult:
+        """Delete a field from an entity.
+
+        Args:
+            entity_id: Parent entity ID
+            field_id: Field ID to delete
+
+        Returns:
+            OperationResult with None on success, error message on failure.
+            Failure includes dependency details if field is referenced by:
+            - Formulas in other fields
+            - Control rules (as source or target)
+            - LOOKUP fields (as lookup_display_field)
+        """
+        result = self._delete_field_command.execute(
+            entity_id=entity_id,
+            field_id=field_id,
+        )
+
+        if result.is_success():
+            return OperationResult.ok(None)
         else:
             return OperationResult.fail(result.error)
 

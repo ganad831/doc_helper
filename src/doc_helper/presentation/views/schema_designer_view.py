@@ -54,8 +54,13 @@ Phase SD-3: Entity Edit/Delete UI
 - Delete button with confirmation dialog
 - Dependency warning before delete
 
+Phase SD-4: Field Edit/Delete UI
+- Edit button to update field metadata
+- Delete button with confirmation dialog
+- Dependency warning before delete (formulas, controls, lookup references)
+
 NOT in current scope:
-- No edit/delete buttons for fields/relationships
+- No edit/delete buttons for relationships
 - No formulas/controls/output mappings display
 """
 
@@ -434,6 +439,28 @@ class SchemaDesignerView(BaseView):
         )
         header_layout.addWidget(self._add_field_button)
 
+        # Edit Field button (Phase SD-4)
+        self._edit_field_button = QPushButton("Edit")
+        self._edit_field_button.setStyleSheet("font-size: 9pt; padding: 3px 8px;")
+        self._edit_field_button.clicked.connect(self._on_edit_field_clicked)
+        self._edit_field_button.setToolTip(
+            "Edit the selected field's metadata.\n"
+            "(Label, help text, required, default value)"
+        )
+        self._edit_field_button.setEnabled(False)  # Disabled until field selected
+        header_layout.addWidget(self._edit_field_button)
+
+        # Delete Field button (Phase SD-4)
+        self._delete_field_button = QPushButton("Delete")
+        self._delete_field_button.setStyleSheet("font-size: 9pt; padding: 3px 8px;")
+        self._delete_field_button.clicked.connect(self._on_delete_field_clicked)
+        self._delete_field_button.setToolTip(
+            "Delete the selected field.\n"
+            "Cannot delete if field is referenced by formulas or controls."
+        )
+        self._delete_field_button.setEnabled(False)  # Disabled until field selected
+        header_layout.addWidget(self._delete_field_button)
+
         layout.addLayout(header_layout)
 
         # Info label (shows when no entity selected)
@@ -773,6 +800,14 @@ class SchemaDesignerView(BaseView):
             current: Currently selected item
             previous: Previously selected item
         """
+        field_selected = current is not None
+
+        # Phase SD-4: Enable/disable Edit and Delete buttons
+        if self._edit_field_button:
+            self._edit_field_button.setEnabled(field_selected)
+        if self._delete_field_button:
+            self._delete_field_button.setEnabled(field_selected)
+
         if current:
             field_id = current.data(Qt.ItemDataRole.UserRole)
             self._viewmodel.select_field(field_id)
@@ -817,6 +852,13 @@ class SchemaDesignerView(BaseView):
 
         fields = self._viewmodel.fields
         entity_selected = self._viewmodel.selected_entity_id is not None
+
+        # Phase SD-4: Disable Edit/Delete buttons when field list changes
+        # (field selection is cleared when list is refreshed)
+        if self._edit_field_button:
+            self._edit_field_button.setEnabled(False)
+        if self._delete_field_button:
+            self._delete_field_button.setEnabled(False)
 
         # Phase 5: Manage visibility of info label, empty state, and field list
         if not entity_selected:
@@ -1216,6 +1258,163 @@ class SchemaDesignerView(BaseView):
                     "Error Adding Field",
                     f"Failed to add field: {result.error}",
                 )
+
+    # -------------------------------------------------------------------------
+    # Phase SD-4: Field Edit/Delete Operations
+    # -------------------------------------------------------------------------
+
+    def _on_edit_field_clicked(self) -> None:
+        """Handle Edit Field button click (Phase SD-4)."""
+        if not self._viewmodel.selected_entity_id:
+            QMessageBox.warning(
+                self._root,
+                "No Entity Selected",
+                "Please select an entity first.",
+            )
+            return
+
+        if not self._viewmodel.selected_field_id:
+            QMessageBox.warning(
+                self._root,
+                "No Field Selected",
+                "Please select a field first.",
+            )
+            return
+
+        # Find the selected field DTO
+        selected_field = None
+        fields = self._viewmodel.fields
+        for field_dto in fields:
+            if field_dto.id == self._viewmodel.selected_field_id:
+                selected_field = field_dto
+                break
+
+        if not selected_field:
+            QMessageBox.warning(
+                self._root,
+                "Field Not Found",
+                "The selected field could not be found.",
+            )
+            return
+
+        # Get available entities for LOOKUP/TABLE dropdowns
+        available_entities = tuple(
+            (entity.id, entity.name) for entity in self._viewmodel.entities
+        )
+
+        from doc_helper.presentation.dialogs.edit_field_dialog import EditFieldDialog
+
+        dialog = EditFieldDialog(
+            entity_id=self._viewmodel.selected_entity_id,
+            field_id=selected_field.id,
+            field_type=selected_field.field_type,
+            current_label_key=selected_field.label,  # DTO has translated label
+            current_help_text_key=selected_field.help_text,  # DTO has translated help_text
+            current_required=selected_field.required,
+            current_default_value=selected_field.default_value,
+            current_formula=selected_field.formula,
+            current_lookup_entity_id=selected_field.lookup_entity_id,
+            current_lookup_display_field=selected_field.lookup_display_field,
+            current_child_entity_id=selected_field.child_entity_id,
+            available_entities=available_entities,
+            parent=self._root,
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            field_data = dialog.get_field_data()
+            if not field_data:
+                return
+
+            # Update field via ViewModel
+            result = self._viewmodel.update_field(
+                entity_id=field_data["entity_id"],
+                field_id=field_data["field_id"],
+                label_key=field_data["label_key"],
+                help_text_key=field_data["help_text_key"],
+                required=field_data["required"],
+                default_value=field_data["default_value"],
+                formula=field_data.get("formula"),
+                lookup_entity_id=field_data.get("lookup_entity_id"),
+                lookup_display_field=field_data.get("lookup_display_field"),
+                child_entity_id=field_data.get("child_entity_id"),
+            )
+
+            if result.is_success():
+                self._set_unsaved_changes(True)
+                QMessageBox.information(
+                    self._root,
+                    "Field Updated",
+                    f"Field '{field_data['field_id']}' updated successfully!",
+                )
+            else:
+                QMessageBox.critical(
+                    self._root,
+                    "Error Updating Field",
+                    f"Failed to update field:\n\n{result.error}",
+                )
+
+    def _on_delete_field_clicked(self) -> None:
+        """Handle Delete Field button click (Phase SD-4)."""
+        if not self._viewmodel.selected_entity_id:
+            QMessageBox.warning(
+                self._root,
+                "No Entity Selected",
+                "Please select an entity first.",
+            )
+            return
+
+        if not self._viewmodel.selected_field_id:
+            QMessageBox.warning(
+                self._root,
+                "No Field Selected",
+                "Please select a field first.",
+            )
+            return
+
+        entity_id = self._viewmodel.selected_entity_id
+        field_id = self._viewmodel.selected_field_id
+
+        # Find field label for confirmation message
+        field_label = field_id
+        for field_dto in self._viewmodel.fields:
+            if field_dto.id == field_id:
+                field_label = field_dto.label
+                break
+
+        # Confirmation dialog
+        confirm = QMessageBox.warning(
+            self._root,
+            "Confirm Delete",
+            f"Are you sure you want to delete field '{field_label}'?\n\n"
+            "This will also remove any validation constraints on this field.\n\n"
+            "This action cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        # Delete field via ViewModel
+        result = self._viewmodel.delete_field(
+            entity_id=entity_id,
+            field_id=field_id,
+        )
+
+        if result.is_success():
+            self._set_unsaved_changes(True)
+            QMessageBox.information(
+                self._root,
+                "Field Deleted",
+                f"Field '{field_label}' deleted successfully!",
+            )
+        else:
+            # Show detailed error message (includes dependency info)
+            QMessageBox.critical(
+                self._root,
+                "Cannot Delete Field",
+                result.error,
+            )
 
     # -------------------------------------------------------------------------
     # Phase 6B: Relationship Operations (ADD-ONLY per ADR-022)
