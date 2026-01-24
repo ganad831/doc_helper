@@ -43,10 +43,20 @@ Phase SD-1: Import UI
 - Display compatibility analysis
 - Display import warnings/errors
 
+Phase SD-2: Add Constraint UI
+- "Add Constraint" button in validation rules panel
+- Add constraint dialog with type selector
+- Support: Required, MinValue, MaxValue, MinLength, MaxLength
+- Refresh validation rules after adding
+
+Phase SD-3: Entity Edit/Delete UI
+- Edit button to update entity metadata
+- Delete button with confirmation dialog
+- Dependency warning before delete
+
 NOT in current scope:
-- No edit/delete buttons for entities/fields/relationships
+- No edit/delete buttons for fields/relationships
 - No formulas/controls/output mappings display
-- No validation rule creation
 """
 
 from typing import Optional
@@ -156,6 +166,14 @@ class SchemaDesignerView(BaseView):
         self._relationship_info_label: Optional[QLabel] = None
         self._relationship_empty_label: Optional[QLabel] = None
         self._add_relationship_button: Optional[QPushButton] = None
+
+        # Phase SD-2: Add Constraint UI
+        self._add_constraint_button: Optional[QPushButton] = None
+        self._validation_info_label: Optional[QLabel] = None
+
+        # Phase SD-3: Entity Edit/Delete UI
+        self._edit_entity_button: Optional[QPushButton] = None
+        self._delete_entity_button: Optional[QPushButton] = None
 
         # Phase 5: UX Polish
         self._subtitle_frame: Optional[QFrame] = None
@@ -326,16 +344,37 @@ class SchemaDesignerView(BaseView):
         header_layout.addStretch()
 
         # Add Entity button (Phase 2 Step 2)
-        add_entity_button = QPushButton("+ Add Entity")
+        add_entity_button = QPushButton("+ Add")
         add_entity_button.setStyleSheet("font-size: 9pt; padding: 3px 8px;")
         add_entity_button.clicked.connect(self._on_add_entity_clicked)
-        # Phase 5: Add tooltip
         add_entity_button.setToolTip(
             "Create a new entity definition.\n"
             "Entities are containers for field definitions\n"
             "(e.g., 'Project Info', 'Boreholes', 'Samples')."
         )
         header_layout.addWidget(add_entity_button)
+
+        # Edit Entity button (Phase SD-3)
+        self._edit_entity_button = QPushButton("Edit")
+        self._edit_entity_button.setStyleSheet("font-size: 9pt; padding: 3px 8px;")
+        self._edit_entity_button.clicked.connect(self._on_edit_entity_clicked)
+        self._edit_entity_button.setToolTip(
+            "Edit the selected entity's metadata.\n"
+            "(Name, description, root status)"
+        )
+        self._edit_entity_button.setEnabled(False)  # Disabled until entity selected
+        header_layout.addWidget(self._edit_entity_button)
+
+        # Delete Entity button (Phase SD-3)
+        self._delete_entity_button = QPushButton("Delete")
+        self._delete_entity_button.setStyleSheet("font-size: 9pt; padding: 3px 8px;")
+        self._delete_entity_button.clicked.connect(self._on_delete_entity_clicked)
+        self._delete_entity_button.setToolTip(
+            "Delete the selected entity.\n"
+            "Cannot delete if entity is referenced by other entities."
+        )
+        self._delete_entity_button.setEnabled(False)  # Disabled until entity selected
+        header_layout.addWidget(self._delete_entity_button)
 
         layout.addLayout(header_layout)
 
@@ -432,23 +471,47 @@ class SchemaDesignerView(BaseView):
     def _create_validation_panel(self) -> QWidget:
         """Create the validation rules panel.
 
+        Phase SD-2: Add Constraint button added.
+
         Returns:
-            Widget containing validation rules list
+            Widget containing validation rules list and add constraint button
         """
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(5, 5, 5, 5)
 
-        # Panel title
+        # Panel title with Add Constraint button
+        header_layout = QHBoxLayout()
         title = QLabel("Validation Rules")
         title.setStyleSheet("font-weight: bold; font-size: 11pt; padding: 5px;")
-        layout.addWidget(title)
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+
+        # Add Constraint button (Phase SD-2)
+        self._add_constraint_button = QPushButton("+ Add Constraint")
+        self._add_constraint_button.setStyleSheet("font-size: 9pt; padding: 3px 8px;")
+        self._add_constraint_button.clicked.connect(self._on_add_constraint_clicked)
+        self._add_constraint_button.setToolTip(
+            "Add a validation constraint to the selected field.\n\n"
+            "Supported constraints:\n"
+            "- Required: Field must not be empty\n"
+            "- Minimum Value: Numeric minimum\n"
+            "- Maximum Value: Numeric maximum\n"
+            "- Minimum Length: Text length minimum\n"
+            "- Maximum Length: Text length maximum"
+        )
+        self._add_constraint_button.setEnabled(False)  # Disabled until field selected
+        header_layout.addWidget(self._add_constraint_button)
+
+        layout.addLayout(header_layout)
 
         # Info label (shows when no field selected)
-        info = QLabel("Select a field to view its validation rules")
-        info.setStyleSheet("color: gray; font-style: italic; padding: 10px;")
-        info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(info)
+        self._validation_info_label = QLabel("Select a field to view its validation rules")
+        self._validation_info_label.setStyleSheet(
+            "color: gray; font-style: italic; padding: 10px;"
+        )
+        self._validation_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._validation_info_label)
 
         # Validation rules list
         self._validation_list = QListWidget()
@@ -687,6 +750,14 @@ class SchemaDesignerView(BaseView):
             current: Currently selected item
             previous: Previously selected item
         """
+        entity_selected = current is not None
+
+        # Phase SD-3: Enable/disable Edit and Delete buttons
+        if self._edit_entity_button:
+            self._edit_entity_button.setEnabled(entity_selected)
+        if self._delete_entity_button:
+            self._delete_entity_button.setEnabled(entity_selected)
+
         if current:
             entity_id = current.data(Qt.ItemDataRole.UserRole)
             self._viewmodel.select_entity(entity_id)
@@ -810,22 +881,36 @@ class SchemaDesignerView(BaseView):
             self._field_list.addItem(item)
 
     def _on_validation_rules_changed(self) -> None:
-        """Handle validation rules list change."""
+        """Handle validation rules list change.
+
+        Phase SD-2: Also manages Add Constraint button state.
+        """
         self._validation_list.clear()
 
         rules = self._viewmodel.validation_rules
-        if not rules:
+        field_selected = self._viewmodel.selected_field_id is not None
+
+        # Manage visibility of info label and list
+        if self._validation_info_label:
+            self._validation_info_label.setVisible(not field_selected)
+
+        # Manage Add Constraint button state
+        if self._add_constraint_button:
+            self._add_constraint_button.setEnabled(field_selected)
+
+        if not field_selected:
             self._validation_list.setVisible(False)
             return
 
+        # Field is selected - show the list
         self._validation_list.setVisible(True)
 
-        for rule_text in rules:
-            item = QListWidgetItem(rule_text)
-            self._validation_list.addItem(item)
-
-        # Show message if no rules
-        if not rules:
+        if rules:
+            for rule_text in rules:
+                item = QListWidgetItem(rule_text)
+                self._validation_list.addItem(item)
+        else:
+            # Show message if no rules defined
             item = QListWidgetItem("No validation rules defined")
             item.setForeground(Qt.GlobalColor.gray)
             self._validation_list.addItem(item)
@@ -966,6 +1051,119 @@ class SchemaDesignerView(BaseView):
                     f"Failed to create entity: {result.error}",
                 )
 
+    def _on_edit_entity_clicked(self) -> None:
+        """Handle Edit Entity button click (Phase SD-3)."""
+        if not self._viewmodel.selected_entity_id:
+            QMessageBox.warning(
+                self._root,
+                "No Entity Selected",
+                "Please select an entity first.",
+            )
+            return
+
+        # Find the selected entity DTO
+        selected_entity = None
+        for entity_dto in self._viewmodel.entities:
+            if entity_dto.id == self._viewmodel.selected_entity_id:
+                selected_entity = entity_dto
+                break
+
+        if not selected_entity:
+            QMessageBox.warning(
+                self._root,
+                "Entity Not Found",
+                "The selected entity could not be found.",
+            )
+            return
+
+        from doc_helper.presentation.dialogs.edit_entity_dialog import EditEntityDialog
+
+        dialog = EditEntityDialog(
+            entity_id=selected_entity.id,
+            current_name_key=selected_entity.name_key,
+            current_description_key=selected_entity.description_key,
+            current_is_root=selected_entity.is_root_entity,
+            parent=self._root,
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            entity_data = dialog.get_entity_data()
+            if not entity_data:
+                return
+
+            # Update entity via ViewModel
+            result = self._viewmodel.update_entity(
+                entity_id=entity_data["entity_id"],
+                name_key=entity_data["name_key"],
+                description_key=entity_data["description_key"],
+                is_root_entity=entity_data["is_root_entity"],
+            )
+
+            if result.is_success():
+                self._set_unsaved_changes(True)
+                QMessageBox.information(
+                    self._root,
+                    "Entity Updated",
+                    f"Entity '{entity_data['entity_id']}' updated successfully!",
+                )
+            else:
+                QMessageBox.critical(
+                    self._root,
+                    "Error Updating Entity",
+                    f"Failed to update entity:\n\n{result.error}",
+                )
+
+    def _on_delete_entity_clicked(self) -> None:
+        """Handle Delete Entity button click (Phase SD-3)."""
+        if not self._viewmodel.selected_entity_id:
+            QMessageBox.warning(
+                self._root,
+                "No Entity Selected",
+                "Please select an entity first.",
+            )
+            return
+
+        entity_id = self._viewmodel.selected_entity_id
+
+        # Find entity name for confirmation message
+        entity_name = entity_id
+        for entity_dto in self._viewmodel.entities:
+            if entity_dto.id == entity_id:
+                entity_name = entity_dto.name
+                break
+
+        # Confirmation dialog
+        confirm = QMessageBox.warning(
+            self._root,
+            "Confirm Delete",
+            f"Are you sure you want to delete entity '{entity_name}'?\n\n"
+            "This will also delete all fields defined in this entity.\n\n"
+            "This action cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        # Delete entity via ViewModel
+        result = self._viewmodel.delete_entity(entity_id=entity_id)
+
+        if result.is_success():
+            self._set_unsaved_changes(True)
+            QMessageBox.information(
+                self._root,
+                "Entity Deleted",
+                f"Entity '{entity_name}' deleted successfully!",
+            )
+        else:
+            # Show detailed error message (includes dependency info)
+            QMessageBox.critical(
+                self._root,
+                "Cannot Delete Entity",
+                result.error,
+            )
+
     def _on_add_field_clicked(self) -> None:
         """Handle Add Field button click."""
         # Get currently selected entity
@@ -1079,6 +1277,83 @@ class SchemaDesignerView(BaseView):
                     self._root,
                     "Error Creating Relationship",
                     f"Failed to create relationship:\n\n{result.error}",
+                )
+
+    # -------------------------------------------------------------------------
+    # Phase SD-2: Constraint Operations
+    # -------------------------------------------------------------------------
+
+    def _on_add_constraint_clicked(self) -> None:
+        """Handle Add Constraint button click (Phase SD-2).
+
+        Opens dialog to add a validation constraint to the selected field.
+        """
+        # Verify field is selected
+        if not self._viewmodel.selected_field_id:
+            QMessageBox.warning(
+                self._root,
+                "No Field Selected",
+                "Please select a field first before adding a constraint.",
+            )
+            return
+
+        if not self._viewmodel.selected_entity_id:
+            QMessageBox.warning(
+                self._root,
+                "No Entity Selected",
+                "Please select an entity and field first.",
+            )
+            return
+
+        # Get field label for dialog
+        field_label = self._viewmodel.selected_field_id
+        for entity_dto in self._viewmodel.entities:
+            if entity_dto.id == self._viewmodel.selected_entity_id:
+                for field_dto in entity_dto.fields:
+                    if field_dto.id == self._viewmodel.selected_field_id:
+                        field_label = field_dto.label or field_dto.id
+                        break
+                break
+
+        from doc_helper.presentation.dialogs.add_constraint_dialog import (
+            AddConstraintDialog,
+        )
+
+        dialog = AddConstraintDialog(
+            field_id=self._viewmodel.selected_field_id,
+            field_label=field_label,
+            parent=self._root,
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            constraint_data = dialog.get_constraint_data()
+            if not constraint_data:
+                return
+
+            # Add constraint via ViewModel
+            result = self._viewmodel.add_constraint(
+                entity_id=self._viewmodel.selected_entity_id,
+                field_id=self._viewmodel.selected_field_id,
+                constraint_type=constraint_data["constraint_type"],
+                value=constraint_data["value"],
+                severity=constraint_data["severity"],
+            )
+
+            if result.is_success():
+                # Mark as having unsaved changes
+                self._set_unsaved_changes(True)
+
+                QMessageBox.information(
+                    self._root,
+                    "Constraint Added",
+                    f"Constraint '{constraint_data['constraint_type']}' added to "
+                    f"field '{field_label}' successfully!",
+                )
+            else:
+                QMessageBox.critical(
+                    self._root,
+                    "Error Adding Constraint",
+                    f"Failed to add constraint:\n\n{result.error}",
                 )
 
     # -------------------------------------------------------------------------

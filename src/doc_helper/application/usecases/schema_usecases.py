@@ -14,26 +14,39 @@ This class wraps:
 - GetSchemaEntitiesQuery (read entities)
 - GetRelationshipsQuery (read relationships)
 - CreateEntityCommand (create entity)
+- UpdateEntityCommand (update entity metadata)
+- DeleteEntityCommand (delete entity with dependency check)
 - AddFieldCommand (add field)
+- AddFieldConstraintCommand (add constraint to field)
 - CreateRelationshipCommand (create relationship)
 - ExportSchemaCommand (export schema)
+- ImportSchemaCommand (import schema)
 """
 
 from pathlib import Path
 from typing import Optional
 
 from doc_helper.application.commands.schema.add_field_command import AddFieldCommand
+from doc_helper.application.commands.schema.add_field_constraint_command import (
+    AddFieldConstraintCommand,
+)
 from doc_helper.application.commands.schema.create_entity_command import (
     CreateEntityCommand,
 )
 from doc_helper.application.commands.schema.create_relationship_command import (
     CreateRelationshipCommand,
 )
+from doc_helper.application.commands.schema.delete_entity_command import (
+    DeleteEntityCommand,
+)
 from doc_helper.application.commands.schema.export_schema_command import (
     ExportSchemaCommand,
 )
 from doc_helper.application.commands.schema.import_schema_command import (
     ImportSchemaCommand,
+)
+from doc_helper.application.commands.schema.update_entity_command import (
+    UpdateEntityCommand,
 )
 from doc_helper.application.dto.export_dto import ExportResult
 from doc_helper.application.dto.import_dto import (
@@ -52,6 +65,14 @@ from doc_helper.application.queries.schema.get_schema_entities_query import (
 )
 from doc_helper.domain.schema.relationship_repository import IRelationshipRepository
 from doc_helper.domain.schema.schema_repository import ISchemaRepository
+from doc_helper.domain.validation.constraints import (
+    MaxLengthConstraint,
+    MaxValueConstraint,
+    MinLengthConstraint,
+    MinValueConstraint,
+    RequiredConstraint,
+)
+from doc_helper.domain.validation.severity import Severity
 
 
 class SchemaUseCases:
@@ -121,6 +142,9 @@ class SchemaUseCases:
             schema_repository=schema_repository,
             relationship_repository=relationship_repository,
         )
+        self._add_constraint_command = AddFieldConstraintCommand(schema_repository)
+        self._update_entity_command = UpdateEntityCommand(schema_repository)
+        self._delete_entity_command = DeleteEntityCommand(schema_repository)
 
     # =========================================================================
     # Query Operations (READ)
@@ -200,6 +224,60 @@ class SchemaUseCases:
         if result.is_success():
             # Unwrap domain ID to string HERE (not in Presentation)
             return OperationResult.ok(result.value.value)
+        else:
+            return OperationResult.fail(result.error)
+
+    def update_entity(
+        self,
+        entity_id: str,
+        name_key: Optional[str] = None,
+        description_key: Optional[str] = None,
+        is_root_entity: Optional[bool] = None,
+        parent_entity_id: Optional[str] = None,
+    ) -> OperationResult:
+        """Update entity metadata.
+
+        Args:
+            entity_id: Entity ID to update (required, immutable)
+            name_key: New name translation key (optional)
+            description_key: New description translation key (optional, empty string clears)
+            is_root_entity: New root entity status (optional)
+            parent_entity_id: New parent entity ID (optional, empty string clears for root)
+
+        Returns:
+            OperationResult with entity ID string on success, error message on failure
+        """
+        result = self._update_entity_command.execute(
+            entity_id=entity_id,
+            name_key=name_key,
+            description_key=description_key,
+            is_root_entity=is_root_entity,
+            parent_entity_id=parent_entity_id,
+        )
+
+        if result.is_success():
+            # Unwrap domain ID to string HERE (not in Presentation)
+            return OperationResult.ok(result.value.value)
+        else:
+            return OperationResult.fail(result.error)
+
+    def delete_entity(self, entity_id: str) -> OperationResult:
+        """Delete an entity.
+
+        Args:
+            entity_id: Entity ID to delete
+
+        Returns:
+            OperationResult with None on success, error message on failure.
+            Failure includes dependency details if entity is referenced by:
+            - TABLE fields in other entities
+            - LOOKUP fields in other entities
+            - Child entities (parent_entity_id relationship)
+        """
+        result = self._delete_entity_command.execute(entity_id=entity_id)
+
+        if result.is_success():
+            return OperationResult.ok(None)
         else:
             return OperationResult.fail(result.error)
 
@@ -353,6 +431,80 @@ class SchemaUseCases:
             identical_action=identical_action,
             force=force,
         )
+
+    def add_constraint(
+        self,
+        entity_id: str,
+        field_id: str,
+        constraint_type: str,
+        value: Optional[float] = None,
+        severity: str = "ERROR",
+    ) -> OperationResult:
+        """Add a validation constraint to a field.
+
+        Args:
+            entity_id: Entity containing the field
+            field_id: Field to add constraint to
+            constraint_type: Type of constraint:
+                - "REQUIRED": Field value must not be empty
+                - "MIN_VALUE": Field value must be >= value
+                - "MAX_VALUE": Field value must be <= value
+                - "MIN_LENGTH": Field value must have >= value characters
+                - "MAX_LENGTH": Field value must have <= value characters
+            value: Constraint value (required for MIN/MAX types, ignored for REQUIRED)
+            severity: Severity level ("ERROR", "WARNING", "INFO"), defaults to "ERROR"
+
+        Returns:
+            OperationResult with field ID string on success, error message on failure
+        """
+        # Parse severity
+        try:
+            severity_enum = Severity(severity.upper())
+        except ValueError:
+            return OperationResult.fail(
+                f"Invalid severity: {severity}. Must be ERROR, WARNING, or INFO."
+            )
+
+        # Construct the appropriate constraint (domain construction happens HERE)
+        constraint_type_upper = constraint_type.upper()
+        try:
+            if constraint_type_upper == "REQUIRED":
+                constraint = RequiredConstraint(severity=severity_enum)
+            elif constraint_type_upper == "MIN_VALUE":
+                if value is None:
+                    return OperationResult.fail("value is required for MIN_VALUE constraint")
+                constraint = MinValueConstraint(min_value=float(value), severity=severity_enum)
+            elif constraint_type_upper == "MAX_VALUE":
+                if value is None:
+                    return OperationResult.fail("value is required for MAX_VALUE constraint")
+                constraint = MaxValueConstraint(max_value=float(value), severity=severity_enum)
+            elif constraint_type_upper == "MIN_LENGTH":
+                if value is None:
+                    return OperationResult.fail("value is required for MIN_LENGTH constraint")
+                constraint = MinLengthConstraint(min_length=int(value), severity=severity_enum)
+            elif constraint_type_upper == "MAX_LENGTH":
+                if value is None:
+                    return OperationResult.fail("value is required for MAX_LENGTH constraint")
+                constraint = MaxLengthConstraint(max_length=int(value), severity=severity_enum)
+            else:
+                return OperationResult.fail(
+                    f"Unknown constraint type: {constraint_type}. "
+                    "Supported types: REQUIRED, MIN_VALUE, MAX_VALUE, MIN_LENGTH, MAX_LENGTH"
+                )
+        except ValueError as e:
+            return OperationResult.fail(f"Invalid constraint value: {e}")
+
+        # Execute command
+        result = self._add_constraint_command.execute(
+            entity_id=entity_id,
+            field_id=field_id,
+            constraint=constraint,
+        )
+
+        if result.is_success():
+            return OperationResult.ok(result.value.value)
+        else:
+            return OperationResult.fail(result.error)
 
     def get_entity_list_for_selection(self) -> tuple[tuple[str, str], ...]:
         """Get list of entities for dropdown/selection UI.

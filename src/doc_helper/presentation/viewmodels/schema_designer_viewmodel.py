@@ -30,10 +30,17 @@ Phase SD-1 Scope:
 - Handle identical schema actions
 - Reload entities after successful import
 
+Phase SD-2 Scope:
+- Add validation constraints to fields
+- Support: Required, MinValue, MaxValue, MinLength, MaxLength
+- Refresh validation rules after adding
+
+Phase SD-3 Scope:
+- Update entity metadata
+- Delete entity (with dependency check)
+
 NOT in scope:
-- No edit/delete operations
 - No formulas/controls/output mappings display
-- No validation rule creation
 
 ARCHITECTURE ENFORCEMENT (Rule 0 Compliance):
 - ViewModel depends ONLY on SchemaUseCases (Application layer use-case)
@@ -302,6 +309,58 @@ class SchemaDesignerViewModel(BaseViewModel):
 
         return result
 
+    def update_entity(
+        self,
+        entity_id: str,
+        name_key: Optional[str] = None,
+        description_key: Optional[str] = None,
+        is_root_entity: Optional[bool] = None,
+    ) -> OperationResult:
+        """Update entity metadata (Phase SD-3).
+
+        Args:
+            entity_id: Entity ID to update (immutable)
+            name_key: New name translation key (optional)
+            description_key: New description translation key (optional)
+            is_root_entity: New root entity status (optional)
+
+        Returns:
+            OperationResult with entity ID on success, error message on failure
+        """
+        result = self._schema_usecases.update_entity(
+            entity_id=entity_id,
+            name_key=name_key,
+            description_key=description_key,
+            is_root_entity=is_root_entity,
+        )
+
+        if result.success:
+            # Reload entities to show updated entity
+            self.load_entities()
+
+        return result
+
+    def delete_entity(self, entity_id: str) -> OperationResult:
+        """Delete an entity (Phase SD-3).
+
+        Args:
+            entity_id: Entity ID to delete
+
+        Returns:
+            OperationResult with None on success, error message on failure.
+            Failure includes dependency details if entity is referenced.
+        """
+        result = self._schema_usecases.delete_entity(entity_id=entity_id)
+
+        if result.success:
+            # Clear selection if deleted entity was selected
+            if self._selected_entity_id == entity_id:
+                self.clear_selection()
+            # Reload entities to reflect deletion
+            self.load_entities()
+
+        return result
+
     def add_field(
         self,
         entity_id: str,
@@ -465,6 +524,49 @@ class SchemaDesignerViewModel(BaseViewModel):
         if result.success and not result.was_skipped:
             # Reload entities to show imported schema
             self.load_entities()
+
+        return result
+
+    # -------------------------------------------------------------------------
+    # Phase SD-2: Constraint Operations
+    # -------------------------------------------------------------------------
+
+    def add_constraint(
+        self,
+        entity_id: str,
+        field_id: str,
+        constraint_type: str,
+        value: Optional[float] = None,
+        severity: str = "ERROR",
+    ) -> OperationResult:
+        """Add a validation constraint to a field (Phase SD-2).
+
+        Delegates to SchemaUseCases which handles domain object construction
+        and command execution.
+
+        Args:
+            entity_id: Entity containing the field
+            field_id: Field to add constraint to
+            constraint_type: Type of constraint (REQUIRED, MIN_VALUE, etc.)
+            value: Constraint value (required for MIN/MAX types)
+            severity: Severity level (ERROR, WARNING, INFO)
+
+        Returns:
+            OperationResult with field ID on success, error message on failure
+        """
+        result = self._schema_usecases.add_constraint(
+            entity_id=entity_id,
+            field_id=field_id,
+            constraint_type=constraint_type,
+            value=value,
+            severity=severity,
+        )
+
+        if result.success:
+            # Reload entities to refresh constraint data
+            self.load_entities()
+            # Notify about validation rules change
+            self.notify_change("validation_rules")
 
         return result
 
