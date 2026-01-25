@@ -1587,7 +1587,7 @@ class SchemaDesignerView(BaseView):
                 is_root_entity=entity_data["is_root_entity"],
             )
 
-            if result.is_success():
+            if result.success:
                 # Phase 5 Step 3: Mark as having unsaved changes
                 self._set_unsaved_changes(True)
 
@@ -1651,7 +1651,7 @@ class SchemaDesignerView(BaseView):
                 is_root_entity=entity_data["is_root_entity"],
             )
 
-            if result.is_success():
+            if result.success:
                 self._set_unsaved_changes(True)
                 QMessageBox.information(
                     self._root,
@@ -1701,7 +1701,7 @@ class SchemaDesignerView(BaseView):
         # Delete entity via ViewModel
         result = self._viewmodel.delete_entity(entity_id=entity_id)
 
-        if result.is_success():
+        if result.success:
             self._set_unsaved_changes(True)
             QMessageBox.information(
                 self._root,
@@ -1884,7 +1884,7 @@ class SchemaDesignerView(BaseView):
                 child_entity_id=field_data.get("child_entity_id"),
             )
 
-            if result.is_success():
+            if result.success:
                 self._set_unsaved_changes(True)
                 QMessageBox.information(
                     self._root,
@@ -2004,7 +2004,7 @@ class SchemaDesignerView(BaseView):
                 inverse_name_key=rel_data["inverse_name_key"],
             )
 
-            if result.is_success():
+            if result.success:
                 # Mark as having unsaved changes
                 self._set_unsaved_changes(True)
 
@@ -2083,7 +2083,7 @@ class SchemaDesignerView(BaseView):
                 severity=constraint_data["severity"],
             )
 
-            if result.is_success():
+            if result.success:
                 # Mark as having unsaved changes
                 self._set_unsaved_changes(True)
 
