@@ -1946,7 +1946,7 @@ class SchemaDesignerView(BaseView):
             field_id=field_id,
         )
 
-        if result.is_success():
+        if result.success:
             self._set_unsaved_changes(True)
             QMessageBox.information(
                 self._root,
