@@ -11,12 +11,14 @@
 
 ## Executive Summary
 
-The Schema Designer is **substantially implemented** with most core features working. However, there are specific gaps in field options UI, some constraints, and export metadata.
+> **Updated 2026-01-25 (Phase S-3)**: All E2E flows verified. Field Options fully implemented.
+
+The Schema Designer is **substantially implemented** with all core features working. Minor gaps remain in some constraints and export metadata.
 
 | Category | Status |
 |----------|--------|
 | Core Meta-Schema (Phase 1) | ✅ 95% Complete |
-| Minimum Viable (Phase 2) | ⚠️ 85% Complete - Field options UI missing |
+| Minimum Viable (Phase 2) | ✅ 95% Complete - Field options fully working |
 | Relationships (Phase 2.1) | ✅ 90% Complete - Cascade rules missing |
 | Formulas & Controls (Phase 2.2) | ✅ 95% Complete |
 | Output Mappings (Phase 2.3) | ⚠️ 80% Complete - Transformer UI missing |
@@ -68,23 +70,27 @@ The Schema Designer is **substantially implemented** with most core features wor
 | Mark required | ✅ Complete | `RequiredConstraint` | Via Add Constraint |
 | Set display order | ⚠️ **NO UI** | `display_order` in FieldDefinition | **Domain exists, no UI to reorder** |
 
-### Field Options (CRITICAL GAP)
+### Field Options (COMPLETE ✅)
+
+> **Updated 2026-01-25 (Phase S-3)**: All field options functionality is implemented and tested.
 
 | Feature | Status | Location | Notes |
 |---------|--------|----------|-------|
 | Options in Domain | ✅ Complete | `FieldDefinition.options` tuple | Immutable storage |
-| Add option command | ✅ Complete | `AddFieldOptionCommand` | Fully tested |
-| Update option command | ✅ Complete | `UpdateFieldOptionCommand` | Label rename only |
-| Reorder options command | ✅ Complete | `ReorderFieldOptionsCommand` | Strict validation |
-| **Delete option command** | ❌ **MISSING** | Source file deleted | `.pyc` exists, `.py` gone |
+| Add option command | ✅ Complete | `AddFieldOptionCommand` | 12 tests |
+| Update option command | ✅ Complete | `UpdateFieldOptionCommand` | 13 tests |
+| Reorder options command | ✅ Complete | `ReorderFieldOptionsCommand` | 14 tests |
+| Delete option command | ✅ Complete | `DeleteFieldOptionCommand` | 14 tests |
 | Options DTO | ✅ Complete | `FieldOptionDTO`, `FieldOptionExportDTO` | Both display and export |
 | Options export | ✅ Complete | In `ExportSchemaCommand` | Translation keys preserved |
 | Options import | ✅ Complete | Via field import | Round-trip works |
-| **Options UI - Add** | ❌ **MISSING** | No dialog | Cannot add options via UI |
-| **Options UI - Edit** | ❌ **MISSING** | No dialog | Cannot edit options via UI |
-| **Options UI - Delete** | ❌ **MISSING** | No dialog | Cannot delete options via UI |
-| **Options UI - Reorder** | ❌ **MISSING** | No dialog | Cannot reorder options via UI |
-| **ViewModel support** | ❌ **MISSING** | No methods | No `add_field_option()` etc. |
+| Options UI - Add | ✅ Complete | In `EditFieldDialog` | Dialog for value + label_key |
+| Options UI - Edit | ✅ Complete | In `EditFieldDialog` | Label edit only (value immutable) |
+| Options UI - Delete | ✅ Complete | In `EditFieldDialog` | With confirmation |
+| Options UI - Reorder | ✅ Complete | In `EditFieldDialog` | Up/Down buttons |
+| ViewModel support | ✅ Complete | `SchemaDesignerViewModel` | `add_field_option()`, `update_field_option()`, `delete_field_option()`, `reorder_field_options()` |
+
+**Total Field Options Tests**: 53 command tests + 16 UseCase tests = **69 tests passing**
 
 ### Validation Constraints
 
@@ -270,7 +276,7 @@ The Schema Designer is **substantially implemented** with most core features wor
 | AddRelationshipDialog | ✅ Complete | Phase 6B |
 | ExportSchemaDialog | ✅ Complete | |
 | ImportSchemaDialog | ✅ Complete | |
-| **FieldOptionsDialog** | ❌ Missing | **No UI for options** |
+| FieldOptionsDialog | ✅ Complete | Integrated into EditFieldDialog (Phase F-14) |
 | Welcome/Help dialogs | ✅ Complete | Phase 5 |
 
 ---
@@ -294,12 +300,14 @@ The Schema Designer is **substantially implemented** with most core features wor
 
 ## CRITICAL GAPS SUMMARY
 
+> **Updated 2026-01-25 (Phase S-3)**: Field Options issues resolved. All E2E flows verified.
+
 ### 🔴 Blocking Issues
 
 | # | Issue | Impact | Priority |
 |---|-------|--------|----------|
-| 1 | **DeleteFieldOptionCommand source missing** | Cannot delete options | HIGH |
-| 2 | **No field options UI** | Cannot add/edit/delete/reorder options | HIGH |
+| ~~1~~ | ~~DeleteFieldOptionCommand source missing~~ | ✅ **RESOLVED** - Command exists and works | ~~HIGH~~ |
+| ~~2~~ | ~~No field options UI~~ | ✅ **RESOLVED** - Integrated in EditFieldDialog | ~~HIGH~~ |
 | 3 | **No field reordering UI** | Cannot change field display order | MEDIUM |
 
 ### 🟡 Missing Features (Non-Blocking)
@@ -318,68 +326,13 @@ The Schema Designer is **substantially implemented** with most core features wor
 
 ## PHASED IMPLEMENTATION PLAN FOR REMAINING WORK
 
-### Phase A: Field Options (Critical - 3-5 days)
+### ~~Phase A: Field Options~~ ✅ COMPLETE (Phase S-3 Verified)
 
-#### A.1: Restore DeleteFieldOptionCommand
-
-```
-1. Check git history for deleted file
-2. If not recoverable, reimplement based on existing tests
-3. File: src/doc_helper/application/commands/schema/delete_field_option_command.py
-4. Pattern: Follow AddFieldOptionCommand structure
-5. Validation: Entity exists, field exists, field is choice type, option exists
-6. Implementation: Filter option from tuple, update field, save entity
-```
-
-#### A.2: Add ViewModel Methods
-
-```python
-# In schema_designer_viewmodel.py, add:
-
-def add_field_option(self, option_value: str, option_label_key: str) -> OperationResult:
-    """Add option to selected field"""
-
-def update_field_option(self, option_value: str, new_label_key: str) -> OperationResult:
-    """Update option label (value is immutable)"""
-
-def delete_field_option(self, option_value: str) -> OperationResult:
-    """Delete option from selected field"""
-
-def reorder_field_options(self, new_order: list[str]) -> OperationResult:
-    """Reorder options by value list"""
-
-def load_field_options(self) -> None:
-    """Load options for selected field"""
-
-@property
-def field_options(self) -> tuple[FieldOptionDTO, ...]:
-    """Get options for selected field"""
-```
-
-#### A.3: Create FieldOptionsDialog
-
-```
-File: src/doc_helper/presentation/dialogs/field_options_dialog.py
-
-Features:
-- List of current options (QListWidget)
-- "Add Option" button → mini dialog for value + label_key
-- "Edit" button → edit label_key only (value shown as read-only)
-- "Delete" button → confirmation + delete
-- Drag-drop reordering OR up/down buttons
-- "Save Order" button to commit reorder
-```
-
-#### A.4: Wire to Schema Designer View
-
-```
-In schema_designer_view.py:
-
-1. Add "Manage Options" button (visible when choice field selected)
-2. Connect to _on_manage_options_clicked()
-3. Open FieldOptionsDialog with current options
-4. Handle dialog results → call ViewModel methods
-```
+> **Completed 2026-01-25**: All field options functionality is fully implemented and tested.
+> - DeleteFieldOptionCommand: 14 tests passing
+> - ViewModel methods: All 4 methods implemented (`add_field_option`, `update_field_option`, `delete_field_option`, `reorder_field_options`)
+> - UI: Integrated into EditFieldDialog with QListWidget, add/edit/delete/reorder buttons
+> - Total: 69 tests passing across commands and use cases
 
 ---
 
@@ -547,14 +500,14 @@ class OutputMapping:
 
 | Phase | Priority | Effort | Dependencies |
 |-------|----------|--------|--------------|
-| **A: Field Options** | 🔴 Critical | 3-5 days | None |
+| ~~**A: Field Options**~~ | ✅ Complete | ~~3-5 days~~ | ~~None~~ |
 | **B: Field Reordering** | 🟡 Medium | 1-2 days | None |
 | **C: Date Constraints** | 🟢 Low | 1 day | None |
 | **D: Export Metadata** | 🟢 Low | 1 day | None |
 | **E: Relationship Cascade** | ⚪ Optional | 2 days | None |
 | **F: Transformer Selection** | ⚪ Optional | 2-3 days | None |
 
-**Recommended Order**: A → B → C → D → (E, F optional)
+**Recommended Order**: B → C → D → (E, F optional)
 
 ---
 
