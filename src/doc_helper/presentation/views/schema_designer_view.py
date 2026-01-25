@@ -1751,7 +1751,7 @@ class SchemaDesignerView(BaseView):
                 default_value=field_data["default_value"],
             )
 
-            if result.is_success():
+            if result.success:
                 # Phase 5 Step 3: Mark as having unsaved changes
                 self._set_unsaved_changes(True)
 
