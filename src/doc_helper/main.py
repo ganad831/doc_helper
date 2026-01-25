@@ -118,6 +118,9 @@ from doc_helper.infrastructure.persistence.sqlite_project_repository import (
 from doc_helper.infrastructure.persistence.sqlite.repositories.schema_repository import (
     SqliteSchemaRepository,
 )
+from doc_helper.infrastructure.persistence.sqlite.schema_bootstrap import (
+    bootstrap_schema_database,
+)
 from doc_helper.presentation.viewmodels.project_viewmodel import ProjectViewModel
 from doc_helper.presentation.viewmodels.welcome_viewmodel import WelcomeViewModel
 from doc_helper.presentation.views.welcome_view import WelcomeView
@@ -186,15 +189,16 @@ def configure_container() -> Container:
     # Schema repository - routed through AppType (v2 platform integration)
     # For v1: Uses soil_investigation AppType's schema repository
     # The path is determined by the AppType package location
-    # Note: In test environments, config.db may not exist - handle gracefully
+    #
+    # PHASE B-1: Bootstrap schema database BEFORE repository construction
+    # This guarantees config.db exists with proper schema tables
     soil_app_type = SoilInvestigationAppType()
-    try:
-        schema_repository = soil_app_type.get_schema_repository()
-        container.register_instance(ISchemaRepository, schema_repository)
-    except FileNotFoundError:
-        # Schema database not found - this is OK for tests
-        # Production deployments must ensure config.db exists
-        pass
+    config_db_path = soil_app_type._package_dir / "config.db"
+    bootstrap_schema_database(config_db_path)
+
+    # Now safe to create schema repository - database is guaranteed to exist
+    schema_repository = soil_app_type.get_schema_repository()
+    container.register_instance(ISchemaRepository, schema_repository)
 
     # Project repository - scoped (per-project session)
     # Note: v1 uses a single database file for all projects,
@@ -324,7 +328,10 @@ def configure_container() -> Container:
     )
 
     # Initialize TOOL AppTypes that need to be accessible from WelcomeView
+    # PHASE B-1: Bootstrap Schema Designer's config.db BEFORE repository construction
     schema_designer_app_type = SchemaDesignerAppType()
+    schema_designer_config_db = schema_designer_app_type._package_dir / "config.db"
+    bootstrap_schema_database(schema_designer_config_db)
     schema_designer_app_type.initialize(platform_services)
 
     # Store initialized tool AppTypes for WelcomeViewModel
