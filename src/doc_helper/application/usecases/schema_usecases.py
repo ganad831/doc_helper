@@ -1,4 +1,4 @@
-"""Schema Use Cases (Architecture Enforcement Phase, updated Phase F-10, Phase F-12.5).
+"""Schema Use Cases (Architecture Enforcement Phase, updated Phase F-10, Phase F-12.5, Phase F-14).
 
 Application layer use-case class that encapsulates all schema operations.
 Presentation layer MUST use this class instead of directly accessing
@@ -35,6 +35,13 @@ Phase F-12.5 Output Mapping Methods:
 - update_output_mapping(): Update existing output mapping
 - delete_output_mapping(): Delete output mapping
 - list_output_mappings_for_field(): List all output mappings for a field
+
+Phase F-14 Field Option Methods (DROPDOWN/RADIO):
+- add_field_option(): Add option to choice field
+- update_field_option(): Update option label key
+- delete_field_option(): Delete option from choice field
+- reorder_field_options(): Reorder options in choice field
+- list_field_options(): List all options for a field
 """
 
 from pathlib import Path
@@ -43,6 +50,18 @@ from typing import Optional
 from doc_helper.application.commands.schema.add_field_command import AddFieldCommand
 from doc_helper.application.commands.schema.add_field_constraint_command import (
     AddFieldConstraintCommand,
+)
+from doc_helper.application.commands.schema.add_field_option_command import (
+    AddFieldOptionCommand,
+)
+from doc_helper.application.commands.schema.delete_field_option_command import (
+    DeleteFieldOptionCommand,
+)
+from doc_helper.application.commands.schema.reorder_field_options_command import (
+    ReorderFieldOptionsCommand,
+)
+from doc_helper.application.commands.schema.update_field_option_command import (
+    UpdateFieldOptionCommand,
 )
 from doc_helper.application.commands.schema.delete_field_command import (
     DeleteFieldCommand,
@@ -77,6 +96,7 @@ from doc_helper.application.dto.export_dto import (
     ConstraintExportDTO,
     ControlRuleExportDTO,
     ExportResult,
+    FieldOptionExportDTO,
     OutputMappingExportDTO,
 )
 from doc_helper.application.dto.formula_dto import SchemaFieldInfoDTO
@@ -183,6 +203,12 @@ class SchemaUseCases:
         self._delete_entity_command = DeleteEntityCommand(schema_repository)
         self._update_field_command = UpdateFieldCommand(schema_repository)
         self._delete_field_command = DeleteFieldCommand(schema_repository)
+
+        # Phase F-14: Field Option commands
+        self._add_field_option_command = AddFieldOptionCommand(schema_repository)
+        self._update_field_option_command = UpdateFieldOptionCommand(schema_repository)
+        self._delete_field_option_command = DeleteFieldOptionCommand(schema_repository)
+        self._reorder_field_options_command = ReorderFieldOptionsCommand(schema_repository)
 
         # Phase F-10: Control Rule UseCases for validation
         self._control_rule_usecases = ControlRuleUseCases()
@@ -1507,3 +1533,218 @@ class SchemaUseCases:
             )
             schema_fields.append(field_info)
         return tuple(schema_fields)
+
+    # =========================================================================
+    # Field Option Methods (Phase F-14) - DROPDOWN/RADIO only
+    # =========================================================================
+
+    def add_field_option(
+        self,
+        entity_id: str,
+        field_id: str,
+        option_value: str,
+        option_label_key: str,
+    ) -> OperationResult:
+        """Add an option to a choice field (Phase F-14).
+
+        Args:
+            entity_id: Entity containing the field
+            field_id: Field to add option to (must be DROPDOWN or RADIO)
+            option_value: Option value (unique identifier within field)
+            option_label_key: Translation key for option label
+
+        Returns:
+            OperationResult with field ID on success, error message on failure.
+            Failure reasons:
+            - Entity or field not found
+            - Field is not a choice type (DROPDOWN, RADIO)
+            - Option value already exists in field
+
+        Phase F-14 Compliance:
+            - Design-time only (NO runtime execution)
+            - NO observers, listeners, signals
+            - Schema persistence via repository
+        """
+        result = self._add_field_option_command.execute(
+            entity_id=entity_id,
+            field_id=field_id,
+            option_value=option_value,
+            option_label_key=option_label_key,
+        )
+
+        if result.is_success():
+            return OperationResult.ok(result.value.value)
+        else:
+            return OperationResult.fail(result.error)
+
+    def update_field_option(
+        self,
+        entity_id: str,
+        field_id: str,
+        option_value: str,
+        new_label_key: str,
+    ) -> OperationResult:
+        """Update an option's label key in a choice field (Phase F-14).
+
+        Args:
+            entity_id: Entity containing the field
+            field_id: Field containing the option
+            option_value: Option value to update (identifier, immutable)
+            new_label_key: New translation key for option label
+
+        Returns:
+            OperationResult with field ID on success, error message on failure.
+            Failure reasons:
+            - Entity or field not found
+            - Field is not a choice type (DROPDOWN, RADIO)
+            - Option value not found in field
+
+        Phase F-14 Compliance:
+            - Design-time only (NO runtime execution)
+            - NO observers, listeners, signals
+            - Option values are immutable (only label_key can change)
+            - Schema persistence via repository
+        """
+        result = self._update_field_option_command.execute(
+            entity_id=entity_id,
+            field_id=field_id,
+            option_value=option_value,
+            new_label_key=new_label_key,
+        )
+
+        if result.is_success():
+            return OperationResult.ok(result.value.value)
+        else:
+            return OperationResult.fail(result.error)
+
+    def delete_field_option(
+        self,
+        entity_id: str,
+        field_id: str,
+        option_value: str,
+    ) -> OperationResult:
+        """Delete an option from a choice field (Phase F-14).
+
+        Args:
+            entity_id: Entity containing the field
+            field_id: Field to delete option from
+            option_value: Option value to delete
+
+        Returns:
+            OperationResult with field ID on success, error message on failure.
+            Failure reasons:
+            - Entity or field not found
+            - Field is not a choice type (DROPDOWN, RADIO)
+            - Option value not found in field
+
+        Phase F-14 Compliance:
+            - Design-time only (NO runtime execution)
+            - NO observers, listeners, signals
+            - Schema persistence via repository
+        """
+        result = self._delete_field_option_command.execute(
+            entity_id=entity_id,
+            field_id=field_id,
+            option_value=option_value,
+        )
+
+        if result.is_success():
+            return OperationResult.ok(result.value.value)
+        else:
+            return OperationResult.fail(result.error)
+
+    def reorder_field_options(
+        self,
+        entity_id: str,
+        field_id: str,
+        new_option_order: list[str],
+    ) -> OperationResult:
+        """Reorder options in a choice field (Phase F-14).
+
+        Args:
+            entity_id: Entity containing the field
+            field_id: Field to reorder options in
+            new_option_order: List of option values in desired order.
+                Must contain exactly the same option values as the field
+                (no duplicates, no missing, no extra).
+
+        Returns:
+            OperationResult with field ID on success, error message on failure.
+            Failure reasons:
+            - Entity or field not found
+            - Field is not a choice type (DROPDOWN, RADIO)
+            - new_option_order contains duplicates
+            - new_option_order is missing existing options
+            - new_option_order contains unknown options
+
+        Phase F-14 Compliance:
+            - Design-time only (NO runtime execution)
+            - NO observers, listeners, signals
+            - Option values and labels are preserved, only order changes
+            - Schema persistence via repository
+        """
+        result = self._reorder_field_options_command.execute(
+            entity_id=entity_id,
+            field_id=field_id,
+            new_option_order=new_option_order,
+        )
+
+        if result.is_success():
+            return OperationResult.ok(result.value.value)
+        else:
+            return OperationResult.fail(result.error)
+
+    def list_field_options(
+        self,
+        entity_id: str,
+        field_id: str,
+    ) -> tuple[FieldOptionExportDTO, ...]:
+        """List all options for a choice field (Phase F-14).
+
+        Args:
+            entity_id: Entity containing the field
+            field_id: Field to list options for
+
+        Returns:
+            Tuple of FieldOptionExportDTO for the field.
+            Empty tuple if entity/field not found or field has no options.
+            Note: Returns empty tuple for non-choice fields (TEXT, NUMBER, etc.).
+
+        Phase F-14 Compliance:
+            - Read-only query
+            - Returns DTOs only (label_key, not translated)
+            - Design-time data structure
+        """
+        from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
+
+        # Get entity
+        entity_id_obj = EntityDefinitionId(entity_id.strip())
+        if not self._schema_repository.exists(entity_id_obj):
+            return ()
+
+        load_result = self._schema_repository.get_by_id(entity_id_obj)
+        if load_result.is_failure():
+            return ()
+
+        entity = load_result.value
+
+        # Get field
+        field_id_obj = FieldDefinitionId(field_id.strip())
+        if field_id_obj not in entity.fields:
+            return ()
+
+        field = entity.fields[field_id_obj]
+
+        # Convert domain options to DTOs
+        option_dtos = []
+        for value, label_key in field.options:
+            # label_key is a TranslationKey, convert to string
+            label_key_str = label_key.key if hasattr(label_key, 'key') else str(label_key)
+            option_dtos.append(
+                FieldOptionExportDTO(
+                    value=value,
+                    label_key=label_key_str,
+                )
+            )
+
+        return tuple(option_dtos)

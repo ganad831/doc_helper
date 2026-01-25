@@ -1246,3 +1246,419 @@ class TestSchemaUseCasesOutputMappingOperations:
 
         assert isinstance(result, tuple)
         assert len(result) == 0
+
+
+class TestSchemaUseCasesFieldOptionOperations:
+    """Tests for field option CRUD operations in SchemaUseCases (Phase F-14)."""
+
+    @pytest.fixture
+    def mock_schema_repository(self) -> Mock:
+        """Create mock schema repository."""
+        return Mock()
+
+    @pytest.fixture
+    def mock_relationship_repository(self) -> Mock:
+        """Create mock relationship repository."""
+        return Mock()
+
+    @pytest.fixture
+    def mock_translation_service(self) -> Mock:
+        """Create mock translation service."""
+        service = Mock()
+        service.translate.side_effect = lambda key: key  # Return key as translation
+        return service
+
+    @pytest.fixture
+    def usecases(
+        self,
+        mock_schema_repository: Mock,
+        mock_relationship_repository: Mock,
+        mock_translation_service: Mock,
+    ) -> SchemaUseCases:
+        """Create SchemaUseCases with mock dependencies."""
+        return SchemaUseCases(
+            schema_repository=mock_schema_repository,
+            relationship_repository=mock_relationship_repository,
+            translation_service=mock_translation_service,
+        )
+
+    @pytest.fixture
+    def mock_entity_with_dropdown_field(self) -> Mock:
+        """Create a mock entity with a DROPDOWN field with options."""
+        from doc_helper.domain.schema.entity_definition import EntityDefinition
+        from doc_helper.domain.schema.field_definition import FieldDefinition
+        from doc_helper.domain.schema.field_type import FieldType
+        from doc_helper.domain.common.i18n import TranslationKey
+
+        field = FieldDefinition(
+            id=FieldDefinitionId("dropdown_field"),
+            field_type=FieldType.DROPDOWN,
+            label_key=TranslationKey("field.dropdown"),
+            required=False,
+            options=(
+                ("option1", TranslationKey("option.1")),
+                ("option2", TranslationKey("option.2")),
+            ),
+        )
+
+        entity = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            description_key=None,
+            fields={field.id: field},
+            is_root_entity=False,
+            parent_entity_id=None,
+        )
+        return entity
+
+    @pytest.fixture
+    def mock_entity_with_text_field(self) -> Mock:
+        """Create a mock entity with a TEXT field (not a choice field)."""
+        from doc_helper.domain.schema.entity_definition import EntityDefinition
+        from doc_helper.domain.schema.field_definition import FieldDefinition
+        from doc_helper.domain.schema.field_type import FieldType
+        from doc_helper.domain.common.i18n import TranslationKey
+
+        field = FieldDefinition(
+            id=FieldDefinitionId("text_field"),
+            field_type=FieldType.TEXT,
+            label_key=TranslationKey("field.text"),
+            required=False,
+        )
+
+        entity = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            description_key=None,
+            fields={field.id: field},
+            is_root_entity=False,
+            parent_entity_id=None,
+        )
+        return entity
+
+    # =========================================================================
+    # ADD FIELD OPTION
+    # =========================================================================
+
+    def test_add_field_option_success(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_dropdown_field: Mock,
+    ) -> None:
+        """Should return OperationResult.ok with field ID on success."""
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_dropdown_field)
+        mock_schema_repository.save.return_value = Success(None)
+
+        result = usecases.add_field_option(
+            entity_id="test_entity",
+            field_id="dropdown_field",
+            option_value="option3",
+            option_label_key="option.3",
+        )
+
+        assert result.success is True
+        assert result.value == "dropdown_field"
+
+    def test_add_field_option_failure_entity_not_found(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when entity not found."""
+        mock_schema_repository.exists.return_value = False
+
+        result = usecases.add_field_option(
+            entity_id="nonexistent",
+            field_id="dropdown_field",
+            option_value="option3",
+            option_label_key="option.3",
+        )
+
+        assert result.success is False
+        assert "not exist" in result.error.lower()
+
+    def test_add_field_option_failure_non_choice_field(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_text_field: Mock,
+    ) -> None:
+        """Should return OperationResult.fail for non-choice field."""
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_text_field)
+
+        result = usecases.add_field_option(
+            entity_id="test_entity",
+            field_id="text_field",
+            option_value="option1",
+            option_label_key="option.1",
+        )
+
+        assert result.success is False
+        assert "choice" in result.error.lower()
+
+    def test_add_field_option_failure_duplicate_value(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_dropdown_field: Mock,
+    ) -> None:
+        """Should return OperationResult.fail for duplicate option value."""
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_dropdown_field)
+
+        result = usecases.add_field_option(
+            entity_id="test_entity",
+            field_id="dropdown_field",
+            option_value="option1",  # Already exists
+            option_label_key="option.1.duplicate",
+        )
+
+        assert result.success is False
+        assert "already exists" in result.error.lower()
+
+    # =========================================================================
+    # UPDATE FIELD OPTION
+    # =========================================================================
+
+    def test_update_field_option_success(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_dropdown_field: Mock,
+    ) -> None:
+        """Should return OperationResult.ok with field ID on success."""
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_dropdown_field)
+        mock_schema_repository.save.return_value = Success(None)
+
+        result = usecases.update_field_option(
+            entity_id="test_entity",
+            field_id="dropdown_field",
+            option_value="option1",
+            new_label_key="option.1.updated",
+        )
+
+        assert result.success is True
+        assert result.value == "dropdown_field"
+
+    def test_update_field_option_failure_option_not_found(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_dropdown_field: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when option not found."""
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_dropdown_field)
+
+        result = usecases.update_field_option(
+            entity_id="test_entity",
+            field_id="dropdown_field",
+            option_value="nonexistent_option",
+            new_label_key="option.new",
+        )
+
+        assert result.success is False
+        assert "not found" in result.error.lower()
+
+    # =========================================================================
+    # DELETE FIELD OPTION
+    # =========================================================================
+
+    def test_delete_field_option_success(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_dropdown_field: Mock,
+    ) -> None:
+        """Should return OperationResult.ok with field ID on success."""
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_dropdown_field)
+        mock_schema_repository.save.return_value = Success(None)
+
+        result = usecases.delete_field_option(
+            entity_id="test_entity",
+            field_id="dropdown_field",
+            option_value="option1",
+        )
+
+        assert result.success is True
+        assert result.value == "dropdown_field"
+
+    def test_delete_field_option_failure_option_not_found(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_dropdown_field: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when option not found."""
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_dropdown_field)
+
+        result = usecases.delete_field_option(
+            entity_id="test_entity",
+            field_id="dropdown_field",
+            option_value="nonexistent_option",
+        )
+
+        assert result.success is False
+        assert "not found" in result.error.lower()
+
+    def test_delete_field_option_failure_non_choice_field(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_text_field: Mock,
+    ) -> None:
+        """Should return OperationResult.fail for non-choice field."""
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_text_field)
+
+        result = usecases.delete_field_option(
+            entity_id="test_entity",
+            field_id="text_field",
+            option_value="option1",
+        )
+
+        assert result.success is False
+        assert "choice" in result.error.lower()
+
+    # =========================================================================
+    # REORDER FIELD OPTIONS
+    # =========================================================================
+
+    def test_reorder_field_options_success(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_dropdown_field: Mock,
+    ) -> None:
+        """Should return OperationResult.ok with field ID on success."""
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_dropdown_field)
+        mock_schema_repository.save.return_value = Success(None)
+
+        result = usecases.reorder_field_options(
+            entity_id="test_entity",
+            field_id="dropdown_field",
+            new_option_order=["option2", "option1"],  # Reversed order
+        )
+
+        assert result.success is True
+        assert result.value == "dropdown_field"
+
+    def test_reorder_field_options_failure_missing_options(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_dropdown_field: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when options are missing."""
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_dropdown_field)
+
+        result = usecases.reorder_field_options(
+            entity_id="test_entity",
+            field_id="dropdown_field",
+            new_option_order=["option1"],  # Missing option2
+        )
+
+        assert result.success is False
+        assert "missing" in result.error.lower()
+
+    def test_reorder_field_options_failure_extra_options(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_dropdown_field: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when extra options provided."""
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_dropdown_field)
+
+        result = usecases.reorder_field_options(
+            entity_id="test_entity",
+            field_id="dropdown_field",
+            new_option_order=["option1", "option2", "option3"],  # option3 doesn't exist
+        )
+
+        assert result.success is False
+        assert "unknown" in result.error.lower()
+
+    # =========================================================================
+    # LIST FIELD OPTIONS
+    # =========================================================================
+
+    def test_list_field_options_success(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_dropdown_field: Mock,
+    ) -> None:
+        """Should return tuple of FieldOptionExportDTO."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_dropdown_field)
+
+        result = usecases.list_field_options(
+            entity_id="test_entity",
+            field_id="dropdown_field",
+        )
+
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        assert result[0].value == "option1"
+        assert result[0].label_key == "option.1"
+        assert result[1].value == "option2"
+        assert result[1].label_key == "option.2"
+
+    def test_list_field_options_empty_for_non_choice_field(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_text_field: Mock,
+    ) -> None:
+        """Should return empty tuple for non-choice field."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_text_field)
+
+        result = usecases.list_field_options(
+            entity_id="test_entity",
+            field_id="text_field",
+        )
+
+        assert isinstance(result, tuple)
+        assert len(result) == 0
+
+    def test_list_field_options_empty_for_nonexistent_entity(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+    ) -> None:
+        """Should return empty tuple when entity not found."""
+        mock_schema_repository.get_by_id.return_value = Failure("Entity not found")
+
+        result = usecases.list_field_options(
+            entity_id="nonexistent",
+            field_id="dropdown_field",
+        )
+
+        assert isinstance(result, tuple)
+        assert len(result) == 0
+
+    def test_list_field_options_empty_for_nonexistent_field(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_dropdown_field: Mock,
+    ) -> None:
+        """Should return empty tuple when field not found."""
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_dropdown_field)
+
+        result = usecases.list_field_options(
+            entity_id="test_entity",
+            field_id="nonexistent_field",
+        )
+
+        assert isinstance(result, tuple)
+        assert len(result) == 0

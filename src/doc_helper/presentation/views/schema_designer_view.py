@@ -1812,6 +1812,35 @@ class SchemaDesignerView(BaseView):
 
         from doc_helper.presentation.dialogs.edit_field_dialog import EditFieldDialog
 
+        # For choice fields (DROPDOWN, RADIO), prepare option callbacks (Phase F-14)
+        is_choice_field = selected_field.field_type in ("DROPDOWN", "RADIO")
+        current_options = None
+        on_add_option = None
+        on_update_option = None
+        on_delete_option = None
+        on_reorder_options = None
+        get_options = None
+
+        if is_choice_field:
+            # Load current options from ViewModel
+            self._viewmodel.load_field_options()
+            current_options = self._viewmodel.field_options
+
+            # Wrap callbacks to also track unsaved changes
+            def _wrap_option_callback(fn):
+                def wrapper(*args):
+                    result = fn(*args)
+                    if result.success:
+                        self._set_unsaved_changes(True)
+                    return result
+                return wrapper
+
+            on_add_option = _wrap_option_callback(self._viewmodel.add_field_option)
+            on_update_option = _wrap_option_callback(self._viewmodel.update_field_option)
+            on_delete_option = _wrap_option_callback(self._viewmodel.delete_field_option)
+            on_reorder_options = _wrap_option_callback(self._viewmodel.reorder_field_options)
+            get_options = lambda: self._viewmodel.field_options
+
         dialog = EditFieldDialog(
             entity_id=self._viewmodel.selected_entity_id,
             field_id=selected_field.id,
@@ -1825,6 +1854,12 @@ class SchemaDesignerView(BaseView):
             current_lookup_display_field=selected_field.lookup_display_field,
             current_child_entity_id=selected_field.child_entity_id,
             available_entities=available_entities,
+            current_options=current_options,
+            on_add_option=on_add_option,
+            on_update_option=on_update_option,
+            on_delete_option=on_delete_option,
+            on_reorder_options=on_reorder_options,
+            get_options=get_options,
             parent=self._root,
         )
 

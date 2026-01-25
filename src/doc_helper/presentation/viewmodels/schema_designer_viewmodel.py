@@ -1,4 +1,4 @@
-"""Schema Designer ViewModel (Phase 2 + Phase 6B + Phase 7 + Phase F-1 + Phase F-9 + Phase F-13).
+"""Schema Designer ViewModel (Phase 2 + Phase 6B + Phase 7 + Phase F-1 + Phase F-9 + Phase F-13 + Phase F-14).
 
 Manages presentation state for Schema Designer UI.
 Loads entities, fields, validation rules, and relationships from application use-cases.
@@ -69,6 +69,14 @@ Phase F-13 Scope (Output Mapping Formula UI - Design-Time Only):
 - Design-time only, NO runtime execution
 - NO preview or formula evaluation
 
+Phase F-14 Scope (Field Option Management - Design-Time Only):
+- Add options to choice fields (DROPDOWN, RADIO)
+- Update option label keys
+- Delete options from choice fields
+- Reorder options in choice fields
+- List all options for a field
+- Design-time only, NO runtime execution
+
 ARCHITECTURE ENFORCEMENT (Rule 0 Compliance):
 - ViewModel depends ONLY on SchemaUseCases (Application layer use-case)
 - NO command imports
@@ -91,6 +99,7 @@ from doc_helper.application.dto.control_rule_preview_dto import (
 from doc_helper.application.dto.export_dto import (
     ControlRuleExportDTO,
     ExportResult,
+    FieldOptionExportDTO,
     OutputMappingExportDTO,
 )
 from doc_helper.application.dto.formula_dto import SchemaFieldInfoDTO
@@ -185,6 +194,9 @@ class SchemaDesignerViewModel(BaseViewModel):
 
         # Phase F-13: Persisted output mappings for selected field (design-time only)
         self._output_mappings: tuple[OutputMappingExportDTO, ...] = ()
+
+        # Phase F-14: Field options for selected field (design-time only)
+        self._field_options: tuple[FieldOptionExportDTO, ...] = ()
 
     # -------------------------------------------------------------------------
     # Properties (Observable)
@@ -436,6 +448,44 @@ class SchemaDesignerViewModel(BaseViewModel):
         return len(self._output_mappings) > 0
 
     # -------------------------------------------------------------------------
+    # Phase F-14: Field Options Properties
+    # -------------------------------------------------------------------------
+
+    @property
+    def field_options(self) -> tuple[FieldOptionExportDTO, ...]:
+        """Get field options for currently selected field (Phase F-14).
+
+        Returns:
+            Tuple of FieldOptionExportDTO for selected field, empty if no field selected
+            or field is not a choice type (DROPDOWN, RADIO).
+
+        Phase F-14 Compliance:
+            - Design-time only, returns label_key not translated label
+            - Loaded from schema via SchemaUseCases
+            - Updated via add/update/delete/reorder methods
+        """
+        return self._field_options
+
+    @property
+    def has_field_options(self) -> bool:
+        """Check if selected field has options (Phase F-14).
+
+        Returns:
+            True if selected field has options, False otherwise
+        """
+        return len(self._field_options) > 0
+
+    @property
+    def is_selected_field_choice_type(self) -> bool:
+        """Check if selected field is a choice type (DROPDOWN/RADIO) (Phase F-14).
+
+        Returns:
+            True if selected field supports options, False otherwise
+        """
+        field_type = self.selected_field_type
+        return field_type in ("DROPDOWN", "RADIO")
+
+    # -------------------------------------------------------------------------
     # Commands (User Actions)
     # -------------------------------------------------------------------------
 
@@ -509,6 +559,9 @@ class SchemaDesignerViewModel(BaseViewModel):
 
             # Phase F-13: Load output mappings for selected field
             self.load_output_mappings()
+
+            # Phase F-14: Load field options for selected field
+            self.load_field_options()
 
     def clear_selection(self) -> None:
         """Clear entity and field selection."""
@@ -1601,6 +1654,191 @@ class SchemaDesignerViewModel(BaseViewModel):
 
         return result
 
+    # -------------------------------------------------------------------------
+    # Phase F-14: Field Option Commands (DESIGN-TIME ONLY)
+    # -------------------------------------------------------------------------
+
+    def load_field_options(self) -> None:
+        """Load field options for currently selected field (Phase F-14).
+
+        Phase F-14 Compliance:
+            - Calls SchemaUseCases.list_field_options()
+            - Design-time only, returns label_key not translated label
+            - Updates _field_options and notifies UI
+        """
+        if not self._selected_entity_id or not self._selected_field_id:
+            self._field_options = ()
+            self.notify_change("field_options")
+            self.notify_change("has_field_options")
+            return
+
+        # Load field options from SchemaUseCases
+        self._field_options = self._schema_usecases.list_field_options(
+            entity_id=self._selected_entity_id,
+            field_id=self._selected_field_id,
+        )
+
+        self.notify_change("field_options")
+        self.notify_change("has_field_options")
+
+    def add_field_option(
+        self,
+        option_value: str,
+        option_label_key: str,
+    ) -> OperationResult:
+        """Add an option to selected field (Phase F-14).
+
+        Args:
+            option_value: Option value (unique identifier within field)
+            option_label_key: Translation key for option label
+
+        Returns:
+            OperationResult with success status and message
+
+        Phase F-14 Compliance:
+            - Delegates to SchemaUseCases.add_field_option()
+            - Reloads field options on success
+            - Design-time only, NO runtime execution
+            - Only valid for DROPDOWN/RADIO fields
+        """
+        if not self._selected_entity_id or not self._selected_field_id:
+            return OperationResult(
+                success=False,
+                error="No field selected",
+            )
+
+        result = self._schema_usecases.add_field_option(
+            entity_id=self._selected_entity_id,
+            field_id=self._selected_field_id,
+            option_value=option_value,
+            option_label_key=option_label_key,
+        )
+
+        if result.success:
+            # Reload field options to show new option
+            self.load_field_options()
+            # Reload entities to update field metadata
+            self.load_entities()
+
+        return result
+
+    def update_field_option(
+        self,
+        option_value: str,
+        new_label_key: str,
+    ) -> OperationResult:
+        """Update an option's label key in selected field (Phase F-14).
+
+        Args:
+            option_value: Option value to update (identifier, immutable)
+            new_label_key: New translation key for option label
+
+        Returns:
+            OperationResult with success status and message
+
+        Phase F-14 Compliance:
+            - Delegates to SchemaUseCases.update_field_option()
+            - Reloads field options on success
+            - Design-time only, NO runtime execution
+            - Option values are immutable (only label_key can change)
+        """
+        if not self._selected_entity_id or not self._selected_field_id:
+            return OperationResult(
+                success=False,
+                error="No field selected",
+            )
+
+        result = self._schema_usecases.update_field_option(
+            entity_id=self._selected_entity_id,
+            field_id=self._selected_field_id,
+            option_value=option_value,
+            new_label_key=new_label_key,
+        )
+
+        if result.success:
+            # Reload field options to show updated option
+            self.load_field_options()
+            # Reload entities to update field metadata
+            self.load_entities()
+
+        return result
+
+    def delete_field_option(
+        self,
+        option_value: str,
+    ) -> OperationResult:
+        """Delete an option from selected field (Phase F-14).
+
+        Args:
+            option_value: Option value to delete
+
+        Returns:
+            OperationResult with success status and message
+
+        Phase F-14 Compliance:
+            - Delegates to SchemaUseCases.delete_field_option()
+            - Reloads field options on success
+            - Design-time only, NO runtime execution
+        """
+        if not self._selected_entity_id or not self._selected_field_id:
+            return OperationResult(
+                success=False,
+                error="No field selected",
+            )
+
+        result = self._schema_usecases.delete_field_option(
+            entity_id=self._selected_entity_id,
+            field_id=self._selected_field_id,
+            option_value=option_value,
+        )
+
+        if result.success:
+            # Reload field options to reflect deletion
+            self.load_field_options()
+            # Reload entities to update field metadata
+            self.load_entities()
+
+        return result
+
+    def reorder_field_options(
+        self,
+        new_option_order: list[str],
+    ) -> OperationResult:
+        """Reorder options in selected field (Phase F-14).
+
+        Args:
+            new_option_order: List of option values in desired order.
+                Must contain exactly the same option values as the field.
+
+        Returns:
+            OperationResult with success status and message
+
+        Phase F-14 Compliance:
+            - Delegates to SchemaUseCases.reorder_field_options()
+            - Reloads field options on success
+            - Design-time only, NO runtime execution
+            - Option values and labels are preserved, only order changes
+        """
+        if not self._selected_entity_id or not self._selected_field_id:
+            return OperationResult(
+                success=False,
+                error="No field selected",
+            )
+
+        result = self._schema_usecases.reorder_field_options(
+            entity_id=self._selected_entity_id,
+            field_id=self._selected_field_id,
+            new_option_order=new_option_order,
+        )
+
+        if result.success:
+            # Reload field options to reflect new order
+            self.load_field_options()
+            # Reload entities to update field metadata
+            self.load_entities()
+
+        return result
+
     def dispose(self) -> None:
         """Clean up resources."""
         # Phase F-1: Dispose formula editor viewmodel
@@ -1617,6 +1855,9 @@ class SchemaDesignerViewModel(BaseViewModel):
 
         # Phase F-13: Clear output mappings
         self._output_mappings = ()
+
+        # Phase F-14: Clear field options
+        self._field_options = ()
 
         super().dispose()
         self._entities = ()

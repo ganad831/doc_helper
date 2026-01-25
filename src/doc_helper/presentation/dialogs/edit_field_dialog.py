@@ -1,4 +1,4 @@
-"""Edit Field Dialog (Phase SD-4).
+"""Edit Field Dialog (Phase SD-4, Phase F-14).
 
 Dialog for editing existing field definitions.
 
@@ -8,13 +8,17 @@ Phase SD-4 Scope:
 - Field ID and Field Type are read-only (immutable)
 - Pre-populate with current values
 
+Phase F-14 Scope:
+- Option management for choice fields (DROPDOWN, RADIO)
+- Add, Edit, Delete, Reorder options
+- Options persist via ViewModel callbacks
+
 NOT in scope:
 - Field type changes (immutable per Decision 1)
 - Constraint editing (separate dialog)
-- Option editing for choice fields
 """
 
-from typing import Optional
+from typing import Callable, Optional
 
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -22,13 +26,19 @@ from PyQt6.QtWidgets import (
     QDialog,
     QFormLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
+
+from doc_helper.application.dto.export_dto import FieldOptionExportDTO
+from doc_helper.application.dto.operation_result import OperationResult
 
 
 class EditFieldDialog(QDialog):
@@ -68,6 +78,12 @@ class EditFieldDialog(QDialog):
         current_lookup_display_field: Optional[str] = None,
         current_child_entity_id: Optional[str] = None,
         available_entities: Optional[tuple[tuple[str, str], ...]] = None,
+        current_options: Optional[tuple[FieldOptionExportDTO, ...]] = None,
+        on_add_option: Optional[Callable[[str, str], OperationResult]] = None,
+        on_update_option: Optional[Callable[[str, str], OperationResult]] = None,
+        on_delete_option: Optional[Callable[[str], OperationResult]] = None,
+        on_reorder_options: Optional[Callable[[list[str]], OperationResult]] = None,
+        get_options: Optional[Callable[[], tuple[FieldOptionExportDTO, ...]]] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         """Initialize dialog.
@@ -85,6 +101,12 @@ class EditFieldDialog(QDialog):
             current_lookup_display_field: Current lookup display field (LOOKUP fields)
             current_child_entity_id: Current child entity (TABLE fields)
             available_entities: List of (entity_id, entity_name) for dropdowns
+            current_options: Current field options (DROPDOWN/RADIO fields)
+            on_add_option: Callback to add option (value, label_key) -> Result
+            on_update_option: Callback to update option (value, new_label_key) -> Result
+            on_delete_option: Callback to delete option (value) -> Result
+            on_reorder_options: Callback to reorder options (new_order) -> Result
+            get_options: Callback to get current options from ViewModel
             parent: Parent widget
         """
         super().__init__(parent)
@@ -92,10 +114,16 @@ class EditFieldDialog(QDialog):
         self._field_id = field_id
         self._field_type = field_type
         self._available_entities = available_entities or ()
+        self._current_options = current_options or ()
+        self._on_add_option = on_add_option
+        self._on_update_option = on_update_option
+        self._on_delete_option = on_delete_option
+        self._on_reorder_options = on_reorder_options
+        self._get_options = get_options
 
         self.setWindowTitle(f"Edit Field: {field_id}")
         self.setModal(True)
-        self.resize(550, 450)
+        self.resize(550, 500)
 
         # Result data (populated on accept)
         self.field_data: Optional[dict] = None
@@ -229,8 +257,13 @@ class EditFieldDialog(QDialog):
         self._lookup_entity_combo: Optional[QComboBox] = None
         self._lookup_display_field_input: Optional[QLineEdit] = None
         self._child_entity_combo: Optional[QComboBox] = None
+        self._options_list: Optional[QListWidget] = None
 
-        if self._field_type == "CALCULATED":
+        if self._field_type in ("DROPDOWN", "RADIO"):
+            # Options section for choice fields
+            self._add_options_section(layout)
+
+        elif self._field_type == "CALCULATED":
             # Formula section
             formula_form = QFormLayout()
             formula_label = QLabel("--- CALCULATED Field Properties ---")
@@ -285,6 +318,245 @@ class EditFieldDialog(QDialog):
                     self._child_entity_combo.setCurrentIndex(index)
             table_form.addRow("Child Entity:", self._child_entity_combo)
             layout.addLayout(table_form)
+
+    def _add_options_section(self, layout: QVBoxLayout) -> None:
+        """Add options management section for choice fields (DROPDOWN, RADIO).
+
+        Phase F-14: Option management UI.
+        """
+        # Section header
+        options_label = QLabel(f"--- {self._field_type} Field Options ---")
+        options_label.setStyleSheet(
+            "color: #4a5568; font-weight: bold; margin-top: 10px;"
+        )
+        layout.addWidget(options_label)
+
+        # Horizontal layout for list and buttons
+        options_layout = QHBoxLayout()
+
+        # Options list widget
+        self._options_list = QListWidget()
+        self._options_list.setMinimumHeight(120)
+        self._refresh_options_list()
+        options_layout.addWidget(self._options_list, stretch=1)
+
+        # Buttons layout (vertical)
+        buttons_layout = QVBoxLayout()
+
+        add_btn = QPushButton("Add")
+        add_btn.clicked.connect(self._on_add_option_clicked)
+        buttons_layout.addWidget(add_btn)
+
+        edit_btn = QPushButton("Edit")
+        edit_btn.clicked.connect(self._on_edit_option_clicked)
+        buttons_layout.addWidget(edit_btn)
+
+        delete_btn = QPushButton("Delete")
+        delete_btn.clicked.connect(self._on_delete_option_clicked)
+        buttons_layout.addWidget(delete_btn)
+
+        buttons_layout.addSpacing(10)
+
+        move_up_btn = QPushButton("Move Up")
+        move_up_btn.clicked.connect(self._on_move_up_clicked)
+        buttons_layout.addWidget(move_up_btn)
+
+        move_down_btn = QPushButton("Move Down")
+        move_down_btn.clicked.connect(self._on_move_down_clicked)
+        buttons_layout.addWidget(move_down_btn)
+
+        buttons_layout.addStretch()
+        options_layout.addLayout(buttons_layout)
+
+        layout.addLayout(options_layout)
+
+    def _refresh_options_list(self) -> None:
+        """Refresh the options list widget from current options."""
+        if self._options_list is None:
+            return
+
+        self._options_list.clear()
+        for option in self._current_options:
+            item = QListWidgetItem(f"{option.value} - {option.label_key}")
+            item.setData(256, option.value)  # Qt.ItemDataRole.UserRole = 256
+            self._options_list.addItem(item)
+
+    def _on_add_option_clicked(self) -> None:
+        """Handle Add button click."""
+        if self._on_add_option is None:
+            QMessageBox.warning(
+                self, "Not Available", "Option management is not available."
+            )
+            return
+
+        # Get option value
+        value, ok = QInputDialog.getText(
+            self, "Add Option", "Option Value (identifier):"
+        )
+        if not ok or not value.strip():
+            return
+
+        # Get label key
+        label_key, ok = QInputDialog.getText(
+            self, "Add Option", "Label Key (translation key):"
+        )
+        if not ok or not label_key.strip():
+            return
+
+        result = self._on_add_option(value.strip(), label_key.strip())
+        if result.success:
+            # Reload options from ViewModel via refresh
+            self._reload_options_from_callback()
+        else:
+            QMessageBox.warning(self, "Error", result.message or "Failed to add option")
+
+    def _on_edit_option_clicked(self) -> None:
+        """Handle Edit button click."""
+        if self._options_list is None or self._on_update_option is None:
+            return
+
+        current_item = self._options_list.currentItem()
+        if current_item is None:
+            QMessageBox.information(self, "Select Option", "Please select an option to edit.")
+            return
+
+        option_value = current_item.data(256)  # Qt.ItemDataRole.UserRole
+
+        # Find current label key
+        current_label_key = ""
+        for option in self._current_options:
+            if option.value == option_value:
+                current_label_key = option.label_key
+                break
+
+        # Get new label key
+        new_label_key, ok = QInputDialog.getText(
+            self,
+            "Edit Option",
+            f"New Label Key for '{option_value}':",
+            text=current_label_key,
+        )
+        if not ok or not new_label_key.strip():
+            return
+
+        if new_label_key.strip() == current_label_key:
+            return  # No change
+
+        result = self._on_update_option(option_value, new_label_key.strip())
+        if result.success:
+            self._reload_options_from_callback()
+        else:
+            QMessageBox.warning(
+                self, "Error", result.message or "Failed to update option"
+            )
+
+    def _on_delete_option_clicked(self) -> None:
+        """Handle Delete button click."""
+        if self._options_list is None or self._on_delete_option is None:
+            return
+
+        current_item = self._options_list.currentItem()
+        if current_item is None:
+            QMessageBox.information(
+                self, "Select Option", "Please select an option to delete."
+            )
+            return
+
+        option_value = current_item.data(256)  # Qt.ItemDataRole.UserRole
+
+        # Confirm deletion
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            f"Delete option '{option_value}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        result = self._on_delete_option(option_value)
+        if result.success:
+            self._reload_options_from_callback()
+        else:
+            QMessageBox.warning(
+                self, "Error", result.message or "Failed to delete option"
+            )
+
+    def _on_move_up_clicked(self) -> None:
+        """Handle Move Up button click."""
+        if self._options_list is None or self._on_reorder_options is None:
+            return
+
+        current_row = self._options_list.currentRow()
+        if current_row <= 0:
+            return  # Already at top or nothing selected
+
+        # Build new order
+        new_order = [
+            self._options_list.item(i).data(256)
+            for i in range(self._options_list.count())
+        ]
+        # Swap with previous
+        new_order[current_row], new_order[current_row - 1] = (
+            new_order[current_row - 1],
+            new_order[current_row],
+        )
+
+        result = self._on_reorder_options(new_order)
+        if result.success:
+            self._reload_options_from_callback()
+            # Restore selection to moved item
+            self._options_list.setCurrentRow(current_row - 1)
+        else:
+            QMessageBox.warning(
+                self, "Error", result.message or "Failed to reorder options"
+            )
+
+    def _on_move_down_clicked(self) -> None:
+        """Handle Move Down button click."""
+        if self._options_list is None or self._on_reorder_options is None:
+            return
+
+        current_row = self._options_list.currentRow()
+        if current_row < 0 or current_row >= self._options_list.count() - 1:
+            return  # Already at bottom or nothing selected
+
+        # Build new order
+        new_order = [
+            self._options_list.item(i).data(256)
+            for i in range(self._options_list.count())
+        ]
+        # Swap with next
+        new_order[current_row], new_order[current_row + 1] = (
+            new_order[current_row + 1],
+            new_order[current_row],
+        )
+
+        result = self._on_reorder_options(new_order)
+        if result.success:
+            self._reload_options_from_callback()
+            # Restore selection to moved item
+            self._options_list.setCurrentRow(current_row + 1)
+        else:
+            QMessageBox.warning(
+                self, "Error", result.message or "Failed to reorder options"
+            )
+
+    def _reload_options_from_callback(self) -> None:
+        """Reload options after a modification.
+
+        Since callbacks persist changes to repository, we need to rebuild
+        our local options list. Uses the get_options callback to fetch
+        fresh data from the ViewModel.
+        """
+        if self._options_list is None:
+            return
+
+        # Fetch fresh options from ViewModel via callback
+        if self._get_options is not None:
+            self._current_options = self._get_options()
+        self._refresh_options_list()
 
     def _on_save_clicked(self) -> None:
         """Handle save button click."""
