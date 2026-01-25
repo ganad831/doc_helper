@@ -31,6 +31,7 @@ from doc_helper.domain.validation.constraints import (
     MinValueConstraint,
     RequiredConstraint,
 )
+from doc_helper.infrastructure.interchange import JsonSchemaExportWriter
 
 
 class TestImportFromFile:
@@ -239,7 +240,8 @@ class TestExportImportRoundTrip:
         # Step 1: Export original schema
         export_repo = Mock()
         export_repo.get_all.return_value = Success(complex_schema)
-        export_command = ExportSchemaCommand(export_repo)
+        schema_export_writer = JsonSchemaExportWriter()
+        export_command = ExportSchemaCommand(export_repo, schema_export_writer)
 
         export_path1 = tmp_path / "export1.json"
         export_result1 = export_command.execute(
@@ -269,7 +271,8 @@ class TestExportImportRoundTrip:
         # Step 3: Export the imported schema
         export_repo2 = Mock()
         export_repo2.get_all.return_value = Success(tuple(saved_entities))
-        export_command2 = ExportSchemaCommand(export_repo2)
+        schema_export_writer2 = JsonSchemaExportWriter()
+        export_command2 = ExportSchemaCommand(export_repo2, schema_export_writer2)
 
         export_path2 = tmp_path / "export2.json"
         export_result2 = export_command2.execute(

@@ -122,7 +122,11 @@ class InMemorySchemaRepository(ISchemaRepository):
 
 
 class FakeProjectExporter:
-    """Fake project exporter for testing."""
+    """Fake project exporter for testing.
+
+    Phase H-4: Infrastructure layer is responsible for filesystem operations.
+    This fake mimics the behavior of JsonProjectExporter including directory creation.
+    """
 
     def __init__(self, should_fail: bool = False) -> None:
         """Initialize fake exporter."""
@@ -137,13 +141,19 @@ class FakeProjectExporter:
         entity_definitions: tuple[EntityDefinition, ...],
         output_path: Path,
     ) -> Result[dict[str, Any], str]:
-        """Fake export to file."""
+        """Fake export to file.
+
+        Phase H-4: Infrastructure creates parent directories (mimics JsonProjectExporter).
+        """
         self.last_project = project
         self.last_entity_definitions = entity_definitions
         self.last_output_path = output_path
 
         if self.should_fail:
             return Failure("Export failed for testing")
+
+        # Phase H-4: Infrastructure is responsible for creating directories
+        output_path.parent.mkdir(parents=True, exist_ok=True)
 
         return Success({
             "format_version": "1.0",

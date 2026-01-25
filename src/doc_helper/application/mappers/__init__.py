@@ -14,7 +14,11 @@ from doc_helper.application.mappers.schema_mapper import (
     FieldDefinitionMapper,
 )
 from doc_helper.application.mappers.field_mapper import FieldValueMapper
-from doc_helper.application.mappers.validation_mapper import ValidationMapper
+from doc_helper.application.mappers.validation_mapper import (
+    ValidationMapper,
+    create_valid_validation_result,
+    create_error_validation_result,
+)
 from doc_helper.application.mappers.override_mapper import OverrideMapper
 from doc_helper.application.mappers.control_mapper import (
     ControlEffectMapper,
@@ -28,6 +32,8 @@ __all__ = [
     "FieldDefinitionMapper",
     "FieldValueMapper",
     "ValidationMapper",
+    "create_valid_validation_result",
+    "create_error_validation_result",
     "OverrideMapper",
     "ControlEffectMapper",
     "EvaluationResultMapper",

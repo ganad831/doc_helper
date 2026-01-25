@@ -97,6 +97,13 @@ def mock_navigation_adapter():
 
 
 @pytest.fixture
+def mock_validation_mapper():
+    """Create mock ValidationMapper for Phase H-3."""
+    from unittest.mock import Mock
+    return Mock()
+
+
+@pytest.fixture
 def viewmodel(
     mock_project_usecases,
     mock_validation_service,
@@ -105,6 +112,7 @@ def viewmodel(
     mock_field_undo_service,
     mock_history_adapter,
     mock_navigation_adapter,
+    mock_validation_mapper,
 ):
     """Create ProjectViewModel instance."""
     return ProjectViewModel(
@@ -115,6 +123,7 @@ def viewmodel(
         field_undo_service=mock_field_undo_service,
         history_adapter=mock_history_adapter,
         navigation_adapter=mock_navigation_adapter,
+        validation_mapper=mock_validation_mapper,
     )
 
 

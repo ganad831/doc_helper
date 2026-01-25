@@ -609,6 +609,9 @@ class FormRuntimeStateDTO:
 
         Returns:
             FormRuntimeStateDTO with per-field states
+
+        Phase H-2: Refactored to use immutable patterns (no mutable dicts/lists).
+        Uses functional transformations to build lookup and field states.
         """
         # Extract control rules from R-4 entity-level aggregation
         control_rules_result = runtime_result.control_rules_result
@@ -616,68 +619,41 @@ class FormRuntimeStateDTO:
         # Extract validation results from R-2
         validation_result = runtime_result.validation_result
 
-        # Build validation lookup: field_id → (errors, warnings, info)
-        validation_by_field: dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]] = {}
+        # Build validation lookup using functional approach (no mutable dict)
+        # Collect all field_ids that have validation issues
+        all_field_ids = frozenset(
+            e.field_id
+            for e in (*validation_result.errors, *validation_result.warnings, *validation_result.info)
+        )
 
-        # Group validation issues by field_id
-        for error in validation_result.errors:
-            if error.field_id not in validation_by_field:
-                validation_by_field[error.field_id] = ((), (), ())
-            current = validation_by_field[error.field_id]
-            validation_by_field[error.field_id] = (
-                current[0] + (error.message,),
-                current[1],
-                current[2],
+        # Create lookup as frozen dict comprehension
+        validation_by_field = {
+            field_id: (
+                tuple(e.message for e in validation_result.errors if e.field_id == field_id),
+                tuple(w.message for w in validation_result.warnings if w.field_id == field_id),
+                tuple(i.message for i in validation_result.info if i.field_id == field_id),
             )
+            for field_id in all_field_ids
+        }
 
-        for warning in validation_result.warnings:
-            if warning.field_id not in validation_by_field:
-                validation_by_field[warning.field_id] = ((), (), ())
-            current = validation_by_field[warning.field_id]
-            validation_by_field[warning.field_id] = (
-                current[0],
-                current[1] + (warning.message,),
-                current[2],
-            )
-
-        for info in validation_result.info:
-            if info.field_id not in validation_by_field:
-                validation_by_field[info.field_id] = ((), (), ())
-            current = validation_by_field[info.field_id]
-            validation_by_field[info.field_id] = (
-                current[0],
-                current[1],
-                current[2] + (info.message,),
-            )
-
-        # Build per-field runtime state
-        field_states: list[FormFieldRuntimeStateDTO] = []
-
-        for field_control in control_rules_result.field_results:
-            # Get validation messages for this field (or empty tuples)
-            field_validation = validation_by_field.get(
-                field_control.field_id,
-                ((), (), ()),
-            )
-
-            field_state = FormFieldRuntimeStateDTO(
+        # Build per-field runtime state using tuple comprehension (no mutable list)
+        fields = tuple(
+            FormFieldRuntimeStateDTO(
                 field_id=field_control.field_id,
                 visible=field_control.visibility,
                 enabled=field_control.enabled,
                 required=field_control.required,
-                validation_errors=field_validation[0],
-                validation_warnings=field_validation[1],
-                validation_info=field_validation[2],
+                validation_errors=validation_by_field.get(field_control.field_id, ((), (), ()))[0],
+                validation_warnings=validation_by_field.get(field_control.field_id, ((), (), ()))[1],
+                validation_info=validation_by_field.get(field_control.field_id, ((), (), ()))[2],
             )
-            field_states.append(field_state)
-
-        # Determine if form has blocking errors
-        has_blocking_errors = validation_result.blocking
+            for field_control in control_rules_result.field_results
+        )
 
         return FormRuntimeStateDTO(
             entity_id=entity_id,
-            fields=tuple(field_states),
-            has_blocking_errors=has_blocking_errors,
+            fields=fields,
+            has_blocking_errors=validation_result.blocking,
         )
 
     @staticmethod
@@ -953,26 +929,24 @@ class DocumentRuntimeContextDTO:
 
         Returns:
             DocumentRuntimeContextDTO with complete document-ready context
+
+        Phase H-2: Refactored to use immutable patterns (no mutable list).
+        Uses tuple comprehension to build field states.
         """
-        # Build per-field document state
-        field_states: list[DocumentFieldStateDTO] = []
-
-        for field_state in form_state.fields:
-            # Get field value from field_values dict (None if not present)
-            field_value = field_values.get(field_state.field_id, None)
-
-            # Create document field state
-            doc_field_state = DocumentFieldStateDTO(
+        # Build per-field document state using tuple comprehension (no mutable list)
+        fields = tuple(
+            DocumentFieldStateDTO(
                 field_id=field_state.field_id,
                 visible=field_state.visible,
                 enabled=field_state.enabled,
                 required=field_state.required,
-                value=field_value,
+                value=field_values.get(field_state.field_id, None),
                 validation_errors=field_state.validation_errors,
                 validation_warnings=field_state.validation_warnings,
                 validation_info=field_state.validation_info,
             )
-            field_states.append(doc_field_state)
+            for field_state in form_state.fields
+        )
 
         # Extract output values from R-5
         # If output mapping evaluation failed, use empty dict
@@ -980,17 +954,14 @@ class DocumentRuntimeContextDTO:
             output_mappings.result.values if output_mappings.result.success else {}
         )
 
-        # Determine blocking status
-        # Blocked if: form has validation errors OR output mapping failed
-        has_blocking_errors = (
-            form_state.has_blocking_errors or not output_mappings.result.success
-        )
-
         return DocumentRuntimeContextDTO(
             entity_id=entity_id,
-            fields=tuple(field_states),
+            fields=fields,
             output_values=output_values,
-            has_blocking_errors=has_blocking_errors,
+            # Blocked if: form has validation errors OR output mapping failed
+            has_blocking_errors=(
+                form_state.has_blocking_errors or not output_mappings.result.success
+            ),
         )
 
     @staticmethod

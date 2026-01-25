@@ -1,4 +1,4 @@
-"""Export Schema Command (Phase 2 Step 4, updated Phase 3, Phase 6A, Phase F-10, Phase F-12.5).
+"""Export Schema Command (Phase 2 Step 4, updated Phase 3, Phase 6A, Phase F-10, Phase F-12.5, Phase H-4).
 
 Command for exporting schema definitions to file.
 Follows approved guardrails and decisions.
@@ -30,13 +30,18 @@ PHASE F-12.5 UPDATE:
 - Output mappings are now exported (OutputMappingExportDTO)
 - Output mappings are design-time metadata only (no runtime execution)
 
+PHASE H-4 UPDATE:
+- File I/O extracted to ISchemaExportWriter interface
+- Command delegates filesystem operations to infrastructure
+- Command returns pure data structures only
+
 FORBIDDEN:
 - No import functionality
 - No formulas (still excluded)
 - No runtime semantics
+- No filesystem I/O in command (Phase H-4)
 """
 
-import json
 from pathlib import Path
 from typing import Optional
 
@@ -52,6 +57,7 @@ from doc_helper.application.dto.export_dto import (
     RelationshipExportDTO,
     SchemaExportDTO,
 )
+from doc_helper.application.interfaces.schema_export_writer import ISchemaExportWriter
 from doc_helper.domain.common.result import Result, Success, Failure
 from doc_helper.domain.schema.entity_definition import EntityDefinition
 from doc_helper.domain.schema.field_definition import FieldDefinition
@@ -78,8 +84,12 @@ class ExportSchemaCommand:
     Validates schema against Phase 1 and Phase 2 invariants,
     generates quality warnings, and writes export file.
 
+    Phase H-4: File I/O delegated to ISchemaExportWriter.
+    Command builds pure data structures (DTOs), infrastructure writes files.
+
     Usage:
-        command = ExportSchemaCommand(schema_repository)
+        writer = JsonSchemaExportWriter()
+        command = ExportSchemaCommand(schema_repository, writer)
         result = command.execute(
             schema_id="soil_investigation",
             file_path=Path("/path/to/export.json")
@@ -97,15 +107,18 @@ class ExportSchemaCommand:
     def __init__(
         self,
         schema_repository: ISchemaRepository,
+        schema_export_writer: ISchemaExportWriter,
         relationship_repository: Optional[IRelationshipRepository] = None,
     ) -> None:
         """Initialize command.
 
         Args:
             schema_repository: Repository for reading schema definitions
+            schema_export_writer: Infrastructure service for file I/O (Phase H-4)
             relationship_repository: Repository for reading relationships (Phase 6A)
         """
         self._schema_repository = schema_repository
+        self._schema_export_writer = schema_export_writer
         self._relationship_repository = relationship_repository
 
     def execute(
@@ -130,7 +143,8 @@ class ExportSchemaCommand:
             - Translation keys must be non-empty strings (Decision 3)
         """
         # Validate file path - must not exist (Decision 1)
-        if file_path.exists():
+        # Phase H-4: Delegate filesystem check to infrastructure
+        if self._schema_export_writer.file_exists(file_path):
             return Failure(f"Export file already exists: {file_path}")
 
         # Load all entities from repository
@@ -219,11 +233,10 @@ class ExportSchemaCommand:
             relationships=tuple(relationship_exports),
         )
 
-        # Write to file
-        try:
-            self._write_export_file(file_path, export_data)
-        except Exception as e:
-            return Failure(f"Failed to write export file: {e}")
+        # Write to file (Phase H-4: delegate to infrastructure)
+        write_result = self._schema_export_writer.write(file_path, export_data)
+        if write_result.is_failure():
+            return Failure(write_result.error)
 
         return Success(ExportResult(
             success=True,
@@ -502,109 +515,5 @@ class ExportSchemaCommand:
 
         return rel_export, warnings
 
-    def _write_export_file(self, file_path: Path, export_data: SchemaExportDTO) -> None:
-        """Write export data to JSON file.
-
-        Args:
-            file_path: Path to write file
-            export_data: Export data to serialize
-
-        Raises:
-            Exception: If file write fails
-        """
-        # Convert to dict for JSON serialization
-        export_dict = self._export_to_dict(export_data)
-
-        # Ensure parent directory exists
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Write JSON file
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(export_dict, f, indent=2, ensure_ascii=False)
-
-    def _export_to_dict(self, export_data: SchemaExportDTO) -> dict:
-        """Convert SchemaExportDTO to dict for JSON serialization.
-
-        Args:
-            export_data: Export data to convert
-
-        Returns:
-            Dict representation for JSON
-
-        Phase F-10: Includes control_rules in field serialization.
-        """
-        result = {
-            "schema_id": export_data.schema_id,
-            "entities": [
-                {
-                    "id": entity.id,
-                    "name_key": entity.name_key,
-                    "description_key": entity.description_key,
-                    "is_root_entity": entity.is_root_entity,
-                    "fields": [
-                        {
-                            "id": field.id,
-                            "field_type": field.field_type,
-                            "label_key": field.label_key,
-                            "required": field.required,
-                            "help_text_key": field.help_text_key,
-                            "default_value": field.default_value,
-                            "options": [
-                                {
-                                    "value": opt.value,
-                                    "label_key": opt.label_key,
-                                }
-                                for opt in field.options
-                            ],
-                            "constraints": [
-                                {
-                                    "constraint_type": c.constraint_type,
-                                    "parameters": c.parameters,
-                                }
-                                for c in field.constraints
-                            ],
-                            # Phase F-10: Include control rules
-                            "control_rules": [
-                                {
-                                    "rule_type": cr.rule_type,
-                                    "target_field_id": cr.target_field_id,
-                                    "formula_text": cr.formula_text,
-                                }
-                                for cr in field.control_rules
-                            ],
-                            # Phase F-12.5: Include output mappings
-                            "output_mappings": [
-                                {
-                                    "target": om.target,
-                                    "formula_text": om.formula_text,
-                                }
-                                for om in field.output_mappings
-                            ],
-                        }
-                        for field in entity.fields
-                    ],
-                }
-                for entity in export_data.entities
-            ],
-        }
-
-        # Include version only if provided (Phase 3 Decision 5: Optional)
-        if export_data.version is not None:
-            result["version"] = export_data.version
-
-        # Include relationships (Phase 6A - ADR-022)
-        # Relationships are always included (can be empty array)
-        result["relationships"] = [
-            {
-                "id": rel.id,
-                "source_entity_id": rel.source_entity_id,
-                "target_entity_id": rel.target_entity_id,
-                "relationship_type": rel.relationship_type,
-                "name_key": rel.name_key,
-                "description_key": rel.description_key,
-                "inverse_name_key": rel.inverse_name_key,
-            }
-            for rel in export_data.relationships
-        ]
-
-        return result
+    # Phase H-4: _write_export_file and _export_to_dict moved to JsonSchemaExportWriter
+    # in infrastructure/interchange/json_schema_exporter.py

@@ -26,6 +26,7 @@ from doc_helper.domain.validation.constraints import (
     MaxLengthConstraint,
     RequiredConstraint,
 )
+from doc_helper.infrastructure.interchange import JsonSchemaExportWriter
 
 
 class TestExportSchemaCommand:
@@ -37,9 +38,14 @@ class TestExportSchemaCommand:
         return Mock()
 
     @pytest.fixture
-    def command(self, mock_repository: Mock) -> ExportSchemaCommand:
-        """Create command with mock repository."""
-        return ExportSchemaCommand(mock_repository)
+    def schema_export_writer(self) -> JsonSchemaExportWriter:
+        """Create schema export writer (Phase H-4)."""
+        return JsonSchemaExportWriter()
+
+    @pytest.fixture
+    def command(self, mock_repository: Mock, schema_export_writer: JsonSchemaExportWriter) -> ExportSchemaCommand:
+        """Create command with mock repository and schema export writer."""
+        return ExportSchemaCommand(mock_repository, schema_export_writer)
 
     @pytest.fixture
     def simple_field(self) -> FieldDefinition:
@@ -562,6 +568,7 @@ class TestExportSchemaCommand:
                 formula_text="{{mode}} == 'edit'",
             ),
         )
+        field.output_mappings = ()  # Phase F-12.5: Empty output mappings
         field.lookup_entity_id = None
         field.child_entity_id = None
 

@@ -766,10 +766,14 @@ class FormulaUseCases:
         """
         # Handle empty input
         if not formula_dependencies:
+            # Phase H-3: Provide all pre-computed fields
             return FormulaCycleAnalysisResultDTO(
                 has_cycles=False,
                 cycles=(),
                 analyzed_field_count=0,
+                _cycle_count=0,
+                _all_cycle_field_ids=(),
+                _cycle_errors=(),
             )
 
         # Detect all cycles using DFS
@@ -791,10 +795,19 @@ class FormulaUseCases:
         # Sort cycles for deterministic output
         cycle_dtos.sort(key=lambda c: c.cycle_path)
 
+        # Phase H-3: Compute all required fields upfront
+        cycles_tuple = tuple(cycle_dtos)
+        all_ids: set[str] = set()
+        for cycle in cycles_tuple:
+            all_ids.update(cycle.field_ids)
+
         return FormulaCycleAnalysisResultDTO(
-            has_cycles=len(cycle_dtos) > 0,
-            cycles=tuple(cycle_dtos),
+            has_cycles=len(cycles_tuple) > 0,
+            cycles=cycles_tuple,
             analyzed_field_count=len(formula_dependencies),
+            _cycle_count=len(cycles_tuple),
+            _all_cycle_field_ids=tuple(sorted(all_ids)),
+            _cycle_errors=tuple(f"Circular dependency: {c.cycle_path}" for c in cycles_tuple),
         )
 
     def _find_all_cycles(

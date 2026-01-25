@@ -2,6 +2,10 @@
 
 ADR-039: Import/Export Data Format
 Deserializes JSON interchange format v1.0 to Project and Schema.
+
+Phase H-4: Application I/O Extraction
+- All filesystem operations contained in infrastructure layer
+- File existence check performed here (moved from command)
 """
 
 import json
@@ -39,11 +43,12 @@ class JsonProjectImporter:
         """Import project from JSON interchange format file.
 
         ADR-039: Deserializes project:
-        1. Parse JSON file
-        2. Validate format structure (format_version, sections present)
-        3. Validate data against schema
-        4. Create new Project with imported data
-        5. Return Project and metadata
+        1. Validate file exists (Phase H-4: moved from command)
+        2. Parse JSON file
+        3. Validate format structure (format_version, sections present)
+        4. Validate data against schema
+        5. Create new Project with imported data
+        6. Return Project and metadata
 
         Args:
             input_path: Path to JSON interchange format file
@@ -52,6 +57,10 @@ class JsonProjectImporter:
         Returns:
             Success(dict with project and metadata) or Failure(error)
         """
+        # Phase H-4: File existence check moved from command
+        if not input_path.exists():
+            return Failure(f"Import file not found: {input_path}")
+
         try:
             # Read and parse JSON
             with open(input_path, "r", encoding="utf-8") as f:

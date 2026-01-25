@@ -126,7 +126,11 @@ class InMemorySchemaRepository(ISchemaRepository):
 
 
 class FakeProjectImporter:
-    """Fake project importer for testing."""
+    """Fake project importer for testing.
+
+    Phase H-4: Infrastructure layer is responsible for filesystem operations.
+    This fake mimics the behavior of JsonProjectImporter including file existence check.
+    """
 
     def __init__(self, should_fail: bool = False, project: Optional[Project] = None) -> None:
         """Initialize fake importer."""
@@ -140,9 +144,16 @@ class FakeProjectImporter:
         input_path: Path,
         entity_definitions: tuple[EntityDefinition, ...],
     ) -> Result[dict[str, Any], str]:
-        """Fake import from file."""
+        """Fake import from file.
+
+        Phase H-4: Infrastructure checks file existence (mimics JsonProjectImporter).
+        """
         self.last_input_path = input_path
         self.last_entity_definitions = entity_definitions
+
+        # Phase H-4: Infrastructure is responsible for checking file existence
+        if not input_path.exists():
+            return Failure(f"Import file not found: {input_path}")
 
         if self.should_fail:
             return Failure("Import failed for testing")

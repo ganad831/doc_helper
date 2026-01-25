@@ -303,29 +303,35 @@ class FormulaCycleAnalysisResultDTO:
     - Cached results
     - Execution results
     - Blocking flags
+    - __post_init__ computation (Phase H-3)
+
+    Phase H-3: All fields MUST be provided at construction time.
+    Only authorized usecases may construct this DTO.
     """
 
+    # Required core fields
     has_cycles: bool  # Whether any cycle was detected
     cycles: tuple[FormulaCycleDTO, ...]  # All detected cycles
     analyzed_field_count: int  # Number of formula fields analyzed
+    # Pre-computed fields (Phase H-3: MUST be provided, no computation)
+    _cycle_count: int  # Number of cycles detected
+    _all_cycle_field_ids: tuple[str, ...]  # All field IDs involved in any cycle
+    _cycle_errors: tuple[str, ...]  # All cycle paths as error messages
 
     @property
     def cycle_count(self) -> int:
         """Get number of cycles detected."""
-        return len(self.cycles)
+        return self._cycle_count
 
     @property
     def all_cycle_field_ids(self) -> tuple[str, ...]:
         """Get all field IDs involved in any cycle."""
-        all_ids: set[str] = set()
-        for cycle in self.cycles:
-            all_ids.update(cycle.field_ids)
-        return tuple(sorted(all_ids))
+        return self._all_cycle_field_ids
 
     @property
     def cycle_errors(self) -> tuple[str, ...]:
         """Get all cycle paths as error messages."""
-        return tuple(f"Circular dependency: {c.cycle_path}" for c in self.cycles)
+        return self._cycle_errors
 
 
 # =============================================================================

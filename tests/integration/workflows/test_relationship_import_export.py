@@ -29,6 +29,7 @@ from doc_helper.application.commands.schema.export_schema_command import (
 from doc_helper.application.services.schema_import_validation_service import (
     SchemaImportValidationService,
 )
+from doc_helper.infrastructure.interchange import JsonSchemaExportWriter
 
 
 class TestRelationshipExport:
@@ -92,8 +93,9 @@ class TestRelationshipExport:
         relationship_repo.get_all.return_value = Success(sample_relationships)
 
         export_path = tmp_path / "schema_export.json"
+        schema_export_writer = JsonSchemaExportWriter()
         command = ExportSchemaCommand(
-            schema_repo, relationship_repository=relationship_repo
+            schema_repo, schema_export_writer, relationship_repository=relationship_repo
         )
 
         # Act
@@ -129,7 +131,8 @@ class TestRelationshipExport:
         schema_repo.get_all.return_value = Success(sample_entities)
 
         export_path = tmp_path / "schema_export.json"
-        command = ExportSchemaCommand(schema_repo)  # No relationship repo
+        schema_export_writer = JsonSchemaExportWriter()
+        command = ExportSchemaCommand(schema_repo, schema_export_writer)  # No relationship repo
 
         # Act
         result = command.execute(schema_id="test_schema", file_path=export_path)
@@ -158,8 +161,9 @@ class TestRelationshipExport:
         relationship_repo.get_all.return_value = Success(())  # Empty
 
         export_path = tmp_path / "schema_export.json"
+        schema_export_writer = JsonSchemaExportWriter()
         command = ExportSchemaCommand(
-            schema_repo, relationship_repository=relationship_repo
+            schema_repo, schema_export_writer, relationship_repository=relationship_repo
         )
 
         # Act
@@ -196,8 +200,9 @@ class TestRelationshipExport:
         relationship_repo.get_all.return_value = Success((minimal_rel,))
 
         export_path = tmp_path / "schema_export.json"
+        schema_export_writer = JsonSchemaExportWriter()
         command = ExportSchemaCommand(
-            schema_repo, relationship_repository=relationship_repo
+            schema_repo, schema_export_writer, relationship_repository=relationship_repo
         )
 
         # Act

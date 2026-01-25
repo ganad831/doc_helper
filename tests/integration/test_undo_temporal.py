@@ -127,11 +127,12 @@ def mock_validation_service():
     """Create mock ValidationService."""
     from unittest.mock import Mock
 
-    from doc_helper.application.dto import ValidationResultDTO
+    from doc_helper.application.mappers import create_valid_validation_result
 
     service = Mock()
+    # Phase H-3: Use factory function instead of direct DTO construction
     service.validate_by_project_id.return_value = Success(
-        ValidationResultDTO(is_valid=True, errors=())
+        create_valid_validation_result()
     )
     return service
 
@@ -167,6 +168,13 @@ def mock_navigation_adapter():
 
 
 @pytest.fixture
+def mock_validation_mapper():
+    """Create mock ValidationMapper for Phase H-3."""
+    from unittest.mock import Mock
+    return Mock()
+
+
+@pytest.fixture
 def viewmodel(
     mock_project_usecases,
     mock_validation_service,
@@ -175,6 +183,7 @@ def viewmodel(
     field_undo_service,
     history_adapter,
     mock_navigation_adapter,
+    mock_validation_mapper,
 ):
     """Create ProjectViewModel instance with real undo infrastructure.
 
@@ -188,6 +197,7 @@ def viewmodel(
         field_undo_service=field_undo_service,
         history_adapter=history_adapter,
         navigation_adapter=mock_navigation_adapter,
+        validation_mapper=mock_validation_mapper,
     )
 
 

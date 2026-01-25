@@ -31,10 +31,13 @@ from doc_helper.application.dto import (
     ImportResultDTO,
     ProjectDTO,
     SearchResultDTO,
-    ValidationErrorDTO,
     ValidationResultDTO,
 )
-from doc_helper.application.mappers import EvaluationResultMapper, ValidationMapper
+from doc_helper.application.mappers import (
+    EvaluationResultMapper,
+    ValidationMapper,
+    create_error_validation_result,
+)
 from doc_helper.application.services.control_service import ControlService
 from doc_helper.application.services.field_undo_service import FieldUndoService
 from doc_helper.application.services.formula_service import FormulaService
@@ -77,6 +80,7 @@ class ProjectViewModel(BaseViewModel):
         field_undo_service: FieldUndoService,
         history_adapter: HistoryAdapter,
         navigation_adapter: NavigationAdapter,
+        validation_mapper: ValidationMapper,
     ) -> None:
         """Initialize ProjectViewModel.
 
@@ -92,6 +96,7 @@ class ProjectViewModel(BaseViewModel):
             field_undo_service: Undo-enabled field update service (U6 Phase 4)
             history_adapter: Qt signal bridge for undo/redo state (U6 Phase 4)
             navigation_adapter: Qt signal bridge for navigation state (U7)
+            validation_mapper: Mapper for converting domain validation results to DTOs (Phase H-3)
         """
         super().__init__()
         self._project_usecases = project_usecases
@@ -99,6 +104,7 @@ class ProjectViewModel(BaseViewModel):
         self._formula_service = formula_service
         self._control_service = control_service
         self._field_undo_service = field_undo_service
+        self._validation_mapper = validation_mapper
         self._history_adapter = history_adapter
         self._navigation_adapter = navigation_adapter
 
@@ -344,37 +350,30 @@ class ProjectViewModel(BaseViewModel):
         """Validate current project.
 
         PHASE 6C: Uses string-accepting service method.
+        Phase H-3: Uses factory function for error cases, mapper for success.
 
         Returns:
             ValidationResultDTO with errors
         """
         if not self._project_id or not self._entity_definition_dto:
-            return ValidationResultDTO(
-                is_valid=False,
-                errors=(
-                    ValidationErrorDTO(
-                        field_id=None, field_path="", message="No project loaded"
-                    ),
-                ),
+            # Phase H-3: Use factory function instead of direct DTO construction
+            return create_error_validation_result(
+                message="No project loaded",
+                constraint_type="SYSTEM_ERROR",
             )
 
         # Use string-accepting service method (Phase 6C)
         result = self._validation_service.validate_by_project_id_str(self._project_id)
 
         if result.is_failure():
-            return ValidationResultDTO(
-                is_valid=False,
-                errors=(
-                    ValidationErrorDTO(
-                        field_id=None,
-                        field_path="",
-                        message=f"Validation failed: {result.error}",
-                    ),
-                ),
+            # Phase H-3: Use factory function instead of direct DTO construction
+            return create_error_validation_result(
+                message=f"Validation failed: {result.error}",
+                constraint_type="SYSTEM_ERROR",
             )
 
-        # Map domain result to DTO
-        return ValidationMapper.to_dto(result.value)
+        # Map domain result to DTO using injected mapper (Phase H-3)
+        return self._validation_mapper.to_dto(result.value)
 
     def evaluate_controls(self) -> Optional[EvaluationResultDTO]:
         """Evaluate control rules for current project.

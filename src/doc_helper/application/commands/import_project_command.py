@@ -7,13 +7,17 @@ RULES (AGENT_RULES.md Section 5):
 - Commands return Result[DTO, str] for operations that produce output
 
 Import Workflow:
-1. Load and parse JSON file from input path
+1. Delegate JSON parsing to infrastructure (includes file existence check)
 2. Validate interchange format structure
 3. Validate AppType exists in registry (v2 PHASE 4)
 4. Validate data against schema (same validation as manual entry)
 5. Create new project with imported data
 6. Save project to repository
 7. Return ImportResultDTO with project_id or validation errors
+
+Phase H-4: Application I/O Extraction
+- File I/O delegated to infrastructure (project_importer)
+- File existence check moved to infrastructure
 """
 
 from pathlib import Path
@@ -136,20 +140,7 @@ class ImportProjectCommand:
 
         input_path = Path(input_file_path) if isinstance(input_file_path, str) else input_file_path
 
-        # Check file exists
-        if not input_path.exists():
-            return Success(
-                ImportResultDTO(
-                    success=False,
-                    project_id=None,
-                    project_name=None,
-                    error_message=f"Import file not found: {input_path}",
-                    validation_errors=(),
-                    format_version="unknown",
-                    source_app_version=None,
-                    warnings=(),
-                )
-            )
+        # Phase H-4: File existence check moved to JsonProjectImporter in infrastructure
 
         # Load schema (all entity definitions)
         schema_result = self._schema_repository.get_all()

@@ -2,6 +2,10 @@
 
 ADR-039: Import/Export Data Format
 Serializes Project and Schema to JSON interchange format v1.0.
+
+Phase H-4: Application I/O Extraction
+- All filesystem operations contained in infrastructure layer
+- Creates parent directories if needed
 """
 
 import json
@@ -58,6 +62,9 @@ class JsonProjectExporter:
         try:
             # Build JSON structure
             export_data = self._build_export_structure(project, entity_definitions)
+
+            # Phase H-4: Ensure parent directory exists (moved from command)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Write to file
             with open(output_path, "w", encoding="utf-8") as f:

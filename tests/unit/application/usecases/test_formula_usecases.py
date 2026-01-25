@@ -2257,6 +2257,7 @@ class TestFormulaGovernance:
             field_references=("field_a", "field_b"),
         )
 
+        # Phase H-3: Provide all pre-computed fields
         cycle_result = FormulaCycleAnalysisResultDTO(
             has_cycles=True,
             cycles=(
@@ -2267,6 +2268,9 @@ class TestFormulaGovernance:
                 ),
             ),
             analyzed_field_count=2,
+            _cycle_count=1,
+            _all_cycle_field_ids=("field_a", "field_b"),
+            _cycle_errors=("Circular dependency: field_a → field_b → field_a",),
         )
 
         result = usecases.evaluate_governance(
@@ -2293,6 +2297,7 @@ class TestFormulaGovernance:
             field_references=(),
         )
 
+        # Phase H-3: Provide all pre-computed fields
         cycle_result = FormulaCycleAnalysisResultDTO(
             has_cycles=True,
             cycles=(
@@ -2308,6 +2313,12 @@ class TestFormulaGovernance:
                 ),
             ),
             analyzed_field_count=3,
+            _cycle_count=2,
+            _all_cycle_field_ids=("a", "x", "y"),
+            _cycle_errors=(
+                "Circular dependency: a → a",
+                "Circular dependency: x → y → x",
+            ),
         )
 
         result = usecases.evaluate_governance(
@@ -2335,6 +2346,7 @@ class TestFormulaGovernance:
             field_references=(),
         )
 
+        # Phase H-3: Provide all pre-computed fields
         cycle_result = FormulaCycleAnalysisResultDTO(
             has_cycles=True,
             cycles=(
@@ -2345,6 +2357,9 @@ class TestFormulaGovernance:
                 ),
             ),
             analyzed_field_count=2,
+            _cycle_count=1,
+            _all_cycle_field_ids=("a", "b"),
+            _cycle_errors=("Circular dependency: a → b → a",),
         )
 
         result = usecases.evaluate_governance(
@@ -2425,10 +2440,14 @@ class TestFormulaGovernance:
             field_references=("price", "quantity"),
         )
 
+        # Phase H-3: Provide all pre-computed fields
         cycle_result = FormulaCycleAnalysisResultDTO(
             has_cycles=False,
             cycles=(),
             analyzed_field_count=2,
+            _cycle_count=0,
+            _all_cycle_field_ids=(),
+            _cycle_errors=(),
         )
 
         result = usecases.evaluate_governance(

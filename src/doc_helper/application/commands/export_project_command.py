@@ -11,6 +11,10 @@ Export Workflow:
 2. Load schema from schema repository
 3. Delegate serialization to infrastructure ProjectExporter
 4. Return ExportResultDTO with file path and metadata
+
+Phase H-4: Application I/O Extraction
+- File I/O delegated to infrastructure (project_exporter)
+- No filesystem operations in command
 """
 
 from pathlib import Path
@@ -102,11 +106,7 @@ class ExportProjectCommand:
 
         output_path = Path(output_file_path) if isinstance(output_file_path, str) else output_file_path
 
-        # Ensure parent directory exists
-        try:
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            return Failure(f"Failed to create output directory: {str(e)}")
+        # Phase H-4: Directory creation moved to JsonProjectExporter in infrastructure
 
         # Load project
         load_result = self._project_repository.get_by_id(project_id)
