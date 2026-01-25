@@ -179,7 +179,7 @@ class AddFieldDialog(QDialog):
         field_id = self._field_id_input.text().strip()
         label_key = self._label_key_input.text().strip()
         help_text_key = self._help_text_key_input.text().strip()
-        field_type = self._field_type_combo.currentText()
+        field_type = self._field_type_combo.currentText().lower()
         required = self._required_checkbox.isChecked()
         default_value = self._default_value_input.text().strip()
 
