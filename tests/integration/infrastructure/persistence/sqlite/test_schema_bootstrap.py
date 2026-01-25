@@ -333,3 +333,37 @@ class TestSchemaBootstrapWithRepository:
             saved = repo.get_by_id(EntityDefinitionId("test_entity"))
             assert saved.is_success()
             assert saved.value.name_key == TranslationKey("entity.test")
+
+    def test_get_all_does_not_raise_nested_connection_error(self) -> None:
+        """Regression: get_all() must not raise 'Connection already open'."""
+        from doc_helper.domain.common.i18n import TranslationKey
+        from doc_helper.domain.schema.entity_definition import EntityDefinition
+        from doc_helper.domain.schema.schema_ids import EntityDefinitionId
+        from doc_helper.infrastructure.persistence.sqlite.repositories.schema_repository import (
+            SqliteSchemaRepository,
+        )
+
+        with TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "test_config.db"
+
+            # Bootstrap database
+            bootstrap_schema_database(db_path)
+
+            # Create repository and save entity
+            repo = SqliteSchemaRepository(db_path=db_path)
+
+            entity = EntityDefinition(
+                id=EntityDefinitionId("test_entity"),
+                name_key=TranslationKey("entity.test"),
+                description_key=TranslationKey("entity.test.desc"),
+                is_root_entity=True,
+            )
+
+            save_result = repo.save(entity)
+            assert save_result.is_success()
+
+            # This must NOT raise "Connection already open"
+            all_result = repo.get_all()
+            assert all_result.is_success()
+            assert len(all_result.value) == 1
+            assert all_result.value[0].id == EntityDefinitionId("test_entity")

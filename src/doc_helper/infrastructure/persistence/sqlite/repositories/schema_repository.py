@@ -76,42 +76,56 @@ class SqliteSchemaRepository(ISchemaRepository):
     # Read Operations (Phase 1 + Phase 2 Step 1)
     # -------------------------------------------------------------------------
 
+    def _load_entity_with_cursor(
+        self, cursor: sqlite3.Cursor, entity_id: EntityDefinitionId
+    ) -> Result[EntityDefinition, str]:
+        """Load entity using an existing cursor (avoids nested connections).
+
+        Args:
+            cursor: Open database cursor (caller manages connection)
+            entity_id: Entity ID to load
+
+        Returns:
+            Success with EntityDefinition or Failure with error message
+        """
+        cursor.execute(
+            """
+            SELECT id, name_key, description_key, is_root_entity, parent_entity_id
+            FROM entities
+            WHERE id = ?
+            """,
+            (str(entity_id.value),),
+        )
+        row = cursor.fetchone()
+
+        if not row:
+            return Failure(f"Entity '{entity_id.value}' not found")
+
+        # Load fields for this entity
+        fields_result = self._load_fields_for_entity(cursor, entity_id)
+        if fields_result.is_failure():
+            return Failure(f"Failed to load fields: {fields_result.error}")
+
+        # Construct EntityDefinition
+        entity = EntityDefinition(
+            id=entity_id,
+            name_key=TranslationKey(row[1]),
+            description_key=TranslationKey(row[2]) if row[2] else None,
+            fields=fields_result.value,
+            is_root_entity=bool(row[3]),
+            parent_entity_id=(
+                EntityDefinitionId(row[4]) if row[4] else None
+            ),
+        )
+
+        return Success(entity)
+
     def get_by_id(self, entity_id: EntityDefinitionId) -> Result[EntityDefinition, str]:
         """Get entity definition by ID."""
         try:
             with self._connection as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    SELECT id, name_key, description_key, is_root_entity, parent_entity_id
-                    FROM entities
-                    WHERE id = ?
-                    """,
-                    (str(entity_id.value),),
-                )
-                row = cursor.fetchone()
-
-                if not row:
-                    return Failure(f"Entity '{entity_id.value}' not found")
-
-                # Load fields for this entity
-                fields_result = self._load_fields_for_entity(cursor, entity_id)
-                if fields_result.is_failure():
-                    return Failure(f"Failed to load fields: {fields_result.error}")
-
-                # Construct EntityDefinition
-                entity = EntityDefinition(
-                    id=entity_id,
-                    name_key=TranslationKey(row[1]),
-                    description_key=TranslationKey(row[2]) if row[2] else None,
-                    fields=fields_result.value,
-                    is_root_entity=bool(row[3]),
-                    parent_entity_id=(
-                        EntityDefinitionId(row[4]) if row[4] else None
-                    ),
-                )
-
-                return Success(entity)
+                return self._load_entity_with_cursor(cursor, entity_id)
 
         except sqlite3.Error as e:
             return Failure(f"Database error: {e}")
@@ -133,7 +147,7 @@ class SqliteSchemaRepository(ISchemaRepository):
                 entities = []
                 for row in rows:
                     entity_id = EntityDefinitionId(row[0])
-                    entity_result = self.get_by_id(entity_id)
+                    entity_result = self._load_entity_with_cursor(cursor, entity_id)
                     if entity_result.is_success():
                         entities.append(entity_result.value)
 
@@ -160,7 +174,7 @@ class SqliteSchemaRepository(ISchemaRepository):
                 if not row:
                     return Failure("No root entity found")
 
-                return self.get_by_id(EntityDefinitionId(row[0]))
+                return self._load_entity_with_cursor(cursor, EntityDefinitionId(row[0]))
 
         except sqlite3.Error as e:
             return Failure(f"Database error: {e}")
