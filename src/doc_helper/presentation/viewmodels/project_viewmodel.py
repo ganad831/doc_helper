@@ -33,6 +33,10 @@ from doc_helper.application.dto import (
     SearchResultDTO,
     ValidationResultDTO,
 )
+from doc_helper.application.dto.runtime_dto import (
+    FormRuntimeStateDTO,
+    RuntimeEvaluationRequestDTO,
+)
 from doc_helper.application.mappers import (
     EvaluationResultMapper,
     ValidationMapper,
@@ -43,6 +47,10 @@ from doc_helper.application.services.field_undo_service import FieldUndoService
 from doc_helper.application.services.formula_service import FormulaService
 from doc_helper.application.services.validation_service import ValidationService
 from doc_helper.application.usecases.project_usecases import ProjectUseCases
+from doc_helper.application.usecases.runtime import (
+    BuildFormRuntimeStateUseCase,
+    EvaluateRuntimeRulesUseCase,
+)
 from doc_helper.presentation.adapters.history_adapter import HistoryAdapter
 from doc_helper.presentation.adapters.navigation_adapter import NavigationAdapter
 from doc_helper.presentation.viewmodels.base_viewmodel import BaseViewModel
@@ -81,6 +89,8 @@ class ProjectViewModel(BaseViewModel):
         history_adapter: HistoryAdapter,
         navigation_adapter: NavigationAdapter,
         validation_mapper: ValidationMapper,
+        evaluate_runtime_usecase: Optional[EvaluateRuntimeRulesUseCase] = None,
+        build_form_runtime_state_usecase: Optional[BuildFormRuntimeStateUseCase] = None,
     ) -> None:
         """Initialize ProjectViewModel.
 
@@ -97,6 +107,8 @@ class ProjectViewModel(BaseViewModel):
             history_adapter: Qt signal bridge for undo/redo state (U6 Phase 4)
             navigation_adapter: Qt signal bridge for navigation state (U7)
             validation_mapper: Mapper for converting domain validation results to DTOs (Phase H-3)
+            evaluate_runtime_usecase: Use case for runtime rule evaluation (Phase R-UI)
+            build_form_runtime_state_usecase: Use case for form runtime state (Phase R-UI)
         """
         super().__init__()
         self._project_usecases = project_usecases
@@ -107,6 +119,10 @@ class ProjectViewModel(BaseViewModel):
         self._validation_mapper = validation_mapper
         self._history_adapter = history_adapter
         self._navigation_adapter = navigation_adapter
+        self._evaluate_runtime_usecase = evaluate_runtime_usecase
+        self._build_form_runtime_state_usecase = (
+            build_form_runtime_state_usecase or BuildFormRuntimeStateUseCase()
+        )
 
         # Store IDs and DTOs, NOT domain objects
         self._project_id: Optional[str] = None
@@ -393,6 +409,64 @@ class ProjectViewModel(BaseViewModel):
             # Map domain result to DTO
             return EvaluationResultMapper.to_dto(result.value)
         return None
+
+    def get_form_runtime_state(
+        self, field_values: dict[str, Any]
+    ) -> Optional[FormRuntimeStateDTO]:
+        """Get form runtime state for UI binding (Phase R-UI).
+
+        Pull-based evaluation: Caller explicitly requests runtime state.
+        This is the entry point for runtime → UI binding.
+
+        ADR-050 Compliance:
+            - Pull-based: Explicit user action triggers evaluation
+            - Deterministic: Same inputs → same outputs
+            - Read-only: No persistence side effects
+
+        Args:
+            field_values: Current field values snapshot from UI
+                Keys are field IDs, values are raw field values
+
+        Returns:
+            FormRuntimeStateDTO with per-field runtime state:
+                - visible, enabled, required (from control rules)
+                - validation_errors, warnings, info (from validation)
+                - has_blocking_errors (True if ERROR severity issues exist)
+            Returns None if runtime evaluation is not available or fails
+
+        Usage in ProjectView:
+            form_state = self._viewmodel.get_form_runtime_state(field_values)
+            if form_state:
+                self._apply_runtime_state(form_state)
+                if form_state.has_blocking_errors:
+                    # Block submission
+        """
+        if not self._entity_definition_dto:
+            return None
+
+        if not self._evaluate_runtime_usecase:
+            return None
+
+        try:
+            # Create request DTO for runtime evaluation
+            request = RuntimeEvaluationRequestDTO(
+                entity_id=self._entity_definition_dto.id,
+                field_values=field_values,
+            )
+
+            # Execute runtime evaluation (R-3)
+            runtime_result = self._evaluate_runtime_usecase.execute(request)
+
+            # Convert to form runtime state (R-4.5)
+            return self._build_form_runtime_state_usecase.execute(
+                entity_id=self._entity_definition_dto.id,
+                field_values=field_values,
+                runtime_result=runtime_result,
+            )
+
+        except Exception:
+            # Runtime evaluation failed - return None
+            return None
 
     def clear_error(self) -> None:
         """Clear current error message."""

@@ -18,7 +18,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from doc_helper.application.dto import EntityDefinitionDTO, FieldDefinitionDTO
+from doc_helper.application.dto import EntityDefinitionDTO, FieldDefinitionDTO, ValidationErrorDTO
+from doc_helper.application.dto.runtime_dto import FormRuntimeStateDTO
 # Domain imports removed - presentation layer uses strings, not typed IDs (DTO-only MVVM)
 from doc_helper.presentation.adapters.qt_translation_adapter import QtTranslationAdapter
 from doc_helper.presentation.dialogs import (
@@ -159,8 +160,9 @@ class ProjectView(BaseView):
         self._update_back_action()
         self._update_forward_action()
 
-        # Perform initial validation
-        self._update_validation()
+        # Perform initial runtime state evaluation (Phase R-UI)
+        # This applies visibility, enabled state, and validation
+        self._update_runtime_state()
 
     def _create_menu(self) -> None:
         """Create menu bar."""
@@ -404,6 +406,8 @@ class ProjectView(BaseView):
     def _on_field_value_changed(self, field_id: str, value: any) -> None:
         """Handle field value change.
 
+        Phase R-UI: Now triggers runtime state evaluation (pull-based).
+
         Args:
             field_id: Field ID that changed
             value: New field value
@@ -411,8 +415,9 @@ class ProjectView(BaseView):
         # Pass string ID directly (DTO-only MVVM compliance)
         self._viewmodel.update_field(field_id, value)
 
-        # Re-validate after field change
-        self._update_validation()
+        # Update runtime state after field change (Phase R-UI)
+        # This is pull-based: explicit call, not observer
+        self._update_runtime_state()
 
     def _update_validation(self) -> None:
         """Update validation state for all fields.
@@ -450,6 +455,144 @@ class ProjectView(BaseView):
             error_count = len(validation_result.errors)
             self._status_bar.showMessage(f"{error_count} validation error(s)")
             self._status_bar.setStyleSheet("background-color: #ffe6e6;")
+
+    def _apply_runtime_state(self, form_state: FormRuntimeStateDTO) -> None:
+        """Apply runtime state to field widgets (Phase R-UI).
+
+        Pull-based binding: This method is called explicitly when runtime
+        state needs to be applied to the UI. Does NOT use observers.
+
+        ADR-050 Compliance:
+            - Pull-based: Invoked by explicit user action
+            - No observers: Direct method call, not signal/slot
+            - Read-only: Only updates widget display state
+
+        Args:
+            form_state: FormRuntimeStateDTO with per-field runtime state:
+                - visible, enabled, required (from control rules)
+                - validation_errors, warnings, info (from validation)
+
+        Widget State Mapping:
+            - visible → widget.set_visible()
+            - enabled → widget.set_enabled()
+            - required → UI indicator only (already shown in label)
+            - validation_errors/warnings/info → widget.set_validation_error_dtos()
+        """
+        for field_state in form_state.fields:
+            # Find widget by field ID
+            widget = self._field_widgets.get(field_state.field_id)
+            if not widget:
+                continue
+
+            # Apply visibility (control rule state)
+            widget.set_visible(field_state.visible)
+
+            # Apply enabled state (control rule state)
+            widget.set_enabled(field_state.enabled)
+
+            # Apply validation messages with severity (ADR-025)
+            # Convert tuple of strings to ValidationErrorDTO list
+            error_dtos: list[ValidationErrorDTO] = []
+
+            # ERROR severity (blocking)
+            for msg in field_state.validation_errors:
+                error_dtos.append(
+                    ValidationErrorDTO(
+                        field_id=field_state.field_id,
+                        message=msg,
+                        constraint_type="RUNTIME_ERROR",
+                        severity="ERROR",
+                    )
+                )
+
+            # WARNING severity (non-blocking)
+            for msg in field_state.validation_warnings:
+                error_dtos.append(
+                    ValidationErrorDTO(
+                        field_id=field_state.field_id,
+                        message=msg,
+                        constraint_type="RUNTIME_WARNING",
+                        severity="WARNING",
+                    )
+                )
+
+            # INFO severity (informational)
+            for msg in field_state.validation_info:
+                error_dtos.append(
+                    ValidationErrorDTO(
+                        field_id=field_state.field_id,
+                        message=msg,
+                        constraint_type="RUNTIME_INFO",
+                        severity="INFO",
+                    )
+                )
+
+            widget.set_validation_error_dtos(error_dtos)
+
+            # Update field container visibility to match widget
+            container = self._field_containers.get(field_state.field_id)
+            if container:
+                container.setVisible(field_state.visible)
+
+    def _get_current_field_values(self) -> dict[str, any]:
+        """Get current field values from widgets.
+
+        Collects values from all field widgets for runtime evaluation.
+
+        Returns:
+            Dictionary mapping field_id to current widget value
+        """
+        field_values: dict[str, any] = {}
+        for field_id, widget in self._field_widgets.items():
+            field_values[field_id] = widget.get_value()
+        return field_values
+
+    def _update_runtime_state(self) -> None:
+        """Update runtime state for all fields (Phase R-UI).
+
+        Pull-based evaluation: Collects current field values and
+        requests runtime state from ViewModel.
+
+        This is the main entry point for runtime → UI binding.
+        Called after field value changes or on explicit user action.
+
+        ADR-050 Compliance:
+            - Pull-based: Explicit invocation, not observer
+            - Deterministic: Same values → same state
+            - Read-only: Only updates UI, no persistence
+        """
+        if not self._viewmodel.current_project:
+            return
+
+        # Collect current field values from widgets
+        field_values = self._get_current_field_values()
+
+        # Get runtime state from ViewModel (pull-based)
+        form_state = self._viewmodel.get_form_runtime_state(field_values)
+
+        if form_state:
+            # Apply runtime state to widgets
+            self._apply_runtime_state(form_state)
+
+            # Update status bar based on blocking state
+            if form_state.has_blocking_errors:
+                error_count = sum(
+                    len(f.validation_errors) for f in form_state.fields
+                )
+                self._status_bar.showMessage(
+                    f"{error_count} blocking error(s) - submission blocked"
+                )
+                self._status_bar.setStyleSheet("background-color: #ffe6e6;")
+            else:
+                warning_count = sum(
+                    len(f.validation_warnings) for f in form_state.fields
+                )
+                if warning_count > 0:
+                    self._status_bar.showMessage(f"{warning_count} warning(s)")
+                    self._status_bar.setStyleSheet("background-color: #fff3cd;")
+                else:
+                    self._status_bar.showMessage("Ready")
+                    self._status_bar.setStyleSheet("")
 
     def _show_field_context_menu(
         self,
@@ -677,20 +820,36 @@ class ProjectView(BaseView):
     def _on_generate_document(self) -> None:
         """Handle Generate Document action.
 
+        Phase R-UI: Now uses runtime state for blocking check.
+
         Note:
             This is a basic implementation for U3.
             Full document generation dialog is in Milestone U11.
         """
-        # Validate before generation
-        validation_result = self._viewmodel.validate_project()
-        if not validation_result.is_valid:
-            error_count = len(validation_result.errors)
+        # Check runtime state for blocking errors (Phase R-UI)
+        field_values = self._get_current_field_values()
+        form_state = self._viewmodel.get_form_runtime_state(field_values)
+
+        if form_state and form_state.has_blocking_errors:
+            error_count = sum(len(f.validation_errors) for f in form_state.fields)
             QMessageBox.warning(
                 self._root,
-                "Validation Errors",
-                f"Cannot generate document. Please fix {error_count} validation error(s) first.",
+                "Blocking Errors",
+                f"Cannot generate document. Please fix {error_count} blocking error(s) first.",
             )
             return
+
+        # Fallback to old validation if runtime state not available
+        if not form_state:
+            validation_result = self._viewmodel.validate_project()
+            if not validation_result.is_valid:
+                error_count = len(validation_result.errors)
+                QMessageBox.warning(
+                    self._root,
+                    "Validation Errors",
+                    f"Cannot generate document. Please fix {error_count} validation error(s) first.",
+                )
+                return
 
         # Save project before generation
         if self._viewmodel.has_unsaved_changes:
