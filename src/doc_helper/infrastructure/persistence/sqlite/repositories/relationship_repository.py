@@ -241,13 +241,27 @@ class SqliteRelationshipRepository(IRelationshipRepository):
         try:
             with self._connection as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT 1 FROM relationships WHERE id = ?",
-                    (str(relationship_id.value),),
-                )
-                return cursor.fetchone() is not None
+                return self._exists_with_cursor(cursor, relationship_id)
         except sqlite3.Error:
             return False
+
+    def _exists_with_cursor(
+        self, cursor: sqlite3.Cursor, relationship_id: RelationshipDefinitionId
+    ) -> bool:
+        """Check if relationship exists using an existing cursor (avoids nested connections).
+
+        Args:
+            cursor: Open database cursor (caller manages connection)
+            relationship_id: Relationship ID to check
+
+        Returns:
+            True if relationship exists, False otherwise
+        """
+        cursor.execute(
+            "SELECT 1 FROM relationships WHERE id = ?",
+            (str(relationship_id.value),),
+        )
+        return cursor.fetchone() is not None
 
     # -------------------------------------------------------------------------
     # Write Operations (ADD-ONLY)
@@ -262,15 +276,15 @@ class SqliteRelationshipRepository(IRelationshipRepository):
             - Target entity must exist
         """
         try:
-            # Check if relationship already exists
-            if self.exists(relationship.id):
-                return Failure(
-                    f"Relationship '{relationship.id.value}' already exists. "
-                    "Relationships are ADD-ONLY and cannot be updated."
-                )
-
             with self._connection as conn:
                 cursor = conn.cursor()
+
+                # Check if relationship already exists
+                if self._exists_with_cursor(cursor, relationship.id):
+                    return Failure(
+                        f"Relationship '{relationship.id.value}' already exists. "
+                        "Relationships are ADD-ONLY and cannot be updated."
+                    )
 
                 # Validate source entity exists
                 cursor.execute(

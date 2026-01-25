@@ -184,13 +184,27 @@ class SqliteSchemaRepository(ISchemaRepository):
         try:
             with self._connection as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT 1 FROM entities WHERE id = ?",
-                    (str(entity_id.value),),
-                )
-                return cursor.fetchone() is not None
+                return self._exists_with_cursor(cursor, entity_id)
         except sqlite3.Error:
             return False
+
+    def _exists_with_cursor(
+        self, cursor: sqlite3.Cursor, entity_id: EntityDefinitionId
+    ) -> bool:
+        """Check if entity exists using an existing cursor (avoids nested connections).
+
+        Args:
+            cursor: Open database cursor (caller manages connection)
+            entity_id: Entity ID to check
+
+        Returns:
+            True if entity exists, False otherwise
+        """
+        cursor.execute(
+            "SELECT 1 FROM entities WHERE id = ?",
+            (str(entity_id.value),),
+        )
+        return cursor.fetchone() is not None
 
     def get_child_entities(
         self, parent_entity_id: EntityDefinitionId
@@ -213,7 +227,7 @@ class SqliteSchemaRepository(ISchemaRepository):
                 children = []
                 for row in rows:
                     child_id = EntityDefinitionId(row[0])
-                    child_result = self.get_by_id(child_id)
+                    child_result = self._load_entity_with_cursor(cursor, child_id)
                     if child_result.is_success():
                         children.append(child_result.value)
 
@@ -243,10 +257,9 @@ class SqliteSchemaRepository(ISchemaRepository):
             - All fields must have valid field types
         """
         try:
-            entity_exists = self.exists(entity.id)
-
             with self._connection as conn:
                 cursor = conn.cursor()
+                entity_exists = self._exists_with_cursor(cursor, entity.id)
 
                 # Begin transaction
                 cursor.execute("BEGIN TRANSACTION")
@@ -316,12 +329,12 @@ class SqliteSchemaRepository(ISchemaRepository):
             Result with None on success or error message
         """
         try:
-            # Check if entity exists
-            if not self.exists(entity.id):
-                return Failure(f"Entity '{entity.id.value}' does not exist. Use save() to create new entities.")
-
             with self._connection as conn:
                 cursor = conn.cursor()
+
+                # Check if entity exists
+                if not self._exists_with_cursor(cursor, entity.id):
+                    return Failure(f"Entity '{entity.id.value}' does not exist. Use save() to create new entities.")
 
                 # Begin transaction
                 cursor.execute("BEGIN TRANSACTION")
