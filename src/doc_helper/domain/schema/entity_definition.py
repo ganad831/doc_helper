@@ -160,3 +160,42 @@ class EntityDefinition(AggregateRoot[EntityDefinitionId]):
                 f"Field '{field_id}' does not exist in entity '{self.id}'. "
                 f"Available fields: {list(self.fields.keys())}"
             )
+
+    # =========================================================================
+    # AGGREGATE MUTATION METHODS (Phase H-1: Aggregate Boundary Hardening)
+    # =========================================================================
+    # These methods are the ONLY authorized way to mutate the fields collection.
+    # External code MUST use these methods instead of directly accessing fields.
+    # =========================================================================
+
+    def add_field(self, field: FieldDefinition) -> None:
+        """Add a field to this entity.
+
+        This is the ONLY authorized way to add fields to the entity.
+        The field's ID is used as the key in the fields collection.
+
+        Args:
+            field: The field definition to add
+        """
+        self.fields[field.id] = field
+
+    def update_field(self, field_id: FieldDefinitionId, field: FieldDefinition) -> None:
+        """Update an existing field in this entity.
+
+        This is the ONLY authorized way to update fields in the entity.
+
+        Args:
+            field_id: The ID of the field to update
+            field: The new field definition (replaces existing)
+        """
+        self.fields[field_id] = field
+
+    def remove_field(self, field_id: FieldDefinitionId) -> None:
+        """Remove a field from this entity.
+
+        This is the ONLY authorized way to remove fields from the entity.
+
+        Args:
+            field_id: The ID of the field to remove
+        """
+        del self.fields[field_id]

@@ -147,9 +147,8 @@ class UpdateFieldCommand:
         except Exception as e:
             return Failure(f"Failed to create updated field: {e}")
 
-        # Update entity's fields dict with new FieldDefinition
-        # EntityDefinition is mutable, but fields dict needs to be replaced
-        entity.fields[field_id_obj] = updated_field_def
+        # Update entity's field via aggregate method
+        entity.update_field(field_id_obj, updated_field_def)
 
         # Save updated entity
         save_result = self._schema_repository.save(entity)

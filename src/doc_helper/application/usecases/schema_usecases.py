@@ -892,8 +892,8 @@ class SchemaUseCases:
         new_control_rules = field.control_rules + (control_rule_dto,)
         updated_field = replace(field, control_rules=new_control_rules)
 
-        # Update entity's fields dict
-        entity.fields[field_id_obj] = updated_field
+        # Update entity's field via aggregate method
+        entity.update_field(field_id_obj, updated_field)
 
         # Save updated entity
         save_result = self._schema_repository.save(entity)
@@ -1018,8 +1018,8 @@ class SchemaUseCases:
         # Update field with modified control rules
         updated_field = replace(field, control_rules=new_control_rules)
 
-        # Update entity's fields dict
-        entity.fields[field_id_obj] = updated_field
+        # Update entity's field via aggregate method
+        entity.update_field(field_id_obj, updated_field)
 
         # Save updated entity
         save_result = self._schema_repository.save(entity)
@@ -1103,8 +1103,8 @@ class SchemaUseCases:
         # Update field with modified control rules
         updated_field = replace(field, control_rules=tuple(new_rules))
 
-        # Update entity's fields dict
-        entity.fields[field_id_obj] = updated_field
+        # Update entity's field via aggregate method
+        entity.update_field(field_id_obj, updated_field)
 
         # Save updated entity
         save_result = self._schema_repository.save(entity)
@@ -1244,8 +1244,8 @@ class SchemaUseCases:
         new_output_mappings = field.output_mappings + (output_mapping_dto,)
         updated_field = replace(field, output_mappings=new_output_mappings)
 
-        # Update entity's fields dict
-        entity.fields[field_id_obj] = updated_field
+        # Update entity's field via aggregate method
+        entity.update_field(field_id_obj, updated_field)
 
         # Save updated entity
         save_result = self._schema_repository.save(entity)
@@ -1347,8 +1347,8 @@ class SchemaUseCases:
         # Update field with modified output mappings
         updated_field = replace(field, output_mappings=new_output_mappings)
 
-        # Update entity's fields dict
-        entity.fields[field_id_obj] = updated_field
+        # Update entity's field via aggregate method
+        entity.update_field(field_id_obj, updated_field)
 
         # Save updated entity
         save_result = self._schema_repository.save(entity)
@@ -1428,8 +1428,8 @@ class SchemaUseCases:
         # Update field with modified output mappings
         updated_field = replace(field, output_mappings=tuple(new_mappings))
 
-        # Update entity's fields dict
-        entity.fields[field_id_obj] = updated_field
+        # Update entity's field via aggregate method
+        entity.update_field(field_id_obj, updated_field)
 
         # Save updated entity
         save_result = self._schema_repository.save(entity)

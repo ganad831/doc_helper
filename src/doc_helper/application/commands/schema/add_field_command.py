@@ -137,8 +137,8 @@ class AddFieldCommand:
         except (ValueError, TypeError) as e:
             return Failure(f"Invalid field data: {e}")
 
-        # Add field to entity (mutate fields dict)
-        entity.fields[field_definition_id] = field_def
+        # Add field to entity via aggregate method
+        entity.add_field(field_def)
 
         # Save updated entity through repository
         # Phase 2 Step 2: save() now handles both CREATE and ADD FIELDS scenarios

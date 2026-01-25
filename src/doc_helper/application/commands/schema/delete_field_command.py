@@ -137,8 +137,8 @@ class DeleteFieldCommand:
             return Failure("\n".join(error_lines))
 
         # No dependencies - safe to delete
-        # Remove field from entity's fields dict
-        del entity.fields[field_id_obj]
+        # Remove field from entity via aggregate method
+        entity.remove_field(field_id_obj)
 
         # Save updated entity (field will be removed from database)
         save_result = self._schema_repository.save(entity)
