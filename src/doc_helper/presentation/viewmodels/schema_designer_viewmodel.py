@@ -475,16 +475,6 @@ class SchemaDesignerViewModel(BaseViewModel):
         """
         return len(self._field_options) > 0
 
-    @property
-    def is_selected_field_choice_type(self) -> bool:
-        """Check if selected field is a choice type (DROPDOWN/RADIO) (Phase F-14).
-
-        Returns:
-            True if selected field supports options, False otherwise
-        """
-        field_type = self.selected_field_type
-        return field_type in ("DROPDOWN", "RADIO")
-
     # -------------------------------------------------------------------------
     # Commands (User Actions)
     # -------------------------------------------------------------------------
@@ -1014,27 +1004,6 @@ class SchemaDesignerViewModel(BaseViewModel):
     # -------------------------------------------------------------------------
     # Phase F-9: Preview Mode Commands
     # -------------------------------------------------------------------------
-
-    def toggle_preview_mode(self) -> bool:
-        """Toggle preview mode ON/OFF (Phase F-9).
-
-        Returns:
-            New preview mode state (True = enabled)
-
-        Phase F-9 Compliance:
-            - UI-only toggle, no persistence
-            - Clears preview state when disabled
-        """
-        self._preview_mode_enabled = not self._preview_mode_enabled
-
-        if not self._preview_mode_enabled:
-            # Clear all preview state when disabled
-            self._clear_preview_state()
-
-        self.notify_change("is_preview_mode_enabled")
-        self.notify_change("preview_mode_state")
-
-        return self._preview_mode_enabled
 
     def enable_preview_mode(self) -> None:
         """Enable preview mode (Phase F-9)."""
