@@ -117,6 +117,8 @@
 | Package | Files | Purpose |
 |---------|-------|---------|
 | persistence | sqlite_base.py, sqlite_schema_repository.py | SQLite base implementation |
+
+> **Historical Note (2026-01-25)**: At report time, `sqlite_schema_repository.py` was the legacy repository. As of Phase M-3, the authoritative schema repository is `sqlite/repositories/schema_repository.py`.
 | persistence/sqlite/repositories | schema_repository.py | SqliteSchemaRepository with CREATE operations |
 | document | word_document_adapter.py, excel_document_adapter.py, pdf_document_adapter.py | Document adapters |
 | i18n | json_translation_service.py | i18n implementation |

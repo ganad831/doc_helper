@@ -581,6 +581,42 @@ Each phase requires explicit authorization before implementation.
 
 ---
 
+## 17. SCHEMA REPOSITORY AUTHORITY (PERMANENT GUARDRAIL)
+
+**Established**: Phase M-1 through M-4 (2026-01-25)
+
+### Authoritative Repository (SOLE SOURCE)
+
+```
+src/doc_helper/infrastructure/persistence/sqlite/repositories/schema_repository.py
+```
+
+This is the **ONLY** valid schema repository implementation.
+
+### Forbidden (BLOCKING VIOLATION)
+
+- `sqlite_schema_repository.py` — **REMOVED IN PHASE M-4**
+- Any file named `sqlite_schema_repository.py` anywhere in the codebase
+- Any import from `doc_helper.infrastructure.persistence.sqlite_schema_repository`
+- Any compatibility layer, alias, or re-export of the legacy repository
+- Any migration logic between repositories
+
+### Enforcement
+
+- **Test Guardrail**: `tests/architecture/test_schema_repository_guardrail.py`
+- Reintroduction of the legacy repository will cause immediate test failure
+- This is a **blocking architectural violation** — do not bypass
+
+### If You See This Violation
+
+1. **STOP** — do not proceed
+2. **DELETE** the offending file or import
+3. **USE** the authoritative repository path only
+
+No exceptions. No compatibility layers. No fallbacks.
+
+---
+
 ## FINAL NOTE
 
 This document exists to **prevent architectural drift**.

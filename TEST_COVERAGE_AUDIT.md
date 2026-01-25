@@ -3,6 +3,8 @@
 **Date**: 2026-01-23
 **Trigger**: Runtime TypeError revealed missing abstract method implementations in `SqliteSchemaRepository`
 
+> **Historical Note (2026-01-25)**: This audit was conducted before Phase M-3 repository consolidation. At audit time, two `SqliteSchemaRepository` implementations existed. As of Phase M-3, `sqlite/repositories/schema_repository.py` is the sole authoritative repository and `sqlite_schema_repository.py` is deprecated.
+
 ---
 
 ## 1. AppTypes vs Test Coverage
@@ -144,6 +146,8 @@ The runtime failure occurred because:
 ### Duplicate Repository Files (Technical Debt)
 - `src/doc_helper/infrastructure/persistence/sqlite_schema_repository.py` ← **Production import**
 - `src/doc_helper/infrastructure/persistence/sqlite/repositories/schema_repository.py` ← **Tested file**
+
+> **Historical Note (2026-01-25)**: This duplication was resolved in Phase M-3. The authoritative repository is now `sqlite/repositories/schema_repository.py`. All production code imports from this location. The legacy file `sqlite_schema_repository.py` is deprecated.
 
 ### Key Test Files
 - `tests/integration/platform/test_multi_apptype_discovery.py` (AppType instantiation)

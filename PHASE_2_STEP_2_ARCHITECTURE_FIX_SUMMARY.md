@@ -1,5 +1,7 @@
 # Phase 2 Step 2 - Architecture Fix Summary
 
+> **Historical Note (2026-01-25)**: This summary documents work on `sqlite/repositories/schema_repository.py`, which is now the sole authoritative schema repository as of Phase M-3. References to `SqliteSchemaRepository` in this document refer to this authoritative implementation.
+
 ## Issue Identified
 
 The `SqliteSchemaRepository` created in Phase 2 Step 2 was using an incorrect database connection API:

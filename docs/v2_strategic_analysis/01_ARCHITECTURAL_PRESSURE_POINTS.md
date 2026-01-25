@@ -17,7 +17,9 @@ This analysis identifies architectural "pressure points" - areas in the v1 imple
 
 ### 1.1 Hardcoded App Type Path (LOW PRESSURE)
 
-**Location**: [infrastructure/persistence/sqlite_schema_repository.py](../../src/doc_helper/infrastructure/persistence/sqlite_schema_repository.py)
+**Location**: [infrastructure/persistence/sqlite/repositories/schema_repository.py](../../src/doc_helper/infrastructure/persistence/sqlite/repositories/schema_repository.py)
+
+> **Historical Note (2026-01-25)**: This analysis originally referenced `sqlite_schema_repository.py`. As of Phase M-3, the authoritative schema repository is `sqlite/repositories/schema_repository.py`. The legacy file is deprecated.
 
 **Current State**: Schema loads from `app_types/soil_investigation/config.db` via hardcoded path.
 

@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from doc_helper.app_types.contracts.app_type_metadata import AppTypeMetadata
 from doc_helper.app_types.contracts.i_app_type import IAppType
 from doc_helper.domain.schema.schema_repository import ISchemaRepository
-from doc_helper.infrastructure.persistence.sqlite_schema_repository import (
+from doc_helper.infrastructure.persistence.sqlite.repositories.schema_repository import (
     SqliteSchemaRepository,
 )
 

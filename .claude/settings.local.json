@@ -7,7 +7,8 @@
       "Bash(pytest:*)",
       "Bash(git status:*)",
       "Bash(git diff:*)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(del \"d:\\\\Local Drive\\\\Coding\\\\doc_helper\\\\tests\\\\integration\\\\infrastructure\\\\persistence\\\\test_sqlite_schema_repository.py\")"
     ]
   }
 }

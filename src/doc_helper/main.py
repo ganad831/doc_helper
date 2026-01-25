@@ -115,7 +115,7 @@ from doc_helper.infrastructure.document.word_document_adapter import (
 from doc_helper.infrastructure.persistence.sqlite_project_repository import (
     SqliteProjectRepository,
 )
-from doc_helper.infrastructure.persistence.sqlite_schema_repository import (
+from doc_helper.infrastructure.persistence.sqlite.repositories.schema_repository import (
     SqliteSchemaRepository,
 )
 from doc_helper.presentation.viewmodels.project_viewmodel import ProjectViewModel

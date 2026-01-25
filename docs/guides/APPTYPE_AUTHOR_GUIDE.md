@@ -700,6 +700,9 @@ Example test structure:
 
 ```python
 # tests/integration/apptypes/test_my_custom_app.py
+from doc_helper.infrastructure.persistence.sqlite.repositories.schema_repository import (
+    SqliteSchemaRepository,
+)
 
 def test_my_custom_app_discovery():
     """Test: my_custom_app is discovered and registered."""
