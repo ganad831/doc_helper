@@ -136,20 +136,20 @@ from doc_helper.presentation.widgets.formula_editor_widget import FormulaEditorW
 class _CloseEventFilter(QObject):
     """Event filter to intercept dialog close events.
 
-    Phase 5 Step 3: Used to warn about unsaved changes when closing.
+    Phase 5 Step 3: Used to confirm close of Schema Designer.
     """
 
     def __init__(self, view: "SchemaDesignerView") -> None:
         """Initialize the event filter.
 
         Args:
-            view: The SchemaDesignerView to check for unsaved changes
+            view: The SchemaDesignerView to confirm close
         """
         super().__init__()
         self._view = view
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
-        """Filter close events to warn about unsaved changes.
+        """Filter close events to confirm close.
 
         Args:
             obj: Object that received the event
@@ -159,7 +159,7 @@ class _CloseEventFilter(QObject):
             True to filter the event (stop it), False to let it through
         """
         if event.type() == QEvent.Type.Close:
-            if not self._view._confirm_close_if_unsaved():
+            if not self._view._confirm_close():
                 event.ignore()
                 return True  # Block the close
 
@@ -1116,34 +1116,36 @@ class SchemaDesignerView(BaseView):
     def _on_close_requested(self) -> None:
         """Handle close button click.
 
-        Phase 5 Step 3: Warn if there are unsaved changes before closing.
+        Phase 5 Step 3: Confirm close. No save/discard logic needed
+        since changes are applied immediately via commands.
         """
-        if self._confirm_close_if_unsaved():
+        if self._confirm_close():
             self._root.close()
 
-    def _confirm_close_if_unsaved(self) -> bool:
-        """Check for unsaved changes and confirm close if needed.
+    def _confirm_close(self) -> bool:
+        """Confirm close of Schema Designer.
 
-        Phase 5 Step 3: UX warning only, does not prevent closing.
+        Phase 5 Step 3: Simple close confirmation. Changes are applied
+        immediately via commands, so no save/discard logic needed.
 
         Returns:
-            True if user confirms close or no unsaved changes, False to cancel
+            True if user confirms close or no changes made, False to cancel
         """
+        # If no changes were made this session, close immediately
         if not self._has_unsaved_changes:
             return True
 
-        result = QMessageBox.warning(
+        # Inform user that changes were applied and confirm close
+        result = QMessageBox.information(
             self._root,
-            "Unsaved Changes",
-            "You have unsaved changes.\n\n"
-            "Changes made in Schema Designer are not automatically saved. "
-            "If you close now, your changes will be lost.\n\n"
-            "Do you want to close anyway?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
+            "Close Schema Designer",
+            "All changes have been applied to the schema.\n\n"
+            "Close Schema Designer?",
+            QMessageBox.StandardButton.Close | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Close,
         )
 
-        return result == QMessageBox.StandardButton.Yes
+        return result == QMessageBox.StandardButton.Close
 
     # -------------------------------------------------------------------------
     # Event Handlers (User Interactions)
