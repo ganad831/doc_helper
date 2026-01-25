@@ -210,6 +210,125 @@ After implementation, the agent MUST:
 - Provide a compliance checklist
 - Confirm no v2 features were introduced
 
+### 13.1 Bug-Fix Protocol: "Not Saved" Bugs
+
+Any bug where data is "not saved" or "not persisted" MUST be investigated and proven fixed at the **persistence layer** BEFORE any UI or query changes are allowed.
+
+**Required order of investigation**:
+1. Repository implementation (Infrastructure layer)
+2. Command/Use case (Application layer)
+3. ViewModel (Presentation layer)
+4. View/UI (Presentation layer)
+
+**Rationale**: UI and query changes can mask persistence bugs without fixing them. The root cause must be addressed first.
+
+**Evidence required**: Test or log demonstrating data reaches the database before any presentation-layer fix is considered.
+
+### 13.2 PERSISTENCE-FIRST DEBUG MODE (NON-NEGOTIABLE)
+
+When investigating "changes not saved" or "state lost after reload" symptoms, the agent operates in **STRICT DEBUG MODE**.
+
+This is NOT a UI task.
+This is NOT a ViewModel refresh task.
+This is NOT a query/display task.
+This is a **PERSISTENCE INTEGRITY INVESTIGATION**.
+
+#### Core Rule (Absolute)
+
+**NO UI, QUERY, VIEWMODEL, OR DISPLAY CHANGES ARE ALLOWED** until persistence correctness is proven.
+
+If this rule is violated, **STOP immediately**.
+
+#### Mandatory Debug Order (DO NOT REORDER)
+
+**STEP 1 — IDENTIFY AUTHORITATIVE STORAGE**
+
+Answer explicitly:
+- Where is this piece of data supposed to live?
+- Which table?
+- Which column?
+- Which repository method?
+- Is it stored directly or derived?
+
+❌ Do NOT guess
+❌ Do NOT infer from UI behavior
+
+**STEP 2 — TRACE WRITE PATH**
+
+Trace the exact write flow:
+```
+UI → ViewModel → UseCase → Command → Repository → Database
+```
+
+For each hop:
+- State whether the value is passed
+- State whether it is mutated
+- State whether it is persisted
+
+If at any point the value disappears:
+👉 **STOP — THIS IS THE BUG**
+
+**STEP 3 — VERIFY DATABASE WRITE**
+
+Confirm one of the following:
+- The value IS written to disk
+- OR the code path responsible for writing it does not exist
+
+If no write exists: This is the root cause. No other fixes are allowed yet.
+
+**STEP 4 — VERIFY READ AFTER WRITE**
+
+Only after persistence is fixed:
+- Reload entity from repository
+- Confirm value is present
+- Confirm no reconstruction logic drops it
+
+**STEP 5 — ONLY THEN CHECK UI / QUERY**
+
+Only after Steps 1–4 are correct may you:
+- Check queries
+- Check ViewModel refresh
+- Check UI display
+
+**If persistence is broken, UI work is forbidden.**
+
+#### Explicitly Forbidden Actions
+
+You MUST NOT:
+- Patch query methods to "include missing data"
+- Add UI refresh hacks (notify_change, forced reloads)
+- Add fake derived values to mask missing persistence
+- Change dialog wording to hide the issue
+- Introduce "temporary fixes"
+- Say "the UI didn't refresh" without proving persistence first
+
+#### Stop Conditions
+
+You MUST STOP immediately if:
+- Persistence is missing or incomplete
+- Required data is stored in a different table than assumed
+- A repository method does not handle the field
+- A write method updates only part of the aggregate
+
+At STOP:
+- Report the exact missing persistence logic
+- Do NOT propose UI changes
+
+#### Required Output Format
+
+When reporting persistence bugs, respond with ONLY:
+
+1. **Where the data should be persisted** (table / column / repository)
+2. **Whether it is currently persisted** (YES / NO)
+3. **Exact missing or broken persistence logic** (file + method)
+4. **Minimal fix required** (repository-level only)
+
+No UI suggestions. No ViewModel changes. No speculative commentary.
+
+#### Final Rule
+
+**If you cannot prove persistence correctness, you are not allowed to touch any other layer.**
+
 ---
 
 ## 14. ARCHITECTURE FREEZE STATUS
