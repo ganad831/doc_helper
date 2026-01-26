@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 
 from doc_helper.application.dto.operation_result import OperationResult
 from doc_helper.application.dto.schema_dto import EntityDefinitionDTO, FieldDefinitionDTO
+from doc_helper.application.dto.export_dto import ConstraintExportDTO
 from doc_helper.application.usecases.schema_usecases import SchemaUseCases
 from doc_helper.presentation.viewmodels.schema_designer_viewmodel import (
     SchemaDesignerViewModel,
@@ -604,6 +605,131 @@ class TestSchemaDesignerViewModelAdvancedConstraints:
             allowed_extensions=None,
             max_size_bytes=10485760,
         )
+
+
+class TestConstraintUniquenessEnforcement:
+    """Regression tests for constraint uniqueness invariant.
+
+    BUG: The system allowed adding multiple constraints of the same type to a single field.
+    Example: A field could have two RequiredConstraint or two MinLengthConstraint.
+
+    FIX: SchemaUseCases.add_constraint now checks existing constraints and blocks duplicates.
+    ViewModel delegates to UseCases and displays errors verbatim.
+
+    INVARIANT: Each constraint type may exist at most once per field.
+    Enforced at: Application Layer (SchemaUseCases), NOT ViewModel.
+    """
+
+    @pytest.fixture
+    def mock_schema_usecases(self) -> MagicMock:
+        """Create mock SchemaUseCases."""
+        usecases = MagicMock(spec=SchemaUseCases)
+        usecases.get_all_entities.return_value = ()
+        usecases.get_all_relationships.return_value = ()
+        usecases.get_field_validation_rules.return_value = ()
+        usecases.get_entity_list_for_selection.return_value = ()
+        usecases.list_control_rules_for_field.return_value = ()
+        usecases.list_output_mappings_for_field.return_value = ()
+        usecases.list_field_options.return_value = ()
+        return usecases
+
+    @pytest.fixture
+    def viewmodel(
+        self,
+        mock_schema_usecases: MagicMock,
+    ) -> SchemaDesignerViewModel:
+        """Create viewmodel with SchemaUseCases dependency."""
+        return SchemaDesignerViewModel(
+            schema_usecases=mock_schema_usecases,
+        )
+
+    def test_adding_duplicate_constraint_type_is_blocked(
+        self,
+        viewmodel: SchemaDesignerViewModel,
+        mock_schema_usecases: MagicMock,
+    ) -> None:
+        """REGRESSION TEST: Adding same constraint type twice must be blocked.
+
+        Uniqueness is enforced by SchemaUseCases (Application Layer).
+        ViewModel delegates and returns the error verbatim.
+        """
+        # Setup: SchemaUseCases returns failure for duplicate constraint
+        mock_schema_usecases.add_constraint.return_value = OperationResult.fail(
+            "A MIN_LENGTH constraint already exists for this field. "
+            "Each constraint type may only appear once per field. "
+            "Delete the existing constraint first if you want to change its value."
+        )
+
+        # ACT: Try to add a MIN_LENGTH constraint (UseCases will reject it)
+        result = viewmodel.add_constraint(
+            entity_id="test_entity",
+            field_id="test_field",
+            constraint_type="MIN_LENGTH",
+            value=10,
+            severity="ERROR",
+        )
+
+        # ASSERT: Operation must fail (error from UseCases passed through)
+        assert result.success is False
+        assert "MIN_LENGTH constraint already exists" in result.error
+
+        # ViewModel DID call UseCases (it delegates, doesn't check itself)
+        mock_schema_usecases.add_constraint.assert_called_once()
+
+    def test_adding_different_constraint_types_is_allowed(
+        self,
+        viewmodel: SchemaDesignerViewModel,
+        mock_schema_usecases: MagicMock,
+    ) -> None:
+        """Adding different constraint types to same field should work.
+
+        ViewModel delegates to UseCases. If UseCases accepts, ViewModel succeeds.
+        """
+        # Setup: UseCases accepts the constraint
+        mock_schema_usecases.add_constraint.return_value = OperationResult.ok(
+            "test_field"
+        )
+
+        # ACT: Add a MAX_LENGTH constraint
+        result = viewmodel.add_constraint(
+            entity_id="test_entity",
+            field_id="test_field",
+            constraint_type="MAX_LENGTH",
+            value=100,
+            severity="ERROR",
+        )
+
+        # ASSERT: Operation succeeds (UseCases accepted it)
+        assert result.success is True
+
+        # ViewModel MUST delegate to UseCases
+        mock_schema_usecases.add_constraint.assert_called_once()
+
+    def test_adding_constraint_to_field_with_no_existing_constraints(
+        self,
+        viewmodel: SchemaDesignerViewModel,
+        mock_schema_usecases: MagicMock,
+    ) -> None:
+        """Adding first constraint to a field should work.
+
+        ViewModel delegates to UseCases. If UseCases accepts, ViewModel succeeds.
+        """
+        # Setup: UseCases accepts the constraint
+        mock_schema_usecases.add_constraint.return_value = OperationResult.ok(
+            "test_field"
+        )
+
+        # ACT: Add a REQUIRED constraint
+        result = viewmodel.add_constraint(
+            entity_id="test_entity",
+            field_id="test_field",
+            constraint_type="REQUIRED",
+            severity="ERROR",
+        )
+
+        # ASSERT: Operation succeeds
+        assert result.success is True
+        mock_schema_usecases.add_constraint.assert_called_once()
 
 
 class TestSchemaDesignerViewModelUIStateSync:

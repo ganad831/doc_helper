@@ -1020,8 +1020,11 @@ class SchemaDesignerViewModel(BaseViewModel):
     ) -> OperationResult:
         """Add a validation constraint to a field (Phase SD-2, SD-6).
 
-        Delegates to SchemaUseCases which handles domain object construction
-        and command execution.
+        Delegates to SchemaUseCases which handles domain object construction,
+        uniqueness enforcement, and command execution.
+
+        UNIQUENESS INVARIANT: Each constraint type may exist at most once per field.
+        Enforced by SchemaUseCases (Application Layer). ViewModel displays errors verbatim.
 
         Args:
             entity_id: Entity containing the field
@@ -1040,6 +1043,7 @@ class SchemaDesignerViewModel(BaseViewModel):
         Returns:
             OperationResult with field ID on success, error message on failure
         """
+        # Delegate to Application Layer (SchemaUseCases enforces uniqueness invariant)
         result = self._schema_usecases.add_constraint(
             entity_id=entity_id,
             field_id=field_id,

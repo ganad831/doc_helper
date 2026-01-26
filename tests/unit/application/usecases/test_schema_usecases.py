@@ -807,6 +807,467 @@ class TestSchemaUseCasesConstraintOperations:
         assert result.success is False
         assert "size" in result.error.lower()
 
+    # =========================================================================
+    # CONSTRAINT UNIQUENESS ENFORCEMENT (Phase S-3)
+    # =========================================================================
+
+    @pytest.fixture
+    def mock_entity_with_min_length_constraint(self) -> Mock:
+        """Create a mock entity with a field that already has a MIN_LENGTH constraint."""
+        from doc_helper.domain.schema.entity_definition import EntityDefinition
+        from doc_helper.domain.schema.field_definition import FieldDefinition
+        from doc_helper.domain.schema.field_type import FieldType
+        from doc_helper.domain.common.i18n import TranslationKey
+        from doc_helper.domain.validation.constraints import MinLengthConstraint
+
+        # Field with existing MIN_LENGTH constraint
+        field = FieldDefinition(
+            id=FieldDefinitionId("text_field"),
+            field_type=FieldType.TEXT,
+            label_key=TranslationKey("field.text"),
+            required=False,
+            constraints=(MinLengthConstraint(min_length=5),),  # Already has MIN_LENGTH
+        )
+
+        entity = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            description_key=None,
+            fields={field.id: field},
+            is_root_entity=False,
+            parent_entity_id=None,
+        )
+        return entity
+
+    def test_add_constraint_blocks_duplicate_type_different_value(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_min_length_constraint: Mock,
+    ) -> None:
+        """Should BLOCK adding a constraint of the same TYPE even with different value.
+
+        UNIQUENESS INVARIANT: Each constraint type may exist at most once per field.
+        This is the canonical test for constraint type uniqueness at the Application Layer.
+        """
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(
+            mock_entity_with_min_length_constraint
+        )
+
+        # Try to add MIN_LENGTH with a DIFFERENT value (10 instead of 5)
+        # This should be BLOCKED because MIN_LENGTH already exists
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="text_field",
+            constraint_type="MIN_LENGTH",
+            value=10,  # Different from existing value of 5
+            severity="ERROR",
+        )
+
+        # Assert: MUST be blocked
+        assert result.success is False
+        assert "already exists" in result.error.lower()
+        assert "min_length" in result.error.lower()
+
+        # Verify save was NOT called (constraint was blocked before reaching command)
+        mock_schema_repository.save.assert_not_called()
+
+    def test_add_constraint_allows_different_constraint_type(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_min_length_constraint: Mock,
+    ) -> None:
+        """Should ALLOW adding a DIFFERENT constraint type.
+
+        Having MIN_LENGTH should not block adding MAX_LENGTH.
+        """
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(
+            mock_entity_with_min_length_constraint
+        )
+        mock_schema_repository.save.return_value = Success(None)
+
+        # Add MAX_LENGTH - different type than existing MIN_LENGTH
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="text_field",
+            constraint_type="MAX_LENGTH",
+            value=100,
+            severity="ERROR",
+        )
+
+        # Assert: Should succeed
+        assert result.success is True
+
+    # =========================================================================
+    # SEMANTIC CROSS-CONSTRAINT VALIDATION (Phase S-3)
+    # =========================================================================
+
+    @pytest.fixture
+    def mock_entity_with_max_value_constraint(self) -> Mock:
+        """Create a mock entity with a NUMBER field that has a MAX_VALUE constraint."""
+        from doc_helper.domain.schema.entity_definition import EntityDefinition
+        from doc_helper.domain.schema.field_definition import FieldDefinition
+        from doc_helper.domain.schema.field_type import FieldType
+        from doc_helper.domain.common.i18n import TranslationKey
+        from doc_helper.domain.validation.constraints import MaxValueConstraint
+
+        field = FieldDefinition(
+            id=FieldDefinitionId("number_field"),
+            field_type=FieldType.NUMBER,
+            label_key=TranslationKey("field.number"),
+            required=False,
+            constraints=(MaxValueConstraint(max_value=100.0),),
+        )
+
+        entity = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            description_key=None,
+            fields={field.id: field},
+            is_root_entity=False,
+            parent_entity_id=None,
+        )
+        return entity
+
+    @pytest.fixture
+    def mock_entity_with_min_value_constraint(self) -> Mock:
+        """Create a mock entity with a NUMBER field that has a MIN_VALUE constraint."""
+        from doc_helper.domain.schema.entity_definition import EntityDefinition
+        from doc_helper.domain.schema.field_definition import FieldDefinition
+        from doc_helper.domain.schema.field_type import FieldType
+        from doc_helper.domain.common.i18n import TranslationKey
+        from doc_helper.domain.validation.constraints import MinValueConstraint
+
+        field = FieldDefinition(
+            id=FieldDefinitionId("number_field"),
+            field_type=FieldType.NUMBER,
+            label_key=TranslationKey("field.number"),
+            required=False,
+            constraints=(MinValueConstraint(min_value=50.0),),
+        )
+
+        entity = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            description_key=None,
+            fields={field.id: field},
+            is_root_entity=False,
+            parent_entity_id=None,
+        )
+        return entity
+
+    @pytest.fixture
+    def mock_entity_with_max_length_constraint(self) -> Mock:
+        """Create a mock entity with a TEXT field that has a MAX_LENGTH constraint."""
+        from doc_helper.domain.schema.entity_definition import EntityDefinition
+        from doc_helper.domain.schema.field_definition import FieldDefinition
+        from doc_helper.domain.schema.field_type import FieldType
+        from doc_helper.domain.common.i18n import TranslationKey
+        from doc_helper.domain.validation.constraints import MaxLengthConstraint
+
+        field = FieldDefinition(
+            id=FieldDefinitionId("text_field"),
+            field_type=FieldType.TEXT,
+            label_key=TranslationKey("field.text"),
+            required=False,
+            constraints=(MaxLengthConstraint(max_length=50),),
+        )
+
+        entity = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            description_key=None,
+            fields={field.id: field},
+            is_root_entity=False,
+            parent_entity_id=None,
+        )
+        return entity
+
+    @pytest.fixture
+    def mock_entity_with_number_field_no_constraints(self) -> Mock:
+        """Create a mock entity with a NUMBER field with no constraints."""
+        from doc_helper.domain.schema.entity_definition import EntityDefinition
+        from doc_helper.domain.schema.field_definition import FieldDefinition
+        from doc_helper.domain.schema.field_type import FieldType
+        from doc_helper.domain.common.i18n import TranslationKey
+
+        field = FieldDefinition(
+            id=FieldDefinitionId("number_field"),
+            field_type=FieldType.NUMBER,
+            label_key=TranslationKey("field.number"),
+            required=False,
+            constraints=(),
+        )
+
+        entity = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            description_key=None,
+            fields={field.id: field},
+            is_root_entity=False,
+            parent_entity_id=None,
+        )
+        return entity
+
+    def test_reject_min_value_greater_than_existing_max_value(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_max_value_constraint: Mock,
+    ) -> None:
+        """Should REJECT adding MIN_VALUE > existing MAX_VALUE.
+
+        SEMANTIC INVARIANT: min_value <= max_value
+        """
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(
+            mock_entity_with_max_value_constraint
+        )
+
+        # Try to add MIN_VALUE=150 when MAX_VALUE=100 exists
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="number_field",
+            constraint_type="MIN_VALUE",
+            value=150,  # Greater than existing MAX_VALUE of 100
+            severity="ERROR",
+        )
+
+        assert result.success is False
+        assert "MIN_VALUE" in result.error
+        assert "MAX_VALUE" in result.error
+        assert "150" in result.error
+        assert "100" in result.error
+        mock_schema_repository.save.assert_not_called()
+
+    def test_reject_max_value_less_than_existing_min_value(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_min_value_constraint: Mock,
+    ) -> None:
+        """Should REJECT adding MAX_VALUE < existing MIN_VALUE.
+
+        SEMANTIC INVARIANT: min_value <= max_value
+        """
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(
+            mock_entity_with_min_value_constraint
+        )
+
+        # Try to add MAX_VALUE=30 when MIN_VALUE=50 exists
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="number_field",
+            constraint_type="MAX_VALUE",
+            value=30,  # Less than existing MIN_VALUE of 50
+            severity="ERROR",
+        )
+
+        assert result.success is False
+        assert "MIN_VALUE" in result.error
+        assert "MAX_VALUE" in result.error
+        assert "50" in result.error
+        assert "30" in result.error
+        mock_schema_repository.save.assert_not_called()
+
+    def test_reject_min_length_greater_than_existing_max_length(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_max_length_constraint: Mock,
+    ) -> None:
+        """Should REJECT adding MIN_LENGTH > existing MAX_LENGTH.
+
+        SEMANTIC INVARIANT: min_length <= max_length
+        """
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(
+            mock_entity_with_max_length_constraint
+        )
+
+        # Try to add MIN_LENGTH=100 when MAX_LENGTH=50 exists
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="text_field",
+            constraint_type="MIN_LENGTH",
+            value=100,  # Greater than existing MAX_LENGTH of 50
+            severity="ERROR",
+        )
+
+        assert result.success is False
+        assert "MIN_LENGTH" in result.error
+        assert "MAX_LENGTH" in result.error
+        assert "100" in result.error
+        assert "50" in result.error
+        mock_schema_repository.save.assert_not_called()
+
+    def test_reject_max_length_less_than_existing_min_length(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_min_length_constraint: Mock,
+    ) -> None:
+        """Should REJECT adding MAX_LENGTH < existing MIN_LENGTH.
+
+        SEMANTIC INVARIANT: min_length <= max_length
+        """
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(
+            mock_entity_with_min_length_constraint
+        )
+
+        # Try to add MAX_LENGTH=3 when MIN_LENGTH=5 exists
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="text_field",
+            constraint_type="MAX_LENGTH",
+            value=3,  # Less than existing MIN_LENGTH of 5
+            severity="ERROR",
+        )
+
+        assert result.success is False
+        assert "MIN_LENGTH" in result.error
+        assert "MAX_LENGTH" in result.error
+        assert "5" in result.error
+        assert "3" in result.error
+        mock_schema_repository.save.assert_not_called()
+
+    def test_reject_numeric_constraint_on_text_field(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_field: Mock,
+    ) -> None:
+        """Should REJECT adding MIN_VALUE/MAX_VALUE to TEXT field.
+
+        FIELD TYPE COMPATIBILITY: Numeric constraints only on NUMBER/DATE fields.
+        """
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity_with_field)
+
+        # mock_entity_with_field has a TEXT field
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="test_field",
+            constraint_type="MIN_VALUE",
+            value=10,
+            severity="ERROR",
+        )
+
+        assert result.success is False
+        assert "MIN_VALUE" in result.error
+        assert "NUMBER" in result.error or "TEXT" in result.error
+        mock_schema_repository.save.assert_not_called()
+
+    def test_reject_text_constraint_on_number_field(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_number_field_no_constraints: Mock,
+    ) -> None:
+        """Should REJECT adding MIN_LENGTH/MAX_LENGTH to NUMBER field.
+
+        FIELD TYPE COMPATIBILITY: Text length constraints only on TEXT/TEXTAREA fields.
+        """
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(
+            mock_entity_with_number_field_no_constraints
+        )
+
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="number_field",
+            constraint_type="MIN_LENGTH",
+            value=5,
+            severity="ERROR",
+        )
+
+        assert result.success is False
+        assert "MIN_LENGTH" in result.error
+        assert "TEXT" in result.error or "NUMBER" in result.error
+        mock_schema_repository.save.assert_not_called()
+
+    def test_allow_valid_min_max_value_combination(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_min_value_constraint: Mock,
+    ) -> None:
+        """Should ALLOW adding MAX_VALUE >= existing MIN_VALUE.
+
+        Valid: MIN_VALUE=50, MAX_VALUE=100
+        """
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(
+            mock_entity_with_min_value_constraint
+        )
+        mock_schema_repository.save.return_value = Success(None)
+
+        # Add MAX_VALUE=100 when MIN_VALUE=50 exists (valid: 50 <= 100)
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="number_field",
+            constraint_type="MAX_VALUE",
+            value=100,
+            severity="ERROR",
+        )
+
+        assert result.success is True
+
+    def test_allow_single_min_value_without_max_value(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_number_field_no_constraints: Mock,
+    ) -> None:
+        """Should ALLOW adding MIN_VALUE when no MAX_VALUE exists."""
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(
+            mock_entity_with_number_field_no_constraints
+        )
+        mock_schema_repository.save.return_value = Success(None)
+
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="number_field",
+            constraint_type="MIN_VALUE",
+            value=10,
+            severity="ERROR",
+        )
+
+        assert result.success is True
+
+    def test_allow_equal_min_max_value(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_entity_with_min_value_constraint: Mock,
+    ) -> None:
+        """Should ALLOW adding MAX_VALUE == existing MIN_VALUE (edge case).
+
+        Valid: MIN_VALUE=50, MAX_VALUE=50 (forces exact value)
+        """
+        mock_schema_repository.exists.return_value = True
+        mock_schema_repository.get_by_id.return_value = Success(
+            mock_entity_with_min_value_constraint
+        )
+        mock_schema_repository.save.return_value = Success(None)
+
+        # Add MAX_VALUE=50 when MIN_VALUE=50 exists (valid: 50 <= 50)
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="number_field",
+            constraint_type="MAX_VALUE",
+            value=50,  # Equal to existing MIN_VALUE
+            severity="ERROR",
+        )
+
+        assert result.success is True
+
 
 class TestSchemaUseCasesOutputMappingOperations:
     """Tests for output mapping CRUD operations in SchemaUseCases (Phase F-12.5)."""

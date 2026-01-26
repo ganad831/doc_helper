@@ -700,6 +700,107 @@ class SchemaUseCases:
         except ValueError as e:
             return OperationResult.fail(f"Invalid constraint value: {e}")
 
+        # =====================================================================
+        # SINGLE ENTITY LOAD: All validation derives from ONE entity snapshot
+        # Invariant: One usecase execution = one entity snapshot
+        # =====================================================================
+        from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
+
+        entity_id_obj = EntityDefinitionId(entity_id.strip())
+        load_result = self._schema_repository.get_by_id(entity_id_obj)
+        if load_result.is_failure():
+            return OperationResult.fail(f"Entity '{entity_id}' not found")
+
+        entity = load_result.value
+        field_id_obj = FieldDefinitionId(field_id.strip())
+        if field_id_obj not in entity.fields:
+            return OperationResult.fail(f"Field '{field_id}' not found in entity '{entity_id}'")
+
+        field = entity.fields[field_id_obj]
+        field_type_str = field.field_type.value.lower()
+
+        # DOMAIN SOURCE OF TRUTH: Use field.constraints for all validation
+        # DTOs are presentation-only and forbidden as validation sources
+        domain_constraints = field.constraints
+
+        # =====================================================================
+        # UNIQUENESS INVARIANT: Each constraint type may exist at most once per field.
+        # Check BEFORE executing the command to prevent duplicates.
+        # =====================================================================
+        constraint_class_name = type(constraint).__name__
+        for existing in domain_constraints:
+            if type(existing).__name__ == constraint_class_name:
+                return OperationResult.fail(
+                    f"A {constraint_type_upper} constraint already exists for this field. "
+                    "Each constraint type may only appear once per field. "
+                    "Delete the existing constraint first if you want to change its value."
+                )
+
+        # =====================================================================
+        # FIELD TYPE COMPATIBILITY: Constraint must be valid for field type
+        # =====================================================================
+        if constraint_type_upper in ("MIN_VALUE", "MAX_VALUE"):
+            # Numeric constraints only allowed on NUMBER or DATE fields.
+            # Note: DATE is treated as numeric for MIN_VALUE/MAX_VALUE constraints
+            # (dates are compared as ordinal values).
+            if field_type_str not in ("number", "date"):
+                return OperationResult.fail(
+                    f"{constraint_type_upper} constraint is only valid for NUMBER or DATE fields, "
+                    f"not {field_type_str.upper()} fields."
+                )
+
+        if constraint_type_upper in ("MIN_LENGTH", "MAX_LENGTH"):
+            # Text length constraints only allowed on TEXT or TEXTAREA fields
+            if field_type_str not in ("text", "textarea"):
+                return OperationResult.fail(
+                    f"{constraint_type_upper} constraint is only valid for TEXT or TEXTAREA fields, "
+                    f"not {field_type_str.upper()} fields."
+                )
+
+        # =====================================================================
+        # SEMANTIC CROSS-CONSTRAINT VALIDATION: min <= max invariants
+        # Uses DOMAIN constraints directly (not DTOs)
+        # =====================================================================
+        if constraint_type_upper == "MIN_VALUE":
+            # Check if MAX_VALUE exists and validate min_value <= max_value
+            for existing in domain_constraints:
+                if isinstance(existing, MaxValueConstraint):
+                    existing_max = existing.max_value
+                    if value is not None and value > existing_max:
+                        return OperationResult.fail(
+                            f"MIN_VALUE ({value}) must be less than or equal to MAX_VALUE ({existing_max})."
+                        )
+
+        if constraint_type_upper == "MAX_VALUE":
+            # Check if MIN_VALUE exists and validate min_value <= max_value
+            for existing in domain_constraints:
+                if isinstance(existing, MinValueConstraint):
+                    existing_min = existing.min_value
+                    if value is not None and existing_min > value:
+                        return OperationResult.fail(
+                            f"MIN_VALUE ({existing_min}) must be less than or equal to MAX_VALUE ({value})."
+                        )
+
+        if constraint_type_upper == "MIN_LENGTH":
+            # Check if MAX_LENGTH exists and validate min_length <= max_length
+            for existing in domain_constraints:
+                if isinstance(existing, MaxLengthConstraint):
+                    existing_max = existing.max_length
+                    if value is not None and value > existing_max:
+                        return OperationResult.fail(
+                            f"MIN_LENGTH ({int(value)}) must be less than or equal to MAX_LENGTH ({existing_max})."
+                        )
+
+        if constraint_type_upper == "MAX_LENGTH":
+            # Check if MIN_LENGTH exists and validate min_length <= max_length
+            for existing in domain_constraints:
+                if isinstance(existing, MinLengthConstraint):
+                    existing_min = existing.min_length
+                    if value is not None and existing_min > value:
+                        return OperationResult.fail(
+                            f"MIN_LENGTH ({existing_min}) must be less than or equal to MAX_LENGTH ({int(value)})."
+                        )
+
         # Execute command
         result = self._add_constraint_command.execute(
             entity_id=entity_id,
