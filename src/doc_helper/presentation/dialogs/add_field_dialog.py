@@ -142,6 +142,9 @@ class AddFieldDialog(QDialog):
         )
         form.addRow("Required:", self._required_checkbox)
 
+        # INVARIANT: CALCULATED fields cannot be required - update checkbox on type change
+        self._field_type_combo.currentTextChanged.connect(self._on_field_type_changed)
+
         # Default Value
         self._default_value_input = QLineEdit()
         self._default_value_input.setPlaceholderText("Optional default value")
@@ -172,6 +175,26 @@ class AddFieldDialog(QDialog):
         button_layout.addWidget(add_button)
 
         layout.addLayout(button_layout)
+
+    def _on_field_type_changed(self, field_type: str) -> None:
+        """Handle field type change - disable Required for CALCULATED fields.
+
+        INVARIANT: CALCULATED fields cannot be required because they derive
+        their values from formulas, not user input.
+        """
+        if field_type.upper() == "CALCULATED":
+            self._required_checkbox.setChecked(False)
+            self._required_checkbox.setEnabled(False)
+            self._required_checkbox.setToolTip(
+                "CALCULATED fields cannot be required. "
+                "They derive their values from formulas."
+            )
+        else:
+            self._required_checkbox.setEnabled(True)
+            self._required_checkbox.setToolTip(
+                "If checked, this field must have a value.\n"
+                "Empty values will trigger a validation error."
+            )
 
     def _on_add_clicked(self) -> None:
         """Handle add button click."""

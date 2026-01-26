@@ -426,13 +426,24 @@ class SqliteSchemaRepository(ISchemaRepository):
                 # Load constraints from validation_rules table
                 constraints = self._load_constraints(cursor, field_id)
 
+                # =====================================================================
+                # CALCULATED FIELD INVARIANT (READ-PATH SAFETY NET):
+                # CALCULATED fields NEVER have constraints. If db is dirty, force
+                # constraints=() and required=False. This is a defensive measure.
+                # =====================================================================
+                if field_type == FieldType.CALCULATED:
+                    constraints = ()
+                    required_flag = False
+                else:
+                    required_flag = bool(row[4])
+
                 # Create FieldDefinition
                 field_def = FieldDefinition(
                     id=field_id,
                     field_type=field_type,
                     label_key=TranslationKey(row[2]),
                     help_text_key=TranslationKey(row[3]) if row[3] else None,
-                    required=bool(row[4]),
+                    required=required_flag,
                     default_value=row[5],
                     formula=row[6],
                     lookup_entity_id=row[7],
@@ -902,3 +913,55 @@ class SqliteSchemaRepository(ISchemaRepository):
 
         except sqlite3.Error as e:
             return Failure(f"Failed to delete entity '{entity_id.value}': {e}")
+
+    # -------------------------------------------------------------------------
+    # CALCULATED Field Constraint Cleanup (Invariant Enforcement)
+    # -------------------------------------------------------------------------
+
+    def purge_calculated_field_constraints(self) -> Result[int, str]:
+        """Purge all validation constraints from CALCULATED fields.
+
+        CALCULATED FIELD INVARIANT: CALCULATED fields NEVER have constraints.
+        This method cleans up any corrupted data in the validation_rules table.
+
+        This is a one-time cleanup function that should be called:
+        - On schema database bootstrap/initialization
+        - During migration from older versions
+
+        It is idempotent - safe to run multiple times.
+
+        Returns:
+            Result containing count of deleted constraints or error message.
+        """
+        try:
+            with self._connection as conn:
+                cursor = conn.cursor()
+
+                # Find all CALCULATED fields
+                cursor.execute(
+                    """
+                    SELECT id FROM fields WHERE field_type = 'CALCULATED'
+                    """
+                )
+                calculated_field_ids = [row[0] for row in cursor.fetchall()]
+
+                if not calculated_field_ids:
+                    return Success(0)
+
+                # Delete all validation_rules for CALCULATED fields
+                placeholders = ",".join("?" * len(calculated_field_ids))
+                cursor.execute(
+                    f"""
+                    DELETE FROM validation_rules
+                    WHERE field_id IN ({placeholders})
+                    """,
+                    calculated_field_ids,
+                )
+
+                deleted_count = cursor.rowcount
+                conn.commit()
+
+                return Success(deleted_count)
+
+        except sqlite3.Error as e:
+            return Failure(f"Failed to purge CALCULATED field constraints: {e}")

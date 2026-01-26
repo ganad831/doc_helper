@@ -108,6 +108,14 @@ class FieldDefinition(ValueObject):
         # Formula can be added later via the workflow.
         # Validation for non-empty formula happens at runtime/export time.
 
+        # =====================================================================
+        # CALCULATED FIELD INVARIANT: CALCULATED fields are NEVER required.
+        # They derive their values from formulas, not user input.
+        # Force required=False regardless of what was passed.
+        # =====================================================================
+        if self.field_type == FieldType.CALCULATED:
+            object.__setattr__(self, 'required', False)
+
         if self.field_type == FieldType.LOOKUP:
             if not self.lookup_entity_id:
                 raise ValueError("LOOKUP field must have lookup_entity_id")

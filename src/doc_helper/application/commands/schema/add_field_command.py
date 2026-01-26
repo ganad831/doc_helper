@@ -118,10 +118,18 @@ class AddFieldCommand:
                 f"Invalid field_type '{field_type}'. Valid types: {', '.join(valid_types)}"
             )
 
-        # Build constraints tuple based on field settings
-        constraints: tuple = ()
-        if required:
-            constraints = (RequiredConstraint(),)
+        # =====================================================================
+        # CALCULATED FIELD INVARIANT: CALCULATED fields NEVER have constraints.
+        # Force required=False and constraints=() for CALCULATED fields.
+        # =====================================================================
+        if field_type_enum == FieldType.CALCULATED:
+            required = False
+            constraints = ()
+        else:
+            # Build constraints tuple based on field settings
+            constraints = ()
+            if required:
+                constraints = (RequiredConstraint(),)
 
         # Create FieldDefinition
         try:

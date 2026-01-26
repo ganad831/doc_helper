@@ -204,8 +204,17 @@ class EditFieldDialog(QDialog):
         form.addRow("Help Text Key:", self._help_text_key_input)
 
         # Required
+        # INVARIANT: CALCULATED fields cannot be required - disable checkbox
         self._required_checkbox = QCheckBox("Field is required")
-        self._required_checkbox.setChecked(current_required)
+        if self._field_type.upper() == "CALCULATED":
+            self._required_checkbox.setChecked(False)
+            self._required_checkbox.setEnabled(False)
+            self._required_checkbox.setToolTip(
+                "CALCULATED fields cannot be required. "
+                "They derive their values from formulas."
+            )
+        else:
+            self._required_checkbox.setChecked(current_required)
         form.addRow("Required:", self._required_checkbox)
 
         # Default Value

@@ -419,6 +419,24 @@ class SchemaUseCases:
             OperationResult with field ID string on success, error message on failure.
             Note: Field type is immutable and cannot be changed.
         """
+        # =====================================================================
+        # CALCULATED FIELD INVARIANT: Block required=True for CALCULATED fields
+        # =====================================================================
+        if required is True:
+            from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
+            entity_id_obj = EntityDefinitionId(entity_id.strip())
+            load_result = self._schema_repository.get_by_id(entity_id_obj)
+            if load_result.is_success():
+                entity = load_result.value
+                field_id_obj = FieldDefinitionId(field_id.strip())
+                if field_id_obj in entity.fields:
+                    field = entity.fields[field_id_obj]
+                    if field.field_type.value.lower() == "calculated":
+                        return OperationResult.fail(
+                            "CALCULATED fields cannot be required. "
+                            "They derive their values from formulas, not user input."
+                        )
+
         result = self._update_field_command.execute(
             entity_id=entity_id,
             field_id=field_id,
@@ -718,6 +736,17 @@ class SchemaUseCases:
 
         field = entity.fields[field_id_obj]
         field_type_str = field.field_type.value.lower()
+
+        # =====================================================================
+        # CALCULATED FIELD INVARIANT: CALCULATED fields cannot have any constraints
+        # This is a semantic invariant - calculated fields derive their values
+        # from formulas and should not have validation constraints.
+        # =====================================================================
+        if field_type_str == "calculated":
+            return OperationResult.fail(
+                "CALCULATED fields cannot have validation constraints. "
+                "Calculated values are derived from formulas and are not user-editable."
+            )
 
         # DOMAIN SOURCE OF TRUTH: Use field.constraints for all validation
         # DTOs are presentation-only and forbidden as validation sources

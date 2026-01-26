@@ -118,22 +118,32 @@ class UpdateFieldCommand:
                 updates["help_text_key"] = None
 
         # Update required if provided - MUST synchronize constraints
+        # =====================================================================
+        # CALCULATED FIELD INVARIANT: CALCULATED fields NEVER have constraints.
+        # Force required=False and constraints=() for CALCULATED fields.
+        # =====================================================================
         if required is not None:
-            updates["required"] = required
-            # Synchronize RequiredConstraint with required flag
-            current_constraints = list(field_def.constraints)
-            has_required_constraint = any(
-                isinstance(c, RequiredConstraint) for c in current_constraints
-            )
-            if required and not has_required_constraint:
-                # Add RequiredConstraint
-                current_constraints.append(RequiredConstraint())
-            elif not required and has_required_constraint:
-                # Remove RequiredConstraint
-                current_constraints = [
-                    c for c in current_constraints if not isinstance(c, RequiredConstraint)
-                ]
-            updates["constraints"] = tuple(current_constraints)
+            if field_def.field_type == FieldType.CALCULATED:
+                # INVARIANT: CALCULATED fields cannot be required and have no constraints
+                updates["required"] = False
+                # Strip ALL constraints from CALCULATED fields (not just RequiredConstraint)
+                updates["constraints"] = ()
+            else:
+                updates["required"] = required
+                # Synchronize RequiredConstraint with required flag
+                current_constraints = list(field_def.constraints)
+                has_required_constraint = any(
+                    isinstance(c, RequiredConstraint) for c in current_constraints
+                )
+                if required and not has_required_constraint:
+                    # Add RequiredConstraint
+                    current_constraints.append(RequiredConstraint())
+                elif not required and has_required_constraint:
+                    # Remove RequiredConstraint
+                    current_constraints = [
+                        c for c in current_constraints if not isinstance(c, RequiredConstraint)
+                    ]
+                updates["constraints"] = tuple(current_constraints)
 
         # Update default_value if provided
         if default_value is not None:

@@ -204,6 +204,69 @@ class TestFieldDefinition:
         assert field.formula is None
         assert field.is_calculated
 
+    # =========================================================================
+    # CALCULATED FIELD INVARIANT TESTS
+    # These tests prove the invariant: CALCULATED fields are NEVER required.
+    # =========================================================================
+
+    def test_calculated_field_required_always_false_even_when_passed_true(self) -> None:
+        """INVARIANT: CALCULATED.required is always False even when passed as True.
+
+        CALCULATED fields derive their values from formulas, not user input.
+        They cannot be required because users cannot directly enter values.
+        The domain layer forces required=False regardless of what is passed.
+        """
+        field = FieldDefinition(
+            id=FieldDefinitionId("total"),
+            field_type=FieldType.CALCULATED,
+            label_key=TranslationKey("field.total"),
+            formula="a + b",
+            required=True,  # Explicitly try to set required=True
+        )
+        # INVARIANT: required MUST be False regardless of input
+        assert field.required is False
+        assert field.is_required is False
+        assert field.is_calculated is True
+
+    def test_calculated_field_is_required_property_always_false(self) -> None:
+        """INVARIANT: CALCULATED.is_required property always returns False.
+
+        Even if somehow required was set (which the domain prevents),
+        the is_required property must return False for CALCULATED fields.
+        """
+        field = FieldDefinition(
+            id=FieldDefinitionId("computed"),
+            field_type=FieldType.CALCULATED,
+            label_key=TranslationKey("field.computed"),
+            required=True,  # Try to force required
+        )
+        # Both required and is_required must be False
+        assert field.required is False
+        assert field.is_required is False
+
+    def test_calculated_field_with_required_constraint_still_not_required(self) -> None:
+        """INVARIANT: CALCULATED with RequiredConstraint still has required=False.
+
+        Even if a RequiredConstraint is somehow added to a CALCULATED field,
+        the field's required flag must remain False. The constraint would be
+        meaningless since calculated values are computed, not entered.
+        """
+        field = FieldDefinition(
+            id=FieldDefinitionId("sum_field"),
+            field_type=FieldType.CALCULATED,
+            label_key=TranslationKey("field.sum"),
+            formula="x + y",
+            required=True,
+            constraints=(RequiredConstraint(),),  # Add RequiredConstraint
+        )
+        # Despite RequiredConstraint, required must be False for CALCULATED
+        assert field.required is False
+        assert field.is_required is False
+        assert field.is_calculated is True
+        # The constraint is there but doesn't make the field required
+        assert len(field.constraints) == 1
+        assert isinstance(field.constraints[0], RequiredConstraint)
+
     def test_lookup_without_entity_id_raises(self) -> None:
         """FieldDefinition should reject lookup without entity ID."""
         with pytest.raises(ValueError, match="must have lookup_entity_id"):

@@ -338,3 +338,56 @@ class TestAddFieldCommand:
 
         assert result.is_failure()
         assert "failed to save field" in result.error.lower()
+
+    # ==========================================================================
+    # CALCULATED FIELD INVARIANT TESTS
+    # ==========================================================================
+
+    def test_calculated_field_never_has_constraints_even_when_required_true(
+        self, command: AddFieldCommand, mock_repository: Mock
+    ) -> None:
+        """INVARIANT: CALCULATED fields NEVER have constraints.
+
+        Even when required=True is passed, a CALCULATED field must have:
+        - required=False (forced)
+        - constraints=() (empty tuple)
+
+        This prevents the backdoor where required=True would auto-create
+        a RequiredConstraint for CALCULATED fields.
+        """
+        result = command.execute(
+            entity_id="test_entity",
+            field_id="calc_field",
+            field_type="calculated",
+            label_key="field.calc_field",
+            required=True,  # This should be IGNORED for CALCULATED fields
+        )
+
+        assert result.is_success()
+        saved_entity = mock_repository.save.call_args[0][0]
+        field = saved_entity.fields[FieldDefinitionId("calc_field")]
+
+        # INVARIANT ASSERTIONS
+        assert field.field_type == FieldType.CALCULATED
+        assert field.required is False, "CALCULATED fields must have required=False"
+        assert field.constraints == (), "CALCULATED fields must have no constraints"
+
+    def test_calculated_field_with_required_false_still_no_constraints(
+        self, command: AddFieldCommand, mock_repository: Mock
+    ) -> None:
+        """CALCULATED fields must have no constraints regardless of required flag."""
+        result = command.execute(
+            entity_id="test_entity",
+            field_id="calc_field",
+            field_type="calculated",
+            label_key="field.calc_field",
+            required=False,
+        )
+
+        assert result.is_success()
+        saved_entity = mock_repository.save.call_args[0][0]
+        field = saved_entity.fields[FieldDefinitionId("calc_field")]
+
+        assert field.field_type == FieldType.CALCULATED
+        assert field.required is False
+        assert field.constraints == ()

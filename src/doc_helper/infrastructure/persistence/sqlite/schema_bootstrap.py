@@ -212,12 +212,94 @@ CREATE INDEX IF NOT EXISTS idx_output_mappings_field ON output_mappings(field_id
 """
 
 
+def _sanitize_calculated_field_constraints(db_path: Path) -> int:
+    """Purge all validation constraints from CALCULATED fields.
+
+    CALCULATED FIELD INVARIANT: CALCULATED fields NEVER have constraints.
+    This function cleans up any corrupted data in the validation_rules table.
+
+    This is called automatically by bootstrap_schema_database() and is
+    idempotent - safe to run multiple times.
+
+    Args:
+        db_path: Path to the schema database file (config.db)
+
+    Returns:
+        Number of constraints deleted (0 if none found, or 0 if tables don't exist)
+
+    Note:
+        This function is defensive - if the required tables (fields, validation_rules)
+        don't exist, it returns 0 without error. This handles edge cases like
+        databases with content but not the expected schema.
+    """
+    conn = None
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        cursor = conn.cursor()
+
+        # Check if required tables exist (defensive - handle non-standard databases)
+        cursor.execute(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name IN ('fields', 'validation_rules')
+            """
+        )
+        existing_tables = {row[0] for row in cursor.fetchall()}
+
+        if 'fields' not in existing_tables or 'validation_rules' not in existing_tables:
+            # Tables don't exist - nothing to sanitize
+            conn.close()
+            return 0
+
+        # Find all CALCULATED fields
+        cursor.execute(
+            """
+            SELECT id FROM fields WHERE field_type = 'calculated'
+            """
+        )
+        calculated_field_ids = [row[0] for row in cursor.fetchall()]
+
+        if not calculated_field_ids:
+            conn.close()
+            return 0
+
+        # Delete all validation_rules for CALCULATED fields
+        placeholders = ",".join("?" * len(calculated_field_ids))
+        cursor.execute(
+            f"""
+            DELETE FROM validation_rules
+            WHERE field_id IN ({placeholders})
+            """,
+            calculated_field_ids,
+        )
+
+        deleted_count = cursor.rowcount
+        conn.commit()
+        conn.close()
+
+        return deleted_count
+
+    except sqlite3.Error:
+        # Silently ignore errors - sanitization is best-effort
+        # The read-path safety net in schema_repository handles corrupted data at load time
+        if conn:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+        return 0
+
+
 def bootstrap_schema_database(db_path: Path) -> None:
     """Bootstrap schema database if it does not exist.
 
     This function MUST be called from the composition root BEFORE any
     schema repository is constructed. It guarantees that config.db
     exists with proper schema.
+
+    ALSO runs data sanitization to enforce invariants:
+    - CALCULATED fields NEVER have validation constraints
 
     Args:
         db_path: Path to the schema database file (config.db)
@@ -239,7 +321,8 @@ def bootstrap_schema_database(db_path: Path) -> None:
     """
     # Check if database already exists
     if db_path.exists() and db_path.stat().st_size > 0:
-        # Database exists and is not empty - do nothing (idempotent)
+        # Database exists - run sanitization only
+        _sanitize_calculated_field_constraints(db_path)
         return
 
     # Ensure parent directory exists

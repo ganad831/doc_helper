@@ -1268,6 +1268,100 @@ class TestSchemaUseCasesConstraintOperations:
 
         assert result.success is True
 
+    # =========================================================================
+    # CALCULATED Field Constraint Invariant Tests
+    # =========================================================================
+
+    def test_add_constraint_fails_for_calculated_field_required(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+    ) -> None:
+        """Should reject adding REQUIRED constraint to CALCULATED field.
+
+        INVARIANT: CALCULATED fields cannot have any validation constraints
+        because they derive their values from formulas, not user input.
+        """
+        from doc_helper.domain.schema.entity_definition import EntityDefinition
+        from doc_helper.domain.schema.field_definition import FieldDefinition
+        from doc_helper.domain.schema.field_type import FieldType
+        from doc_helper.domain.common.i18n import TranslationKey
+
+        # Create entity with CALCULATED field
+        field = FieldDefinition(
+            id=FieldDefinitionId("total"),
+            field_type=FieldType.CALCULATED,
+            label_key=TranslationKey("field.total"),
+            required=False,
+            formula="{{qty}} * {{price}}",
+        )
+
+        entity = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            description_key=None,
+            fields={field.id: field},
+            is_root_entity=False,
+            parent_entity_id=None,
+        )
+
+        mock_schema_repository.get_by_id.return_value = Success(entity)
+
+        # Attempt to add REQUIRED constraint to CALCULATED field
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="total",
+            constraint_type="REQUIRED",
+            severity="ERROR",
+        )
+
+        assert result.success is False
+        assert "calculated" in result.error.lower()
+        assert "constraint" in result.error.lower()
+
+    def test_add_constraint_fails_for_calculated_field_min_value(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+    ) -> None:
+        """Should reject adding MIN_VALUE constraint to CALCULATED field."""
+        from doc_helper.domain.schema.entity_definition import EntityDefinition
+        from doc_helper.domain.schema.field_definition import FieldDefinition
+        from doc_helper.domain.schema.field_type import FieldType
+        from doc_helper.domain.common.i18n import TranslationKey
+
+        # Create entity with CALCULATED field
+        field = FieldDefinition(
+            id=FieldDefinitionId("total"),
+            field_type=FieldType.CALCULATED,
+            label_key=TranslationKey("field.total"),
+            required=False,
+            formula="{{qty}} * {{price}}",
+        )
+
+        entity = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            description_key=None,
+            fields={field.id: field},
+            is_root_entity=False,
+            parent_entity_id=None,
+        )
+
+        mock_schema_repository.get_by_id.return_value = Success(entity)
+
+        # Attempt to add MIN_VALUE constraint to CALCULATED field
+        result = usecases.add_constraint(
+            entity_id="test_entity",
+            field_id="total",
+            constraint_type="MIN_VALUE",
+            value=0.0,
+            severity="ERROR",
+        )
+
+        assert result.success is False
+        assert "calculated" in result.error.lower()
+
 
 class TestSchemaUseCasesOutputMappingOperations:
     """Tests for output mapping CRUD operations in SchemaUseCases (Phase F-12.5)."""

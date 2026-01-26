@@ -815,3 +815,104 @@ class TestUpdateFieldCommand:
         # Assert
         assert result.is_failure()
         assert "failed to save" in result.error.lower()
+
+    # ==========================================================================
+    # CALCULATED FIELD INVARIANT TESTS
+    # ==========================================================================
+
+    def test_calculated_field_update_required_true_forces_false_no_constraints(
+        self,
+        command: UpdateFieldCommand,
+        mock_repository: Mock,
+        mock_entity_with_calculated_field: EntityDefinition,
+    ) -> None:
+        """INVARIANT: CALCULATED fields NEVER have constraints.
+
+        Even when updating required=True on a CALCULATED field, the result must be:
+        - required=False (forced)
+        - constraints=() (empty tuple)
+
+        This prevents the backdoor where required=True would auto-create
+        a RequiredConstraint for CALCULATED fields.
+        """
+        # Setup
+        mock_repository.exists.return_value = True
+        mock_repository.get_by_id.return_value = Success(mock_entity_with_calculated_field)
+        mock_repository.save.return_value = Success(None)
+
+        # Execute: Try to set required=True on CALCULATED field
+        result = command.execute(
+            entity_id="test_entity",
+            field_id="field_calculated",
+            required=True,  # This should be IGNORED for CALCULATED fields
+        )
+
+        # Assert
+        assert result.is_success()
+
+        saved_entity = mock_repository.save.call_args[0][0]
+        updated_field = saved_entity.fields[FieldDefinitionId("field_calculated")]
+
+        # INVARIANT ASSERTIONS
+        assert updated_field.field_type == FieldType.CALCULATED
+        assert updated_field.required is False, "CALCULATED fields must have required=False"
+        assert updated_field.constraints == (), "CALCULATED fields must have no constraints"
+
+    def test_calculated_field_strips_all_existing_constraints(
+        self,
+        command: UpdateFieldCommand,
+        mock_repository: Mock,
+    ) -> None:
+        """INVARIANT: CALCULATED fields must have ALL constraints stripped.
+
+        If a CALCULATED field somehow has constraints (from corrupted data),
+        any update operation must strip them all.
+        """
+        from doc_helper.domain.validation.constraints import (
+            RequiredConstraint,
+            MinLengthConstraint,
+        )
+
+        # Setup: CALCULATED field with corrupted constraints (should not happen, but testing defense)
+        corrupted_calc_field = FieldDefinition(
+            id=FieldDefinitionId("field_calculated"),
+            field_type=FieldType.CALCULATED,
+            label_key=TranslationKey("field.calculated.label"),
+            help_text_key=None,
+            required=True,  # Corrupted: should be False
+            default_value=None,
+            formula="{{field1}} + {{field2}}",
+            lookup_entity_id=None,
+            lookup_display_field=None,
+            child_entity_id=None,
+            constraints=(RequiredConstraint(), MinLengthConstraint(min_length=5)),  # Corrupted
+            options=(),
+            control_rules=(),
+        )
+        entity_with_corrupted_field = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            fields={FieldDefinitionId("field_calculated"): corrupted_calc_field},
+        )
+
+        mock_repository.exists.return_value = True
+        mock_repository.get_by_id.return_value = Success(entity_with_corrupted_field)
+        mock_repository.save.return_value = Success(None)
+
+        # Execute: Any update should fix the corrupted state
+        result = command.execute(
+            entity_id="test_entity",
+            field_id="field_calculated",
+            required=True,  # Even trying to set required=True should result in False
+        )
+
+        # Assert
+        assert result.is_success()
+
+        saved_entity = mock_repository.save.call_args[0][0]
+        updated_field = saved_entity.fields[FieldDefinitionId("field_calculated")]
+
+        # INVARIANT: ALL constraints must be stripped, required must be False
+        assert updated_field.required is False
+        assert updated_field.constraints == ()
+        assert len(updated_field.constraints) == 0
