@@ -73,6 +73,7 @@ def test_required_constraint_with_none_value_fails():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -132,6 +133,7 @@ def test_required_constraint_with_empty_string_fails():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -183,6 +185,7 @@ def test_required_constraint_with_whitespace_only_fails():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -234,6 +237,7 @@ def test_required_constraint_with_valid_value_passes():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -292,6 +296,7 @@ def test_min_length_constraint_with_too_short_value_fails():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -346,6 +351,7 @@ def test_min_length_constraint_with_valid_value_passes():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -397,6 +403,7 @@ def test_min_length_constraint_skips_none_value():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -453,6 +460,7 @@ def test_max_length_constraint_with_too_long_value_fails():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -507,6 +515,7 @@ def test_max_length_constraint_with_valid_value_passes():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -563,6 +572,7 @@ def test_min_value_constraint_with_too_small_value_fails():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -617,6 +627,7 @@ def test_min_value_constraint_with_valid_value_passes():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -673,6 +684,7 @@ def test_max_value_constraint_with_too_large_value_fails():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -727,6 +739,7 @@ def test_max_value_constraint_with_valid_value_passes():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -783,6 +796,7 @@ def test_pattern_constraint_with_mismatch_fails():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -839,6 +853,7 @@ def test_pattern_constraint_with_match_passes():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -899,6 +914,7 @@ def test_allowed_values_constraint_with_invalid_value_fails():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -954,6 +970,7 @@ def test_allowed_values_constraint_with_valid_value_passes():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -1013,6 +1030,7 @@ def test_file_extension_constraint_with_invalid_extension_fails():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -1068,6 +1086,7 @@ def test_file_extension_constraint_with_valid_extension_passes():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -1127,6 +1146,7 @@ def test_max_file_size_constraint_with_too_large_file_fails():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -1182,6 +1202,7 @@ def test_max_file_size_constraint_with_valid_size_passes():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -1241,6 +1262,7 @@ def test_warning_severity_does_not_block():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -1294,6 +1316,7 @@ def test_info_severity_does_not_block():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -1353,6 +1376,7 @@ def test_multiple_fields_with_mixed_results():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     field2 = FieldDefinitionDTO(
@@ -1368,6 +1392,7 @@ def test_multiple_fields_with_mixed_results():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -1470,6 +1495,7 @@ def test_deterministic_evaluation():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(

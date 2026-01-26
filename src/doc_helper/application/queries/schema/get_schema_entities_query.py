@@ -198,6 +198,7 @@ class GetSchemaEntitiesQuery:
             is_choice_field=field_definition.is_choice_field,
             is_collection_field=field_definition.is_collection_field,
             lookup_entity_id=field_definition.lookup_entity_id,
+            lookup_display_field=field_definition.lookup_display_field,
             child_entity_id=field_definition.child_entity_id,
         )
 

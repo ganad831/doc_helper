@@ -81,6 +81,7 @@ def test_happy_path_all_rules_pass():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -144,6 +145,7 @@ def test_validation_blocks_with_error_severity():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -202,6 +204,7 @@ def test_validation_warning_does_not_block():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -263,6 +266,7 @@ def test_multiple_fields_one_error_blocks():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     field2 = FieldDefinitionDTO(
@@ -278,6 +282,7 @@ def test_multiple_fields_one_error_blocks():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -347,6 +352,7 @@ def test_deterministic_evaluation():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -408,6 +414,7 @@ def test_input_unchanged_after_evaluation():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -469,6 +476,7 @@ def test_validation_blocks_output_mapping_evaluation():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -552,6 +560,7 @@ def test_control_rules_result_always_present():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -598,6 +607,7 @@ def test_validation_result_always_present():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(
@@ -648,6 +658,7 @@ def test_blocking_reason_includes_error_count():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     field2 = FieldDefinitionDTO(
@@ -663,6 +674,7 @@ def test_blocking_reason_includes_error_count():
         is_choice_field=False,
         is_collection_field=False,
         lookup_entity_id=None,
+        lookup_display_field=None,
         child_entity_id=None,
     )
     entity = EntityDefinitionDTO(

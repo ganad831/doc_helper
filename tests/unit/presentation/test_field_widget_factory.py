@@ -64,6 +64,7 @@ class TestFieldWidgetFactory:
             is_choice_field=False,
             is_collection_field=False,
             lookup_entity_id=None,
+            lookup_display_field=None,
             child_entity_id=None,
         )
 
@@ -88,6 +89,7 @@ class TestFieldWidgetFactory:
             is_choice_field=False,
             is_collection_field=False,
             lookup_entity_id=None,
+            lookup_display_field=None,
             child_entity_id=None,
         )
 
@@ -111,6 +113,7 @@ class TestFieldWidgetFactory:
             is_choice_field=False,
             is_collection_field=False,
             lookup_entity_id=None,
+            lookup_display_field=None,
             child_entity_id=None,
         )
 
@@ -134,6 +137,7 @@ class TestFieldWidgetFactory:
             is_choice_field=False,
             is_collection_field=False,
             lookup_entity_id=None,
+            lookup_display_field=None,
             child_entity_id=None,
         )
 
@@ -160,6 +164,7 @@ class TestFieldWidgetFactory:
             is_choice_field=True,
             is_collection_field=False,
             lookup_entity_id=None,
+            lookup_display_field=None,
             child_entity_id=None,
         )
 
@@ -183,6 +188,7 @@ class TestFieldWidgetFactory:
             is_choice_field=False,
             is_collection_field=False,
             lookup_entity_id=None,
+            lookup_display_field=None,
             child_entity_id=None,
         )
 
@@ -209,6 +215,7 @@ class TestFieldWidgetFactory:
             is_choice_field=True,
             is_collection_field=False,
             lookup_entity_id=None,
+            lookup_display_field=None,
             child_entity_id=None,
         )
 
@@ -232,6 +239,7 @@ class TestFieldWidgetFactory:
             is_choice_field=False,
             is_collection_field=False,
             lookup_entity_id=None,
+            lookup_display_field=None,
             child_entity_id=None,
         )
 
@@ -255,6 +263,7 @@ class TestFieldWidgetFactory:
             is_choice_field=False,
             is_collection_field=False,
             lookup_entity_id="entity_2",
+            lookup_display_field="name",
             child_entity_id=None,
         )
 
@@ -278,6 +287,7 @@ class TestFieldWidgetFactory:
             is_choice_field=False,
             is_collection_field=False,
             lookup_entity_id=None,
+            lookup_display_field=None,
             child_entity_id=None,
         )
 
@@ -301,6 +311,7 @@ class TestFieldWidgetFactory:
             is_choice_field=False,
             is_collection_field=False,
             lookup_entity_id=None,
+            lookup_display_field=None,
             child_entity_id=None,
         )
 
@@ -324,6 +335,7 @@ class TestFieldWidgetFactory:
             is_choice_field=False,
             is_collection_field=True,
             lookup_entity_id=None,
+            lookup_display_field=None,
             child_entity_id="entity_child",
         )
 
@@ -347,6 +359,7 @@ class TestFieldWidgetFactory:
             is_choice_field=False,
             is_collection_field=False,
             lookup_entity_id=None,
+            lookup_display_field=None,
             child_entity_id=None,
         )
 
@@ -403,6 +416,7 @@ class TestFieldWidgetFactory:
             is_choice_field=False,
             is_collection_field=False,
             lookup_entity_id=None,
+            lookup_display_field=None,
             child_entity_id=None,
         )
 

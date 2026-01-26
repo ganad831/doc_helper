@@ -48,6 +48,7 @@ class FieldDefinitionDTO:
     is_choice_field: bool  # Whether field has options (dropdown, radio)
     is_collection_field: bool  # Whether field is a table/collection
     lookup_entity_id: Optional[str]  # Entity ID for lookup fields
+    lookup_display_field: Optional[str]  # Field to display for lookup fields
     child_entity_id: Optional[str]  # Entity ID for table fields
 
 

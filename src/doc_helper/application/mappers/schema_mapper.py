@@ -82,6 +82,7 @@ class FieldDefinitionMapper:
             is_choice_field=field_def.is_choice_field,
             is_collection_field=field_def.is_collection_field,
             lookup_entity_id=field_def.lookup_entity_id,
+            lookup_display_field=field_def.lookup_display_field,
             child_entity_id=field_def.child_entity_id,
         )
 

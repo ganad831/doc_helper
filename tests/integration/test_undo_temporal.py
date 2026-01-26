@@ -231,6 +231,7 @@ def loaded_project(viewmodel, mock_project_usecases, mock_field_service):
                 is_choice_field=False,
                 is_collection_field=False,
                 lookup_entity_id=None,
+                lookup_display_field=None,
                 child_entity_id=None,
             ),
             FieldDefinitionDTO(
@@ -246,6 +247,7 @@ def loaded_project(viewmodel, mock_project_usecases, mock_field_service):
                 is_choice_field=False,
                 is_collection_field=False,
                 lookup_entity_id=None,
+                lookup_display_field=None,
                 child_entity_id=None,
             ),
             FieldDefinitionDTO(
@@ -261,6 +263,7 @@ def loaded_project(viewmodel, mock_project_usecases, mock_field_service):
                 is_choice_field=False,
                 is_collection_field=False,
                 lookup_entity_id=None,
+                lookup_display_field=None,
                 child_entity_id=None,
             ),
         ),
@@ -635,6 +638,7 @@ def test_T5_stack_cleared_on_open(
                 is_choice_field=False,
                 is_collection_field=False,
                 lookup_entity_id=None,
+                lookup_display_field=None,
                 child_entity_id=None,
             ),
         ),
