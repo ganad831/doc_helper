@@ -104,9 +104,9 @@ class FieldDefinition(ValueObject):
         # at creation time. Options can be added later via the workflow.
         # Validation for non-empty options happens at runtime/export time.
 
-        if self.field_type == FieldType.CALCULATED:
-            if not self.formula:
-                raise ValueError("CALCULATED field must have a formula")
+        # Note: CALCULATED fields are allowed to have formula=None at creation time.
+        # Formula can be added later via the workflow.
+        # Validation for non-empty formula happens at runtime/export time.
 
         if self.field_type == FieldType.LOOKUP:
             if not self.lookup_entity_id:

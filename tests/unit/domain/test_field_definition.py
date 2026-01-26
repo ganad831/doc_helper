@@ -188,14 +188,21 @@ class TestFieldDefinition:
         assert field.options == ()
         assert field.is_choice_field
 
-    def test_calculated_without_formula_raises(self) -> None:
-        """FieldDefinition should reject calculated without formula."""
-        with pytest.raises(ValueError, match="must have a formula"):
-            FieldDefinition(
-                id=FieldDefinitionId("total"),
-                field_type=FieldType.CALCULATED,
-                label_key=TranslationKey("field.total"),
-            )
+    def test_calculated_with_no_formula_allowed(self) -> None:
+        """FieldDefinition should allow calculated with no formula at creation time.
+
+        Formula can be added later via the incremental configuration workflow.
+        Validation for non-empty formula happens at runtime/export time.
+        """
+        field = FieldDefinition(
+            id=FieldDefinitionId("total"),
+            field_type=FieldType.CALCULATED,
+            label_key=TranslationKey("field.total"),
+            formula=None,
+        )
+        assert field.field_type == FieldType.CALCULATED
+        assert field.formula is None
+        assert field.is_calculated
 
     def test_lookup_without_entity_id_raises(self) -> None:
         """FieldDefinition should reject lookup without entity ID."""
