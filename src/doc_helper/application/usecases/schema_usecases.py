@@ -192,7 +192,8 @@ class SchemaUseCases:
         self._create_relationship_command: Optional[CreateRelationshipCommand] = None
         if relationship_repository:
             self._create_relationship_command = CreateRelationshipCommand(
-                schema_repository, relationship_repository
+                relationship_repository=relationship_repository,
+                schema_repository=schema_repository,
             )
         self._export_command = ExportSchemaCommand(
             schema_repository, relationship_repository

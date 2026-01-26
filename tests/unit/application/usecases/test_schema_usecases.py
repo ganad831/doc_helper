@@ -2302,3 +2302,313 @@ class TestSchemaUseCasesFieldOptionOperations:
 
         assert isinstance(result, tuple)
         assert len(result) == 0
+
+
+class TestSchemaUseCasesRelationshipOperations:
+    """Tests for relationship operations in SchemaUseCases (Phase A4.1 - ADR-022).
+
+    Tests for relationship creation at the UseCases layer, verifying:
+    - Successful relationship creation
+    - Self-relationship rejection (source == target)
+    - Duplicate relationship rejection (ADD-ONLY semantics)
+    - Missing entity rejection (source or target not found)
+    - No side effects on fields
+
+    Per ADR-022: Relationships are ADD-ONLY (no update/delete).
+    """
+
+    @pytest.fixture
+    def mock_schema_repository(self) -> Mock:
+        """Create mock schema repository."""
+        repository = Mock()
+        repository.exists.return_value = True  # Entities exist by default
+        return repository
+
+    @pytest.fixture
+    def mock_relationship_repository(self) -> Mock:
+        """Create mock relationship repository."""
+        repository = Mock()
+        repository.exists.return_value = False  # No existing relationships by default
+        repository.save.return_value = Success(None)
+        return repository
+
+    @pytest.fixture
+    def mock_translation_service(self) -> Mock:
+        """Create mock translation service."""
+        service = Mock()
+        service.translate.side_effect = lambda key: key
+        return service
+
+    @pytest.fixture
+    def usecases(
+        self,
+        mock_schema_repository: Mock,
+        mock_relationship_repository: Mock,
+        mock_translation_service: Mock,
+    ) -> SchemaUseCases:
+        """Create SchemaUseCases with mock dependencies."""
+        return SchemaUseCases(
+            schema_repository=mock_schema_repository,
+            relationship_repository=mock_relationship_repository,
+            translation_service=mock_translation_service,
+        )
+
+    # =========================================================================
+    # CREATE RELATIONSHIP - SUCCESS
+    # =========================================================================
+
+    def test_create_relationship_success(
+        self,
+        usecases: SchemaUseCases,
+        mock_relationship_repository: Mock,
+    ) -> None:
+        """Should return OperationResult.ok with relationship ID on success.
+
+        REQUIREMENT: Relationship can be added successfully.
+        """
+        result = usecases.create_relationship(
+            relationship_id="project_contains_boreholes",
+            source_entity_id="project",
+            target_entity_id="borehole",
+            relationship_type="CONTAINS",
+            name_key="relationship.project_boreholes",
+        )
+
+        assert result.success is True
+        assert result.value == "project_contains_boreholes"
+
+    def test_create_relationship_with_optional_fields(
+        self,
+        usecases: SchemaUseCases,
+        mock_relationship_repository: Mock,
+    ) -> None:
+        """Should create relationship with optional description and inverse name."""
+        result = usecases.create_relationship(
+            relationship_id="project_contains_boreholes",
+            source_entity_id="project",
+            target_entity_id="borehole",
+            relationship_type="CONTAINS",
+            name_key="relationship.project_boreholes",
+            description_key="relationship.project_boreholes.desc",
+            inverse_name_key="relationship.borehole_project",
+        )
+
+        assert result.success is True
+        assert result.value == "project_contains_boreholes"
+
+    # =========================================================================
+    # CREATE RELATIONSHIP - SELF-RELATIONSHIP REJECTION
+    # =========================================================================
+
+    def test_create_relationship_self_entity_rejected(
+        self,
+        usecases: SchemaUseCases,
+        mock_relationship_repository: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when source equals target.
+
+        REQUIREMENT: Self-relationship is rejected.
+        INVARIANT: source_entity_id != target_entity_id
+        """
+        result = usecases.create_relationship(
+            relationship_id="project_self_ref",
+            source_entity_id="project",
+            target_entity_id="project",  # Same as source - MUST FAIL
+            relationship_type="CONTAINS",
+            name_key="relationship.self",
+        )
+
+        assert result.success is False
+        assert "different" in result.error.lower() or "same" in result.error.lower()
+        mock_relationship_repository.save.assert_not_called()
+
+    # =========================================================================
+    # CREATE RELATIONSHIP - DUPLICATE REJECTION
+    # =========================================================================
+
+    def test_create_relationship_duplicate_rejected(
+        self,
+        usecases: SchemaUseCases,
+        mock_relationship_repository: Mock,
+    ) -> None:
+        """Should return OperationResult.fail for duplicate relationship ID.
+
+        REQUIREMENT: Duplicate relationship is rejected.
+        ADR-022: ADD-ONLY semantics - relationships cannot be updated.
+        """
+        # Mock repository to indicate relationship exists
+        mock_relationship_repository.exists.return_value = True
+
+        result = usecases.create_relationship(
+            relationship_id="existing_relationship",
+            source_entity_id="project",
+            target_entity_id="borehole",
+            relationship_type="CONTAINS",
+            name_key="relationship.existing",
+        )
+
+        assert result.success is False
+        assert "already exists" in result.error.lower()
+        mock_relationship_repository.save.assert_not_called()
+
+    # =========================================================================
+    # CREATE RELATIONSHIP - MISSING ENTITY REJECTION
+    # =========================================================================
+
+    def test_create_relationship_missing_source_entity(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_relationship_repository: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when source entity doesn't exist.
+
+        REQUIREMENT: Missing entity is rejected.
+        """
+        from doc_helper.domain.schema.schema_ids import EntityDefinitionId
+
+        def exists_side_effect(entity_id: EntityDefinitionId) -> bool:
+            return entity_id.value != "nonexistent_source"
+
+        mock_schema_repository.exists.side_effect = exists_side_effect
+
+        result = usecases.create_relationship(
+            relationship_id="invalid_source_rel",
+            source_entity_id="nonexistent_source",
+            target_entity_id="borehole",
+            relationship_type="CONTAINS",
+            name_key="relationship.test",
+        )
+
+        assert result.success is False
+        assert "does not exist" in result.error.lower()
+        mock_relationship_repository.save.assert_not_called()
+
+    def test_create_relationship_missing_target_entity(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_relationship_repository: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when target entity doesn't exist.
+
+        REQUIREMENT: Missing entity is rejected.
+        """
+        from doc_helper.domain.schema.schema_ids import EntityDefinitionId
+
+        def exists_side_effect(entity_id: EntityDefinitionId) -> bool:
+            return entity_id.value != "nonexistent_target"
+
+        mock_schema_repository.exists.side_effect = exists_side_effect
+
+        result = usecases.create_relationship(
+            relationship_id="invalid_target_rel",
+            source_entity_id="project",
+            target_entity_id="nonexistent_target",
+            relationship_type="CONTAINS",
+            name_key="relationship.test",
+        )
+
+        assert result.success is False
+        assert "does not exist" in result.error.lower()
+        mock_relationship_repository.save.assert_not_called()
+
+    # =========================================================================
+    # CREATE RELATIONSHIP - NO SIDE EFFECTS ON FIELDS
+    # =========================================================================
+
+    def test_create_relationship_no_side_effects_on_fields(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_relationship_repository: Mock,
+    ) -> None:
+        """Creating relationship should not modify entity fields.
+
+        REQUIREMENT: No side effects on fields.
+        Relationships are metadata only - they do NOT modify entities.
+        """
+        result = usecases.create_relationship(
+            relationship_id="project_contains_boreholes",
+            source_entity_id="project",
+            target_entity_id="borehole",
+            relationship_type="CONTAINS",
+            name_key="relationship.project_boreholes",
+        )
+
+        assert result.success is True
+
+        # Assert schema_repository.save was NOT called (entities not modified)
+        mock_schema_repository.save.assert_not_called()
+
+        # Assert only relationship_repository.save was called
+        mock_relationship_repository.save.assert_called_once()
+
+    # =========================================================================
+    # CREATE RELATIONSHIP - MISSING REQUIRED FIELDS
+    # =========================================================================
+
+    def test_create_relationship_empty_id_rejected(
+        self,
+        usecases: SchemaUseCases,
+        mock_relationship_repository: Mock,
+    ) -> None:
+        """Should return OperationResult.fail for empty relationship_id."""
+        result = usecases.create_relationship(
+            relationship_id="",
+            source_entity_id="project",
+            target_entity_id="borehole",
+            relationship_type="CONTAINS",
+            name_key="relationship.test",
+        )
+
+        assert result.success is False
+        mock_relationship_repository.save.assert_not_called()
+
+    def test_create_relationship_invalid_type_rejected(
+        self,
+        usecases: SchemaUseCases,
+        mock_relationship_repository: Mock,
+    ) -> None:
+        """Should return OperationResult.fail for invalid relationship_type."""
+        result = usecases.create_relationship(
+            relationship_id="test_rel",
+            source_entity_id="project",
+            target_entity_id="borehole",
+            relationship_type="INVALID_TYPE",
+            name_key="relationship.test",
+        )
+
+        assert result.success is False
+        assert "invalid" in result.error.lower()
+        mock_relationship_repository.save.assert_not_called()
+
+    # =========================================================================
+    # CREATE RELATIONSHIP - NOT CONFIGURED
+    # =========================================================================
+
+    def test_create_relationship_not_configured(
+        self,
+        mock_schema_repository: Mock,
+        mock_translation_service: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when relationship creation not configured.
+
+        This tests the case where relationship_repository is not provided to SchemaUseCases.
+        """
+        usecases = SchemaUseCases(
+            schema_repository=mock_schema_repository,
+            relationship_repository=None,  # Not configured
+            translation_service=mock_translation_service,
+        )
+
+        result = usecases.create_relationship(
+            relationship_id="test_rel",
+            source_entity_id="project",
+            target_entity_id="borehole",
+            relationship_type="CONTAINS",
+            name_key="relationship.test",
+        )
+
+        assert result.success is False
+        assert "not configured" in result.error.lower()
