@@ -391,3 +391,127 @@ class TestAddFieldCommand:
         assert field.field_type == FieldType.CALCULATED
         assert field.required is False
         assert field.constraints == ()
+
+    # ==========================================================================
+    # LOOKUP FIELD TESTS (Phase A1)
+    # ==========================================================================
+
+    def test_lookup_field_without_lookup_entity_id_fails(
+        self, command: AddFieldCommand, mock_repository: Mock
+    ) -> None:
+        """LOOKUP field creation without lookup_entity_id should fail with clear error.
+
+        Phase A1 Requirement: LOOKUP fields MUST have lookup_entity_id.
+        The domain invariant (FieldDefinition.__post_init__) requires this.
+        """
+        result = command.execute(
+            entity_id="test_entity",
+            field_id="lookup_field",
+            field_type="lookup",
+            label_key="field.lookup_field",
+            # lookup_entity_id is NOT provided
+        )
+
+        assert result.is_failure()
+        assert "lookup" in result.error.lower()
+        assert "lookup_entity_id" in result.error.lower()
+        mock_repository.save.assert_not_called()
+
+    def test_lookup_field_with_lookup_entity_id_succeeds(
+        self, command: AddFieldCommand, mock_repository: Mock, mock_entity: EntityDefinition
+    ) -> None:
+        """LOOKUP field creation with lookup_entity_id should succeed.
+
+        Phase A1 Requirement: LOOKUP fields with proper lookup_entity_id
+        should be created successfully.
+        """
+        # Create a referenced entity with a 'name' field for lookup_display_field validation
+        referenced_entity = EntityDefinition(
+            id=EntityDefinitionId("referenced_entity"),
+            name_key=TranslationKey("entity.referenced"),
+            description_key=None,
+            fields={
+                FieldDefinitionId("name"): FieldDefinition(
+                    id=FieldDefinitionId("name"),
+                    field_type=FieldType.TEXT,
+                    label_key=TranslationKey("field.name"),
+                    help_text_key=None,
+                    required=False,
+                    default_value=None,
+                ),
+            },
+            is_root_entity=False,
+            parent_entity_id=None,
+        )
+
+        # Set up mock to return appropriate entity based on ID
+        def get_by_id_side_effect(entity_id: EntityDefinitionId):
+            if entity_id.value == "referenced_entity":
+                return Success(referenced_entity)
+            return Success(mock_entity)
+
+        mock_repository.get_by_id.side_effect = get_by_id_side_effect
+
+        result = command.execute(
+            entity_id="test_entity",
+            field_id="lookup_field",
+            field_type="lookup",
+            label_key="field.lookup_field",
+            lookup_entity_id="referenced_entity",
+            lookup_display_field="name",  # Optional but provided
+        )
+
+        assert result.is_success()
+        assert result.value == FieldDefinitionId("lookup_field")
+
+        # Verify saved field has correct LOOKUP properties
+        saved_entity = mock_repository.save.call_args[0][0]
+        field = saved_entity.fields[FieldDefinitionId("lookup_field")]
+
+        assert field.field_type == FieldType.LOOKUP
+        assert field.lookup_entity_id == "referenced_entity"
+        assert field.lookup_display_field == "name"
+
+    def test_lookup_field_with_lookup_entity_id_only(
+        self, command: AddFieldCommand, mock_repository: Mock
+    ) -> None:
+        """LOOKUP field with only lookup_entity_id (no display field) should succeed.
+
+        lookup_display_field is optional.
+        """
+        result = command.execute(
+            entity_id="test_entity",
+            field_id="lookup_field",
+            field_type="lookup",
+            label_key="field.lookup_field",
+            lookup_entity_id="referenced_entity",
+            # lookup_display_field NOT provided (optional)
+        )
+
+        assert result.is_success()
+        saved_entity = mock_repository.save.call_args[0][0]
+        field = saved_entity.fields[FieldDefinitionId("lookup_field")]
+
+        assert field.field_type == FieldType.LOOKUP
+        assert field.lookup_entity_id == "referenced_entity"
+        assert field.lookup_display_field is None
+
+    def test_self_entity_lookup_rejected(
+        self, command: AddFieldCommand, mock_repository: Mock
+    ) -> None:
+        """INVARIANT: LOOKUP fields cannot reference their own entity.
+
+        A1.2-2: AddFieldCommand defensive safety net - prevents self-entity
+        LOOKUP even if UseCases layer is bypassed.
+        """
+        result = command.execute(
+            entity_id="test_entity",
+            field_id="self_lookup",
+            field_type="lookup",
+            label_key="field.self_lookup",
+            lookup_entity_id="test_entity",  # Same as entity_id - MUST FAIL
+        )
+
+        assert result.is_failure()
+        assert "cannot reference its own entity" in result.error.lower()
+        mock_repository.save.assert_not_called()

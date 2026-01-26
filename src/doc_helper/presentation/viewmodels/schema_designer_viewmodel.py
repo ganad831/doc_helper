@@ -768,6 +768,8 @@ class SchemaDesignerViewModel(BaseViewModel):
         help_text_key: Optional[str] = None,
         required: bool = False,
         default_value: Optional[str] = None,
+        lookup_entity_id: Optional[str] = None,
+        lookup_display_field: Optional[str] = None,
     ) -> OperationResult:
         """Add a field to an existing entity (Phase 2 Step 2).
 
@@ -779,6 +781,8 @@ class SchemaDesignerViewModel(BaseViewModel):
             help_text_key: Translation key for help text (optional)
             required: Whether field is required
             default_value: Default value (optional)
+            lookup_entity_id: Entity ID for LOOKUP fields (required for LOOKUP)
+            lookup_display_field: Field to display for LOOKUP fields (optional)
 
         Returns:
             OperationResult with created field ID or error message
@@ -791,6 +795,8 @@ class SchemaDesignerViewModel(BaseViewModel):
             help_text_key=help_text_key,
             required=required,
             default_value=default_value,
+            lookup_entity_id=lookup_entity_id,
+            lookup_display_field=lookup_display_field,
         )
 
         if result.success:
@@ -930,6 +936,23 @@ class SchemaDesignerViewModel(BaseViewModel):
             Tuple of (entity_id, entity_name) pairs
         """
         return self._schema_usecases.get_entity_list_for_selection()
+
+    def get_valid_lookup_display_fields(
+        self, entity_id: str
+    ) -> tuple[tuple[str, str], ...]:
+        """Get valid display fields for a LOOKUP field's target entity.
+
+        Returns only fields with user-readable types (not CALCULATED, TABLE,
+        FILE, IMAGE). Used by presentation layer to filter the display field
+        dropdown without importing domain types.
+
+        Args:
+            entity_id: The entity to get valid display fields from.
+
+        Returns:
+            Tuple of (field_id, field_label) pairs for valid display fields.
+        """
+        return self._schema_usecases.get_valid_lookup_display_fields(entity_id)
 
     # -------------------------------------------------------------------------
     # Phase 7: Export Operations

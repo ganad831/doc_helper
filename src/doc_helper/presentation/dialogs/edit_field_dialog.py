@@ -39,6 +39,7 @@ from PyQt6.QtWidgets import (
 
 from doc_helper.application.dto.export_dto import FieldOptionExportDTO
 from doc_helper.application.dto.operation_result import OperationResult
+from doc_helper.presentation.utils.field_type_utils import normalize_field_type
 
 
 class EditFieldDialog(QDialog):
@@ -78,6 +79,7 @@ class EditFieldDialog(QDialog):
         current_lookup_display_field: Optional[str] = None,
         current_child_entity_id: Optional[str] = None,
         available_entities: Optional[tuple[tuple[str, str], ...]] = None,
+        get_valid_display_fields: Optional[Callable[[str], tuple[tuple[str, str], ...]]] = None,
         current_options: Optional[tuple[FieldOptionExportDTO, ...]] = None,
         on_add_option: Optional[Callable[[str, str], OperationResult]] = None,
         on_update_option: Optional[Callable[[str, str], OperationResult]] = None,
@@ -101,6 +103,9 @@ class EditFieldDialog(QDialog):
             current_lookup_display_field: Current lookup display field (LOOKUP fields)
             current_child_entity_id: Current child entity (TABLE fields)
             available_entities: List of (entity_id, entity_name) for dropdowns
+            get_valid_display_fields: Callback to get valid display fields for an entity.
+                Takes entity_id, returns tuple of (field_id, field_label).
+                Used to populate the lookup display field dropdown with only valid types.
             current_options: Current field options (DROPDOWN/RADIO fields)
             on_add_option: Callback to add option (value, label_key) -> Result
             on_update_option: Callback to update option (value, new_label_key) -> Result
@@ -112,8 +117,9 @@ class EditFieldDialog(QDialog):
         super().__init__(parent)
         self._entity_id = entity_id
         self._field_id = field_id
-        self._field_type = field_type
+        self._field_type = normalize_field_type(field_type)  # Normalize to lowercase via FieldType
         self._available_entities = available_entities or ()
+        self._get_valid_display_fields = get_valid_display_fields
         self._current_options = current_options or ()
         self._on_add_option = on_add_option
         self._on_update_option = on_update_option
@@ -181,8 +187,8 @@ class EditFieldDialog(QDialog):
         )
         form.addRow("Field ID:", field_id_display)
 
-        # Field Type (read-only)
-        field_type_display = QLineEdit(self._field_type)
+        # Field Type (read-only) - display uppercase for user-friendliness
+        field_type_display = QLineEdit(self._field_type.upper())
         field_type_display.setReadOnly(True)
         field_type_display.setStyleSheet(
             "background-color: #f0f0f0; color: #666;"
@@ -206,7 +212,7 @@ class EditFieldDialog(QDialog):
         # Required
         # INVARIANT: CALCULATED fields cannot be required - disable checkbox
         self._required_checkbox = QCheckBox("Field is required")
-        if self._field_type.upper() == "CALCULATED":
+        if self._field_type == "calculated":
             self._required_checkbox.setChecked(False)
             self._required_checkbox.setEnabled(False)
             self._required_checkbox.setToolTip(
@@ -264,15 +270,15 @@ class EditFieldDialog(QDialog):
         # Initialize optional attributes
         self._formula_input: Optional[QLineEdit] = None
         self._lookup_entity_combo: Optional[QComboBox] = None
-        self._lookup_display_field_input: Optional[QLineEdit] = None
+        self._lookup_display_field_combo: Optional[QComboBox] = None
         self._child_entity_combo: Optional[QComboBox] = None
         self._options_list: Optional[QListWidget] = None
 
-        if self._field_type in ("DROPDOWN", "RADIO"):
+        if self._field_type in ("dropdown", "radio"):
             # Options section for choice fields
             self._add_options_section(layout)
 
-        elif self._field_type == "CALCULATED":
+        elif self._field_type == "calculated":
             # Formula section
             formula_form = QFormLayout()
             formula_label = QLabel("--- CALCULATED Field Properties ---")
@@ -285,7 +291,7 @@ class EditFieldDialog(QDialog):
             formula_form.addRow("Formula:", self._formula_input)
             layout.addLayout(formula_form)
 
-        elif self._field_type == "LOOKUP":
+        elif self._field_type == "lookup":
             # Lookup section
             lookup_form = QFormLayout()
             lookup_label = QLabel("--- LOOKUP Field Properties ---")
@@ -294,8 +300,15 @@ class EditFieldDialog(QDialog):
 
             self._lookup_entity_combo = QComboBox()
             self._lookup_entity_combo.addItem("(None)", "")
-            for entity_id, entity_name in self._available_entities:
-                self._lookup_entity_combo.addItem(f"{entity_name} ({entity_id})", entity_id)
+            for eid, ename in self._available_entities:
+                # Filter out current entity - UX safety only (enforcement is at UseCases layer)
+                if eid == self._entity_id:
+                    continue
+                self._lookup_entity_combo.addItem(f"{ename} ({eid})", eid)
+            # Connect to update display field dropdown when entity changes
+            self._lookup_entity_combo.currentIndexChanged.connect(
+                self._on_lookup_entity_changed
+            )
             # Set current selection
             if current_lookup_entity_id:
                 index = self._lookup_entity_combo.findData(current_lookup_entity_id)
@@ -303,13 +316,23 @@ class EditFieldDialog(QDialog):
                     self._lookup_entity_combo.setCurrentIndex(index)
             lookup_form.addRow("Lookup Entity:", self._lookup_entity_combo)
 
-            self._lookup_display_field_input = QLineEdit()
-            self._lookup_display_field_input.setText(current_lookup_display_field or "")
-            self._lookup_display_field_input.setPlaceholderText("e.g., name")
-            lookup_form.addRow("Display Field:", self._lookup_display_field_input)
+            self._lookup_display_field_combo = QComboBox()
+            self._lookup_display_field_combo.addItem("(None)", "")
+            self._lookup_display_field_combo.setToolTip(
+                "Field from the lookup entity to display (optional).\n"
+                "Only user-readable fields are shown (not CALCULATED, TABLE, FILE, IMAGE)."
+            )
+            # Populate display field dropdown based on current lookup entity
+            self._populate_display_field_combo(current_lookup_entity_id)
+            # Set current selection
+            if current_lookup_display_field:
+                index = self._lookup_display_field_combo.findData(current_lookup_display_field)
+                if index >= 0:
+                    self._lookup_display_field_combo.setCurrentIndex(index)
+            lookup_form.addRow("Display Field:", self._lookup_display_field_combo)
             layout.addLayout(lookup_form)
 
-        elif self._field_type == "TABLE":
+        elif self._field_type == "table":
             # Table section
             table_form = QFormLayout()
             table_label = QLabel("--- TABLE Field Properties ---")
@@ -328,13 +351,53 @@ class EditFieldDialog(QDialog):
             table_form.addRow("Child Entity:", self._child_entity_combo)
             layout.addLayout(table_form)
 
+    def _on_lookup_entity_changed(self, index: int) -> None:
+        """Handle lookup entity selection change.
+
+        Updates the display field dropdown with valid fields from the selected entity.
+        Only fields with user-readable types are shown (not CALCULATED, TABLE, FILE, IMAGE).
+        """
+        if not self._lookup_display_field_combo:
+            return
+
+        # Get selected entity ID
+        if not self._lookup_entity_combo:
+            return
+
+        selected_entity_id = self._lookup_entity_combo.currentData()
+        self._populate_display_field_combo(selected_entity_id)
+
+    def _populate_display_field_combo(self, entity_id: str | None) -> None:
+        """Populate the display field combo with valid fields from an entity.
+
+        Args:
+            entity_id: The entity to get valid display fields from, or None to clear.
+        """
+        if not self._lookup_display_field_combo:
+            return
+
+        # Clear existing items (keep "(None)" option)
+        self._lookup_display_field_combo.clear()
+        self._lookup_display_field_combo.addItem("(None)", "")
+
+        if not entity_id:
+            return
+
+        # Get valid display fields via callback
+        if self._get_valid_display_fields:
+            valid_fields = self._get_valid_display_fields(entity_id)
+            for field_id, field_label in valid_fields:
+                self._lookup_display_field_combo.addItem(
+                    f"{field_label} ({field_id})", field_id
+                )
+
     def _add_options_section(self, layout: QVBoxLayout) -> None:
         """Add options management section for choice fields (DROPDOWN, RADIO).
 
         Phase F-14: Option management UI.
         """
-        # Section header
-        options_label = QLabel(f"--- {self._field_type} Field Options ---")
+        # Section header - display uppercase for user-friendliness
+        options_label = QLabel(f"--- {self._field_type.upper()} Field Options ---")
         options_label.setStyleSheet(
             "color: #4a5568; font-weight: bold; margin-top: 10px;"
         )
@@ -592,19 +655,29 @@ class EditFieldDialog(QDialog):
         }
 
         # Add type-specific data
-        if self._field_type == "CALCULATED" and self._formula_input:
+        if self._field_type == "calculated" and self._formula_input:
             formula = self._formula_input.text().strip()
             self.field_data["formula"] = formula if formula else None
 
-        elif self._field_type == "LOOKUP":
+        elif self._field_type == "lookup":
+            # LOOKUP fields require lookup_entity_id
             if self._lookup_entity_combo:
                 lookup_entity_id = self._lookup_entity_combo.currentData()
-                self.field_data["lookup_entity_id"] = lookup_entity_id if lookup_entity_id else None
-            if self._lookup_display_field_input:
-                lookup_display_field = self._lookup_display_field_input.text().strip()
+                if not lookup_entity_id:
+                    QMessageBox.warning(
+                        self,
+                        "Validation Error",
+                        "LOOKUP fields require a Lookup Entity.\n"
+                        "Please select an entity to lookup values from.",
+                    )
+                    self._lookup_entity_combo.setFocus()
+                    return  # Keep dialog open
+                self.field_data["lookup_entity_id"] = lookup_entity_id
+            if self._lookup_display_field_combo:
+                lookup_display_field = self._lookup_display_field_combo.currentData()
                 self.field_data["lookup_display_field"] = lookup_display_field if lookup_display_field else None
 
-        elif self._field_type == "TABLE" and self._child_entity_combo:
+        elif self._field_type == "table" and self._child_entity_combo:
             child_entity_id = self._child_entity_combo.currentData()
             self.field_data["child_entity_id"] = child_entity_id if child_entity_id else None
 

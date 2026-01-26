@@ -128,11 +128,14 @@ class TestGetAllowedConstraints:
         assert "FILE_EXTENSION" in allowed
         assert "MAX_FILE_SIZE" in allowed
 
-    def test_table_field_constraints(self) -> None:
-        """TABLE fields should support only required."""
+    def test_table_field_no_constraints(self) -> None:
+        """TABLE fields should have NO constraints.
+
+        Synced with Domain: TABLE fields hold child records, not user-typed values.
+        Scalar validation constraints are meaningless for TABLE fields.
+        """
         allowed = get_allowed_constraints("table")
-        assert "REQUIRED" in allowed
-        assert len(allowed) == 1
+        assert len(allowed) == 0
 
     def test_unknown_field_type_returns_empty(self) -> None:
         """Unknown field types should return empty set."""
@@ -181,9 +184,13 @@ class TestHasConstraintsAvailable:
         assert has_constraints_available("dropdown") is True
 
     def test_fields_without_constraints(self) -> None:
-        """Should return False for fields without constraints."""
+        """Should return False for fields without constraints.
+
+        Synced with Domain: CHECKBOX, CALCULATED, TABLE have no constraints.
+        """
         assert has_constraints_available("checkbox") is False
         assert has_constraints_available("calculated") is False
+        assert has_constraints_available("table") is False
         assert has_constraints_available("unknown") is False
 
 

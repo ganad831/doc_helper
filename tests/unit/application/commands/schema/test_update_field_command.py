@@ -347,9 +347,33 @@ class TestUpdateFieldCommand:
         mock_entity_with_lookup_field: EntityDefinition,
     ) -> None:
         """Should successfully update lookup properties on LOOKUP field."""
-        # Setup
+        # Create lookup entity with 'new_field' for validation
+        new_lookup_entity = EntityDefinition(
+            id=EntityDefinitionId("new_lookup_entity"),
+            name_key=TranslationKey("entity.new_lookup"),
+            description_key=None,
+            fields={
+                FieldDefinitionId("new_field"): FieldDefinition(
+                    id=FieldDefinitionId("new_field"),
+                    field_type=FieldType.TEXT,
+                    label_key=TranslationKey("field.new_field"),
+                    help_text_key=None,
+                    required=False,
+                    default_value=None,
+                ),
+            },
+            is_root_entity=False,
+            parent_entity_id=None,
+        )
+
+        # Setup mock to return appropriate entity based on ID
+        def get_by_id_side_effect(entity_id: EntityDefinitionId):
+            if entity_id.value == "new_lookup_entity":
+                return Success(new_lookup_entity)
+            return Success(mock_entity_with_lookup_field)
+
         mock_repository.exists.side_effect = lambda eid: True  # All entities exist
-        mock_repository.get_by_id.return_value = Success(mock_entity_with_lookup_field)
+        mock_repository.get_by_id.side_effect = get_by_id_side_effect
         mock_repository.save.return_value = Success(None)
 
         # Execute
@@ -916,3 +940,36 @@ class TestUpdateFieldCommand:
         assert updated_field.required is False
         assert updated_field.constraints == ()
         assert len(updated_field.constraints) == 0
+
+    # ==========================================================================
+    # SELF-ENTITY LOOKUP INVARIANT TESTS
+    # ==========================================================================
+
+    def test_self_entity_lookup_rejected(
+        self,
+        command: UpdateFieldCommand,
+        mock_repository: Mock,
+        mock_entity_with_lookup_field: EntityDefinition,
+    ) -> None:
+        """INVARIANT: LOOKUP fields cannot reference their own entity.
+
+        A1.2-2: UpdateFieldCommand defensive safety net - prevents self-entity
+        LOOKUP even if UseCases layer is bypassed.
+        """
+        # Setup
+        mock_repository.exists.side_effect = lambda eid: True  # All entities exist
+        mock_repository.get_by_id.return_value = Success(mock_entity_with_lookup_field)
+
+        # Execute: Try to set lookup_entity_id to same entity
+        result = command.execute(
+            entity_id="test_entity",
+            field_id="field_lookup",
+            lookup_entity_id="test_entity",  # Same as entity_id - MUST FAIL
+        )
+
+        # Assert
+        assert result.is_failure()
+        assert "cannot reference its own entity" in result.error.lower()
+
+        # Verify no save attempted
+        mock_repository.save.assert_not_called()

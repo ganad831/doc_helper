@@ -437,6 +437,31 @@ class SqliteSchemaRepository(ISchemaRepository):
                 else:
                     required_flag = bool(row[4])
 
+                # =====================================================================
+                # SELF-ENTITY LOOKUP INVARIANT (READ-PATH SAFETY NET):
+                # LOOKUP fields cannot reference their own entity. If db has corrupted
+                # data where lookup_entity_id == entity_id, DROP THE FIELD entirely.
+                # NO database mutation here - just skip loading the corrupted field.
+                # This is Option A (Preferred) from A1.2-3 spec.
+                # =====================================================================
+                lookup_entity_id_value = row[7]
+                if field_type == FieldType.LOOKUP and lookup_entity_id_value:
+                    if lookup_entity_id_value.strip() == str(entity_id.value).strip():
+                        # Skip this corrupted field - do not add to loaded fields dict
+                        continue
+
+                # =====================================================================
+                # LOOKUP DISPLAY FIELD INVARIANT (READ-PATH SANITIZATION):
+                # If lookup_display_field references a non-existent field or a field
+                # with an invalid type (CALCULATED, TABLE, FILE, IMAGE), sanitize to
+                # NULL. Do NOT fail the load - just correct the value.
+                # =====================================================================
+                lookup_display_field_value = row[8]
+                if field_type == FieldType.LOOKUP and lookup_display_field_value and lookup_entity_id_value:
+                    lookup_display_field_value = self._sanitize_lookup_display_field(
+                        cursor, lookup_entity_id_value, lookup_display_field_value
+                    )
+
                 # Create FieldDefinition
                 field_def = FieldDefinition(
                     id=field_id,
@@ -446,8 +471,8 @@ class SqliteSchemaRepository(ISchemaRepository):
                     required=required_flag,
                     default_value=row[5],
                     formula=row[6],
-                    lookup_entity_id=row[7],
-                    lookup_display_field=row[8],
+                    lookup_entity_id=lookup_entity_id_value,
+                    lookup_display_field=lookup_display_field_value,
                     child_entity_id=row[9],
                     constraints=constraints,
                     options=(),  # Load options separately if needed
@@ -460,6 +485,76 @@ class SqliteSchemaRepository(ISchemaRepository):
 
         except sqlite3.Error as e:
             return Failure(f"Failed to load fields: {e}")
+
+    # =========================================================================
+    # INVARIANT (Phase A2.1-1):
+    # If a LOOKUP display field becomes invalid (field deleted, field renamed,
+    # or field type changed to an incompatible type like CALCULATED/TABLE/FILE/IMAGE),
+    # lookup_display_field is automatically sanitized to NULL on load.
+    #
+    # This is INTENTIONAL and NOT an error. It prevents dangling cross-entity
+    # references from causing runtime failures. Schema Designer enforces
+    # structural validity only; corrupted references are silently healed.
+    #
+    # The database is NOT modified - sanitization is read-path only.
+    # =========================================================================
+    def _sanitize_lookup_display_field(
+        self,
+        cursor: sqlite3.Cursor,
+        lookup_entity_id: str,
+        lookup_display_field: str,
+    ) -> str | None:
+        """Sanitize lookup_display_field to ensure it references a valid field.
+
+        READ-PATH SANITIZATION: If lookup_display_field references a non-existent
+        field or a field with an invalid type (CALCULATED, TABLE, FILE, IMAGE),
+        return None to sanitize the value. Does NOT modify the database.
+
+        Args:
+            cursor: Database cursor
+            lookup_entity_id: The entity that lookup_display_field should reference
+            lookup_display_field: The field ID to validate
+
+        Returns:
+            lookup_display_field if valid, None if invalid (sanitized)
+        """
+        from doc_helper.domain.validation.lookup_display_field import (
+            INVALID_DISPLAY_FIELD_TYPES,
+        )
+
+        try:
+            # Query for the field in the lookup entity
+            cursor.execute(
+                """
+                SELECT field_type FROM fields
+                WHERE entity_id = ? AND id = ?
+                """,
+                (lookup_entity_id.strip(), lookup_display_field.strip()),
+            )
+            row = cursor.fetchone()
+
+            if not row:
+                # Field doesn't exist in the lookup entity - sanitize to None
+                return None
+
+            field_type_value = row[0]
+            try:
+                field_type = FieldType(field_type_value)
+            except ValueError:
+                # Invalid field type in database - sanitize to None
+                return None
+
+            # Check if the field type is invalid for display
+            if field_type in INVALID_DISPLAY_FIELD_TYPES:
+                # Invalid type (CALCULATED, TABLE, FILE, IMAGE) - sanitize to None
+                return None
+
+            # Field is valid
+            return lookup_display_field
+
+        except sqlite3.Error:
+            # Database error - be defensive, sanitize to None
+            return None
 
     def _insert_field(
         self,

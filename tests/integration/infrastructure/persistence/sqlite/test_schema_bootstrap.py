@@ -367,3 +367,291 @@ class TestSchemaBootstrapWithRepository:
             assert all_result.is_success()
             assert len(all_result.value) == 1
             assert all_result.value[0].id == EntityDefinitionId("test_entity")
+
+
+class TestBootstrapSanitization:
+    """Test bootstrap sanitization of corrupted data.
+
+    Phase A1 Hardening: Bootstrap sanitizes data invariants at startup.
+    """
+
+    def test_sanitize_lookup_field_without_entity_id_deletes_field(self) -> None:
+        """Bootstrap deletes LOOKUP fields with missing lookup_entity_id.
+
+        LOOKUP FIELD INVARIANT: LOOKUP fields MUST have lookup_entity_id.
+        Corrupted LOOKUP fields (missing lookup_entity_id) cannot survive bootstrap.
+        """
+        with TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "test_config.db"
+
+            # First bootstrap to create tables
+            bootstrap_schema_database(db_path)
+
+            # Insert corrupted LOOKUP field (missing lookup_entity_id)
+            conn = sqlite3.connect(str(db_path))
+            conn.execute("PRAGMA foreign_keys = OFF")  # Disable FK for test setup
+            conn.execute(
+                "INSERT INTO entities (id, name_key, is_root_entity) VALUES (?, ?, ?)",
+                ("test_entity", "entity.test", 1),
+            )
+            conn.execute(
+                """
+                INSERT INTO fields (id, entity_id, field_type, label_key, lookup_entity_id)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                ("corrupted_lookup", "test_entity", "lookup", "field.lookup", None),
+            )
+            conn.commit()
+
+            # Verify corrupted field exists
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM fields WHERE id = 'corrupted_lookup'")
+            assert cursor.fetchone()[0] == 1
+            conn.close()
+
+            # Run bootstrap again - should sanitize
+            bootstrap_schema_database(db_path)
+
+            # Verify corrupted field was deleted
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM fields WHERE id = 'corrupted_lookup'")
+            assert cursor.fetchone()[0] == 0
+            conn.close()
+
+    def test_sanitize_lookup_field_with_empty_entity_id_deletes_field(self) -> None:
+        """Bootstrap deletes LOOKUP fields with empty string lookup_entity_id.
+
+        Empty string is also invalid - lookup_entity_id must be non-empty.
+        """
+        with TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "test_config.db"
+
+            # First bootstrap to create tables
+            bootstrap_schema_database(db_path)
+
+            # Insert corrupted LOOKUP field (empty lookup_entity_id)
+            conn = sqlite3.connect(str(db_path))
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.execute(
+                "INSERT INTO entities (id, name_key, is_root_entity) VALUES (?, ?, ?)",
+                ("test_entity", "entity.test", 1),
+            )
+            conn.execute(
+                """
+                INSERT INTO fields (id, entity_id, field_type, label_key, lookup_entity_id)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                ("empty_lookup", "test_entity", "lookup", "field.lookup", ""),
+            )
+            conn.commit()
+            conn.close()
+
+            # Run bootstrap again - should sanitize
+            bootstrap_schema_database(db_path)
+
+            # Verify corrupted field was deleted
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM fields WHERE id = 'empty_lookup'")
+            assert cursor.fetchone()[0] == 0
+            conn.close()
+
+    def test_sanitize_valid_lookup_field_remains_untouched(self) -> None:
+        """Bootstrap does NOT delete valid LOOKUP fields with lookup_entity_id.
+
+        Valid LOOKUP fields (with proper lookup_entity_id) must remain intact.
+        """
+        with TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "test_config.db"
+
+            # First bootstrap to create tables
+            bootstrap_schema_database(db_path)
+
+            # Insert valid LOOKUP field
+            conn = sqlite3.connect(str(db_path))
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.execute(
+                "INSERT INTO entities (id, name_key, is_root_entity) VALUES (?, ?, ?)",
+                ("test_entity", "entity.test", 1),
+            )
+            conn.execute(
+                "INSERT INTO entities (id, name_key, is_root_entity) VALUES (?, ?, ?)",
+                ("referenced_entity", "entity.referenced", 1),
+            )
+            conn.execute(
+                """
+                INSERT INTO fields (id, entity_id, field_type, label_key, lookup_entity_id)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                ("valid_lookup", "test_entity", "lookup", "field.lookup", "referenced_entity"),
+            )
+            conn.commit()
+            conn.close()
+
+            # Run bootstrap again
+            bootstrap_schema_database(db_path)
+
+            # Verify valid field still exists
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+            cursor.execute("SELECT lookup_entity_id FROM fields WHERE id = 'valid_lookup'")
+            result = cursor.fetchone()
+            assert result is not None
+            assert result[0] == "referenced_entity"
+            conn.close()
+
+    def test_sanitize_non_lookup_fields_remain_untouched(self) -> None:
+        """Bootstrap does NOT delete non-LOOKUP fields regardless of lookup_entity_id.
+
+        TEXT, NUMBER, etc. fields don't require lookup_entity_id.
+        """
+        with TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "test_config.db"
+
+            # First bootstrap to create tables
+            bootstrap_schema_database(db_path)
+
+            # Insert non-LOOKUP fields without lookup_entity_id
+            conn = sqlite3.connect(str(db_path))
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.execute(
+                "INSERT INTO entities (id, name_key, is_root_entity) VALUES (?, ?, ?)",
+                ("test_entity", "entity.test", 1),
+            )
+            conn.execute(
+                """
+                INSERT INTO fields (id, entity_id, field_type, label_key, lookup_entity_id)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                ("text_field", "test_entity", "text", "field.text", None),
+            )
+            conn.execute(
+                """
+                INSERT INTO fields (id, entity_id, field_type, label_key, lookup_entity_id)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                ("number_field", "test_entity", "number", "field.number", None),
+            )
+            conn.commit()
+            conn.close()
+
+            # Run bootstrap again
+            bootstrap_schema_database(db_path)
+
+            # Verify non-LOOKUP fields still exist
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM fields WHERE id IN ('text_field', 'number_field')")
+            assert cursor.fetchone()[0] == 2
+            conn.close()
+
+    def test_sanitize_calculated_field_constraints_deleted(self) -> None:
+        """Bootstrap deletes validation constraints from CALCULATED fields.
+
+        CALCULATED FIELD INVARIANT: CALCULATED fields NEVER have constraints.
+        """
+        with TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "test_config.db"
+
+            # First bootstrap to create tables
+            bootstrap_schema_database(db_path)
+
+            # Insert CALCULATED field with constraints (corrupted data)
+            conn = sqlite3.connect(str(db_path))
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.execute(
+                "INSERT INTO entities (id, name_key, is_root_entity) VALUES (?, ?, ?)",
+                ("test_entity", "entity.test", 1),
+            )
+            conn.execute(
+                """
+                INSERT INTO fields (id, entity_id, field_type, label_key)
+                VALUES (?, ?, ?, ?)
+                """,
+                ("calc_field", "test_entity", "calculated", "field.calc"),
+            )
+            conn.execute(
+                """
+                INSERT INTO validation_rules (id, field_id, rule_type, rule_value)
+                VALUES (?, ?, ?, ?)
+                """,
+                ("invalid_rule", "calc_field", "REQUIRED", None),
+            )
+            conn.commit()
+
+            # Verify constraint exists
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM validation_rules WHERE field_id = 'calc_field'")
+            assert cursor.fetchone()[0] == 1
+            conn.close()
+
+            # Run bootstrap again - should sanitize
+            bootstrap_schema_database(db_path)
+
+            # Verify constraint was deleted
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM validation_rules WHERE field_id = 'calc_field'")
+            assert cursor.fetchone()[0] == 0
+            conn.close()
+
+    def test_sanitize_multiple_corrupted_lookup_fields(self) -> None:
+        """Bootstrap deletes all corrupted LOOKUP fields in one pass.
+
+        Multiple corrupted LOOKUP fields should all be cleaned up.
+        """
+        with TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "test_config.db"
+
+            # First bootstrap to create tables
+            bootstrap_schema_database(db_path)
+
+            # Insert multiple corrupted LOOKUP fields
+            conn = sqlite3.connect(str(db_path))
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.execute(
+                "INSERT INTO entities (id, name_key, is_root_entity) VALUES (?, ?, ?)",
+                ("test_entity", "entity.test", 1),
+            )
+            # Corrupted: NULL lookup_entity_id
+            conn.execute(
+                """
+                INSERT INTO fields (id, entity_id, field_type, label_key, lookup_entity_id)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                ("lookup1", "test_entity", "lookup", "field.lookup1", None),
+            )
+            # Corrupted: empty lookup_entity_id
+            conn.execute(
+                """
+                INSERT INTO fields (id, entity_id, field_type, label_key, lookup_entity_id)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                ("lookup2", "test_entity", "lookup", "field.lookup2", ""),
+            )
+            # Valid: has lookup_entity_id
+            conn.execute(
+                "INSERT INTO entities (id, name_key, is_root_entity) VALUES (?, ?, ?)",
+                ("ref_entity", "entity.ref", 1),
+            )
+            conn.execute(
+                """
+                INSERT INTO fields (id, entity_id, field_type, label_key, lookup_entity_id)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                ("lookup3", "test_entity", "lookup", "field.lookup3", "ref_entity"),
+            )
+            conn.commit()
+            conn.close()
+
+            # Run bootstrap again
+            bootstrap_schema_database(db_path)
+
+            # Verify: corrupted deleted, valid remains
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM fields WHERE field_type = 'lookup' ORDER BY id")
+            remaining = [row[0] for row in cursor.fetchall()]
+            assert remaining == ["lookup3"]
+            conn.close()

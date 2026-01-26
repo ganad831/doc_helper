@@ -128,6 +128,9 @@ from doc_helper.domain.validation.constraints import (
     PatternConstraint,
     RequiredConstraint,
 )
+from doc_helper.domain.validation.lookup_display_field import (
+    validate_lookup_display_field,
+)
 from doc_helper.domain.validation.severity import Severity
 
 
@@ -214,6 +217,59 @@ class SchemaUseCases:
         self._control_rule_usecases = ControlRuleUseCases()
 
     # =========================================================================
+    # Private Validation Helpers
+    # =========================================================================
+
+    def _validate_lookup_display_field(
+        self,
+        lookup_entity_id: str,
+        lookup_display_field: str,
+    ) -> OperationResult:
+        """Validate that lookup_display_field references a valid field.
+
+        INVARIANT: lookup_display_field must:
+        1. Reference an existing field in lookup_entity_id
+        2. NOT be a CALCULATED, TABLE, FILE, or IMAGE field type
+        3. Be a user-readable scalar field
+
+        Args:
+            lookup_entity_id: The entity ID being referenced
+            lookup_display_field: The field ID to validate
+
+        Returns:
+            OperationResult.ok(None) if valid, OperationResult.fail(message) if invalid
+        """
+        from doc_helper.domain.schema.schema_ids import EntityDefinitionId
+
+        # Load the lookup entity to get its fields
+        lookup_entity_id_obj = EntityDefinitionId(lookup_entity_id.strip())
+        load_result = self._schema_repository.get_by_id(lookup_entity_id_obj)
+
+        if load_result.is_failure():
+            return OperationResult.fail(
+                f"Cannot validate lookup_display_field: lookup entity '{lookup_entity_id}' not found."
+            )
+
+        lookup_entity = load_result.value
+
+        # Build mapping of field_id -> FieldType for validation
+        available_fields = {
+            field.id.value: field.field_type
+            for field in lookup_entity.fields.values()
+        }
+
+        # Use pure domain validation function
+        validation_result = validate_lookup_display_field(
+            lookup_display_field=lookup_display_field.strip(),
+            available_fields=available_fields,
+        )
+
+        if not validation_result.is_valid:
+            return OperationResult.fail(validation_result.error_message)
+
+        return OperationResult.ok(None)
+
+    # =========================================================================
     # Query Operations (READ)
     # =========================================================================
 
@@ -257,6 +313,50 @@ class SchemaUseCases:
             Tuple of human-readable constraint descriptions
         """
         return self._schema_query.get_field_validation_rules(entity_id, field_id)
+
+    def get_valid_lookup_display_fields(
+        self,
+        entity_id: str,
+    ) -> tuple[tuple[str, str], ...]:
+        """Get fields valid for use as lookup_display_field.
+
+        Returns fields that are user-readable scalars (not CALCULATED, TABLE,
+        FILE, or IMAGE) for use in the lookup display field dropdown.
+
+        Args:
+            entity_id: Entity ID to get fields from
+
+        Returns:
+            Tuple of (field_id, field_label) tuples for valid display fields.
+            Empty tuple if entity not found or has no valid fields.
+
+        INVARIANT: Only returns fields with types that are valid for display:
+        - TEXT, TEXTAREA, NUMBER, DATE, DROPDOWN, RADIO, CHECKBOX, LOOKUP
+        """
+        from doc_helper.domain.schema.schema_ids import EntityDefinitionId
+        from doc_helper.domain.validation.lookup_display_field import (
+            is_valid_display_field_type,
+        )
+
+        if not entity_id or not entity_id.strip():
+            return ()
+
+        entity_id_obj = EntityDefinitionId(entity_id.strip())
+        load_result = self._schema_repository.get_by_id(entity_id_obj)
+
+        if load_result.is_failure():
+            return ()
+
+        entity = load_result.value
+        valid_fields = []
+
+        for field_def in entity.fields.values():
+            if is_valid_display_field_type(field_def.field_type):
+                # Get translated label for display
+                label = self._translation_service.translate(field_def.label_key.key)
+                valid_fields.append((field_def.id.value, label))
+
+        return tuple(valid_fields)
 
     # =========================================================================
     # Command Operations (WRITE)
@@ -357,6 +457,8 @@ class SchemaUseCases:
         help_text_key: Optional[str] = None,
         required: bool = False,
         default_value: Optional[str] = None,
+        lookup_entity_id: Optional[str] = None,
+        lookup_display_field: Optional[str] = None,
     ) -> OperationResult:
         """Add a field to an entity.
 
@@ -368,10 +470,37 @@ class SchemaUseCases:
             help_text_key: Translation key for help text (optional)
             required: Whether field is required
             default_value: Default value (optional)
+            lookup_entity_id: Entity ID for LOOKUP fields (required for LOOKUP)
+            lookup_display_field: Field to display for LOOKUP fields (optional)
 
         Returns:
             OperationResult with field ID string on success, error message on failure
+
+        INVARIANT - SELF-ENTITY LOOKUP:
+            LOOKUP fields may only reference foreign entities.
+            A LOOKUP field cannot reference its own entity (self-referential lookups
+            are architecturally invalid and rejected at this layer).
         """
+        # =====================================================================
+        # SELF-ENTITY LOOKUP INVARIANT: LOOKUP fields cannot reference their own entity
+        # =====================================================================
+        if field_type.upper() == "LOOKUP" and lookup_entity_id:
+            if lookup_entity_id.strip() == entity_id.strip():
+                return OperationResult.fail(
+                    "A LOOKUP field cannot reference its own entity."
+                )
+
+        # =====================================================================
+        # LOOKUP DISPLAY FIELD INVARIANT: Must reference valid field in lookup entity
+        # =====================================================================
+        if field_type.upper() == "LOOKUP" and lookup_entity_id and lookup_display_field:
+            validation_result = self._validate_lookup_display_field(
+                lookup_entity_id=lookup_entity_id,
+                lookup_display_field=lookup_display_field,
+            )
+            if not validation_result.success:
+                return validation_result
+
         result = self._add_field_command.execute(
             entity_id=entity_id,
             field_id=field_id,
@@ -380,6 +509,8 @@ class SchemaUseCases:
             help_text_key=help_text_key,
             required=required,
             default_value=default_value,
+            lookup_entity_id=lookup_entity_id,
+            lookup_display_field=lookup_display_field,
         )
 
         if result.is_success():
@@ -418,6 +549,11 @@ class SchemaUseCases:
         Returns:
             OperationResult with field ID string on success, error message on failure.
             Note: Field type is immutable and cannot be changed.
+
+        INVARIANT - SELF-ENTITY LOOKUP:
+            LOOKUP fields may only reference foreign entities.
+            A LOOKUP field cannot reference its own entity (self-referential lookups
+            are architecturally invalid and rejected at this layer).
         """
         # =====================================================================
         # CALCULATED FIELD INVARIANT: Block required=True for CALCULATED fields
@@ -436,6 +572,43 @@ class SchemaUseCases:
                             "CALCULATED fields cannot be required. "
                             "They derive their values from formulas, not user input."
                         )
+
+        # =====================================================================
+        # SELF-ENTITY LOOKUP INVARIANT: LOOKUP fields cannot reference their own entity
+        # =====================================================================
+        if lookup_entity_id:
+            if lookup_entity_id.strip() == entity_id.strip():
+                return OperationResult.fail(
+                    "A LOOKUP field cannot reference its own entity."
+                )
+
+        # =====================================================================
+        # LOOKUP DISPLAY FIELD INVARIANT: Must reference valid field in lookup entity
+        # =====================================================================
+        if lookup_display_field is not None:
+            # Need to determine the lookup_entity_id to validate against
+            # Use the new value if provided, otherwise load from existing field
+            target_lookup_entity_id = lookup_entity_id
+            if target_lookup_entity_id is None:
+                # Load existing field to get current lookup_entity_id
+                from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
+                entity_id_obj = EntityDefinitionId(entity_id.strip())
+                load_result = self._schema_repository.get_by_id(entity_id_obj)
+                if load_result.is_success():
+                    entity = load_result.value
+                    field_id_obj = FieldDefinitionId(field_id.strip())
+                    if field_id_obj in entity.fields:
+                        field = entity.fields[field_id_obj]
+                        target_lookup_entity_id = field.lookup_entity_id
+
+            # Validate if we have a lookup entity to validate against
+            if target_lookup_entity_id and lookup_display_field.strip():
+                validation_result = self._validate_lookup_display_field(
+                    lookup_entity_id=target_lookup_entity_id,
+                    lookup_display_field=lookup_display_field,
+                )
+                if not validation_result.success:
+                    return validation_result
 
         result = self._update_field_command.execute(
             entity_id=entity_id,

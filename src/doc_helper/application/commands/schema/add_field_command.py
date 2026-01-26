@@ -13,6 +13,9 @@ from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinit
 from doc_helper.domain.schema.schema_repository import ISchemaRepository
 from doc_helper.domain.schema.entity_definition import EntityDefinition
 from doc_helper.domain.validation.constraints import RequiredConstraint
+from doc_helper.domain.validation.lookup_display_field import (
+    validate_lookup_display_field,
+)
 
 
 class AddFieldCommand:
@@ -29,6 +32,11 @@ class AddFieldCommand:
     - Adding validation rules
     - Adding formulas
     - Adding control rules
+
+    INVARIANT - SELF-ENTITY LOOKUP:
+        LOOKUP fields may only reference foreign entities.
+        A LOOKUP field cannot reference its own entity. This is a defensive
+        safety net - primary enforcement is at the UseCases layer.
 
     Usage:
         command = AddFieldCommand(schema_repository)
@@ -58,6 +66,8 @@ class AddFieldCommand:
         help_text_key: Optional[str] = None,
         required: bool = False,
         default_value: Optional[str] = None,
+        lookup_entity_id: Optional[str] = None,
+        lookup_display_field: Optional[str] = None,
     ) -> Result[FieldDefinitionId, str]:
         """Execute command to add field to entity.
 
@@ -69,6 +79,8 @@ class AddFieldCommand:
             help_text_key: Translation key for help text (optional)
             required: Whether field is required (default: False)
             default_value: Default value for field (optional)
+            lookup_entity_id: Entity ID for LOOKUP fields (required for LOOKUP)
+            lookup_display_field: Field to display for LOOKUP fields (optional)
 
         Returns:
             Result containing created FieldDefinitionId or error message
@@ -78,6 +90,7 @@ class AddFieldCommand:
             - field_id must be unique within entity
             - field_type must be valid
             - label_key must be provided
+            - LOOKUP fields must have lookup_entity_id
         """
         # Validate inputs
         if not entity_id:
@@ -119,6 +132,36 @@ class AddFieldCommand:
             )
 
         # =====================================================================
+        # SELF-ENTITY LOOKUP INVARIANT (DEFENSIVE): LOOKUP fields cannot reference
+        # their own entity. Primary enforcement is at UseCases layer; this is a
+        # safety net to catch any bypass.
+        # =====================================================================
+        if field_type_enum == FieldType.LOOKUP and lookup_entity_id:
+            if lookup_entity_id.strip() == entity_id.strip():
+                return Failure("A LOOKUP field cannot reference its own entity.")
+
+        # =====================================================================
+        # LOOKUP DISPLAY FIELD INVARIANT (DEFENSIVE): lookup_display_field must
+        # reference a valid field in the lookup entity. Primary enforcement is at
+        # UseCases layer; this is a safety net to catch any bypass.
+        # =====================================================================
+        if field_type_enum == FieldType.LOOKUP and lookup_entity_id and lookup_display_field:
+            lookup_entity_id_obj = EntityDefinitionId(lookup_entity_id.strip())
+            lookup_entity_result = self._schema_repository.get_by_id(lookup_entity_id_obj)
+            if lookup_entity_result.is_success():
+                lookup_entity = lookup_entity_result.value
+                available_fields = {
+                    field.id.value: field.field_type
+                    for field in lookup_entity.fields.values()
+                }
+                validation_result = validate_lookup_display_field(
+                    lookup_display_field=lookup_display_field.strip(),
+                    available_fields=available_fields,
+                )
+                if not validation_result.is_valid:
+                    return Failure(validation_result.error_message)
+
+        # =====================================================================
         # CALCULATED FIELD INVARIANT: CALCULATED fields NEVER have constraints.
         # Force required=False and constraints=() for CALCULATED fields.
         # =====================================================================
@@ -143,8 +186,8 @@ class AddFieldCommand:
                 constraints=constraints,
                 options=(),  # No options yet
                 formula=None,  # No formulas in Phase 2 Step 2
-                lookup_entity_id=None,
-                lookup_display_field=None,
+                lookup_entity_id=lookup_entity_id,
+                lookup_display_field=lookup_display_field,
                 child_entity_id=None,
                 control_rules=(),  # No control rules in Phase 2 Step 2
             )

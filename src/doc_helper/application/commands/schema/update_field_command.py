@@ -12,6 +12,9 @@ from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinit
 from doc_helper.domain.schema.field_type import FieldType
 from doc_helper.domain.schema.schema_repository import ISchemaRepository
 from doc_helper.domain.validation.constraints import RequiredConstraint
+from doc_helper.domain.validation.lookup_display_field import (
+    validate_lookup_display_field,
+)
 
 
 class UpdateFieldCommand:
@@ -27,6 +30,11 @@ class UpdateFieldCommand:
     - Field type is immutable (cannot be changed)
     - Type-specific properties only valid for their field types
     - Parent entity must exist
+
+    INVARIANT - SELF-ENTITY LOOKUP:
+        LOOKUP fields may only reference foreign entities.
+        A LOOKUP field cannot reference its own entity. This is a defensive
+        safety net - primary enforcement is at the UseCases layer.
     """
 
     def __init__(self, schema_repository: ISchemaRepository) -> None:
@@ -152,6 +160,15 @@ class UpdateFieldCommand:
             else:
                 updates["default_value"] = None
 
+        # =====================================================================
+        # SELF-ENTITY LOOKUP INVARIANT (DEFENSIVE): LOOKUP fields cannot reference
+        # their own entity. Primary enforcement is at UseCases layer; this is a
+        # safety net to catch any bypass.
+        # =====================================================================
+        if lookup_entity_id is not None:
+            if lookup_entity_id.strip() == entity_id.strip():
+                return Failure("A LOOKUP field cannot reference its own entity.")
+
         # Validate and collect type-specific property updates
         type_specific_result = self._validate_and_get_type_specific_updates(
             field_def,
@@ -236,9 +253,36 @@ class UpdateFieldCommand:
                     updates["lookup_entity_id"] = None
 
             if lookup_display_field is not None:
-                updates["lookup_display_field"] = (
-                    lookup_display_field.strip() if lookup_display_field.strip() else None
-                )
+                lookup_display_stripped = lookup_display_field.strip() if lookup_display_field.strip() else None
+                # =====================================================================
+                # LOOKUP DISPLAY FIELD INVARIANT (DEFENSIVE): lookup_display_field must
+                # reference a valid field in the lookup entity. Primary enforcement is at
+                # UseCases layer; this is a safety net to catch any bypass.
+                # =====================================================================
+                if lookup_display_stripped:
+                    # Determine the lookup entity to validate against
+                    # Use new value if provided, otherwise use existing value
+                    target_lookup_entity = (
+                        lookup_entity_id.strip() if lookup_entity_id and lookup_entity_id.strip()
+                        else field_def.lookup_entity_id
+                    )
+                    if target_lookup_entity:
+                        lookup_entity_id_obj = EntityDefinitionId(target_lookup_entity)
+                        lookup_entity_result = self._schema_repository.get_by_id(lookup_entity_id_obj)
+                        if lookup_entity_result.is_success():
+                            lookup_entity = lookup_entity_result.value
+                            available_fields = {
+                                field.id.value: field.field_type
+                                for field in lookup_entity.fields.values()
+                            }
+                            validation_result = validate_lookup_display_field(
+                                lookup_display_field=lookup_display_stripped,
+                                available_fields=available_fields,
+                            )
+                            if not validation_result.is_valid:
+                                return Failure(validation_result.error_message)
+
+                updates["lookup_display_field"] = lookup_display_stripped
 
         # Validate child_entity_id (TABLE only)
         if child_entity_id is not None:

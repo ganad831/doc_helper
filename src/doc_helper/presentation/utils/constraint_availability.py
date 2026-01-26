@@ -1,11 +1,23 @@
 """Constraint Availability Engine (Phase SD-6).
 
-Central mapping of FieldType -> AllowedConstraints.
-Single source of truth for constraint availability in UI.
+Presentation layer utility for constraint availability in UI.
+
+ARCHITECTURAL SYNCHRONIZATION REQUIREMENT:
+    This module MUST remain synchronized with the authoritative Domain layer:
+    domain/validation/constraint_availability.py
+
+    The Domain layer uses FieldType enums and FieldConstraint classes.
+    This Presentation layer uses strings (to avoid domain imports).
+
+    SYNCHRONIZATION IS ENFORCED BY TEST:
+        tests/unit/test_constraint_availability_sync.py
+
+    If you modify this file, you MUST verify the test still passes.
+    If you modify the Domain constraint matrix, you MUST update this file.
 
 NOTE: This is a Presentation layer utility.
 - Uses string-based field types and constraint types
-- NO domain imports
+- NO domain imports (architectural boundary)
 - Used by AddConstraintDialog to filter available constraints
 """
 
@@ -99,10 +111,9 @@ _CONSTRAINT_AVAILABILITY: dict[str, FrozenSet[str]] = {
         "MAX_FILE_SIZE",
     }),
 
-    # TABLE fields: Required only (for child records existence)
-    "table": frozenset({
-        "REQUIRED",
-    }),
+    # TABLE fields: NO constraints (holds child records, not user-typed values)
+    # Synced with Domain: domain/validation/constraint_availability.py
+    "table": frozenset(),
 }
 
 

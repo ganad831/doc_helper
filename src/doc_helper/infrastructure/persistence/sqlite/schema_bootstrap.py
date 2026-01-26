@@ -291,6 +291,73 @@ def _sanitize_calculated_field_constraints(db_path: Path) -> int:
         return 0
 
 
+def _sanitize_lookup_fields_without_entity_id(db_path: Path) -> int:
+    """Delete LOOKUP fields that are missing required lookup_entity_id.
+
+    LOOKUP FIELD INVARIANT: LOOKUP fields MUST have lookup_entity_id.
+    A LOOKUP field without lookup_entity_id is corrupted data and cannot
+    be used (the domain layer will reject it).
+
+    This function cleans up any corrupted LOOKUP fields by deleting them.
+
+    This is called automatically by bootstrap_schema_database() and is
+    idempotent - safe to run multiple times.
+
+    Args:
+        db_path: Path to the schema database file (config.db)
+
+    Returns:
+        Number of corrupted LOOKUP fields deleted (0 if none found, or 0 if table doesn't exist)
+
+    Note:
+        This function is defensive - if the required table (fields)
+        doesn't exist, it returns 0 without error. This handles edge cases like
+        databases with content but not the expected schema.
+    """
+    conn = None
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        cursor = conn.cursor()
+
+        # Check if fields table exists (defensive - handle non-standard databases)
+        cursor.execute(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='fields'
+            """
+        )
+        if cursor.fetchone() is None:
+            # Table doesn't exist - nothing to sanitize
+            conn.close()
+            return 0
+
+        # Delete LOOKUP fields with NULL or empty lookup_entity_id
+        cursor.execute(
+            """
+            DELETE FROM fields
+            WHERE field_type = 'lookup'
+            AND (lookup_entity_id IS NULL OR lookup_entity_id = '')
+            """
+        )
+
+        deleted_count = cursor.rowcount
+        conn.commit()
+        conn.close()
+
+        return deleted_count
+
+    except sqlite3.Error:
+        # Silently ignore errors - sanitization is best-effort
+        # The read-path safety net in schema_repository handles corrupted data at load time
+        if conn:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+        return 0
+
+
 def bootstrap_schema_database(db_path: Path) -> None:
     """Bootstrap schema database if it does not exist.
 
@@ -300,6 +367,7 @@ def bootstrap_schema_database(db_path: Path) -> None:
 
     ALSO runs data sanitization to enforce invariants:
     - CALCULATED fields NEVER have validation constraints
+    - LOOKUP fields MUST have lookup_entity_id (corrupted fields are deleted)
 
     Args:
         db_path: Path to the schema database file (config.db)
@@ -323,6 +391,7 @@ def bootstrap_schema_database(db_path: Path) -> None:
     if db_path.exists() and db_path.stat().st_size > 0:
         # Database exists - run sanitization only
         _sanitize_calculated_field_constraints(db_path)
+        _sanitize_lookup_fields_without_entity_id(db_path)
         return
 
     # Ensure parent directory exists

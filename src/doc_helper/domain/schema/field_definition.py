@@ -74,6 +74,20 @@ class FieldDefinition(ValueObject):
     help_text_key: Optional[TranslationKey] = None
     default_value: Optional[any] = None
     constraints: tuple = ()  # Tuple of FieldConstraint
+    # =========================================================================
+    # INVARIANT (Phase A2.1-3 / PC-2):
+    # DROPDOWN and RADIO display semantics (whether to show value vs label,
+    # how translations are applied) are intentionally NOT resolved here.
+    #
+    # Schema Designer guarantees STRUCTURAL validity only:
+    # - options exist
+    # - values are unique
+    # - label_keys are valid TranslationKeys
+    #
+    # Display semantics (value vs label, translation application) belong to
+    # Preview and Runtime layers. Any attempt to handle display logic in
+    # Schema Designer or Domain layer is a violation of layer boundaries.
+    # =========================================================================
     options: tuple = ()  # Tuple of (value, label_key) for choice fields
     formula: Optional[str] = None  # Formula expression for calculated fields
     lookup_entity_id: Optional[str] = None  # Entity ID for lookup fields

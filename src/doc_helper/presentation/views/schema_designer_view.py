@@ -1737,7 +1737,18 @@ class SchemaDesignerView(BaseView):
 
         from doc_helper.presentation.dialogs.add_field_dialog import AddFieldDialog
 
-        dialog = AddFieldDialog(entity_name=entity_name, parent=self._root)
+        # Get available entities for LOOKUP dropdown
+        available_entities = tuple(
+            (entity.id, entity.name) for entity in self._viewmodel.entities
+        )
+
+        dialog = AddFieldDialog(
+            entity_id=self._viewmodel.selected_entity_id,
+            entity_name=entity_name,
+            available_entities=available_entities,
+            get_valid_display_fields=self._viewmodel.get_valid_lookup_display_fields,
+            parent=self._root,
+        )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             field_data = dialog.get_field_data()
             if not field_data:
@@ -1752,6 +1763,8 @@ class SchemaDesignerView(BaseView):
                 help_text_key=field_data["help_text_key"],
                 required=field_data["required"],
                 default_value=field_data["default_value"],
+                lookup_entity_id=field_data.get("lookup_entity_id"),
+                lookup_display_field=field_data.get("lookup_display_field"),
             )
 
             if result.success:
@@ -1857,6 +1870,7 @@ class SchemaDesignerView(BaseView):
             current_lookup_display_field=selected_field.lookup_display_field,
             current_child_entity_id=selected_field.child_entity_id,
             available_entities=available_entities,
+            get_valid_display_fields=self._viewmodel.get_valid_lookup_display_fields,
             current_options=current_options,
             on_add_option=on_add_option,
             on_update_option=on_update_option,

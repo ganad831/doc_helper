@@ -465,3 +465,58 @@ class TestSqliteSchemaRepositoryPhase2Step2:
         load_result = repository.get_by_id(EntityDefinitionId("all_types_entity"))
         assert load_result.is_success()
         assert len(load_result.value.fields) == 7  # Only 7 field types testable in Phase 2 Step 2
+
+    # =========================================================================
+    # INVARIANT TEST (Phase A2.1-2):
+    # Proves that invalid lookup_display_field is sanitized to NULL on load.
+    # =========================================================================
+
+    def test_lookup_display_field_sanitized_when_invalid(
+        self, temp_db_path: Path
+    ) -> None:
+        """INVARIANT: Invalid lookup_display_field is sanitized to NULL on load.
+
+        Phase A2.1-2: This test proves the read-path sanitization behavior.
+        When a LOOKUP field references a non-existent display field, the
+        repository silently sanitizes it to None rather than failing.
+        """
+        # Directly insert data with an INVALID lookup_display_field
+        conn = sqlite3.connect(str(temp_db_path))
+        cursor = conn.cursor()
+
+        # Create target entity with a valid field
+        cursor.execute(
+            """INSERT INTO entities (id, name_key, is_root_entity, display_order)
+               VALUES ('target_entity', 'entity.target', 0, 0)"""
+        )
+        cursor.execute(
+            """INSERT INTO fields (id, entity_id, field_type, label_key, display_order)
+               VALUES ('valid_field', 'target_entity', 'text', 'field.valid', 0)"""
+        )
+
+        # Create source entity with LOOKUP field pointing to NON-EXISTENT display field
+        cursor.execute(
+            """INSERT INTO entities (id, name_key, is_root_entity, display_order)
+               VALUES ('source_entity', 'entity.source', 0, 1)"""
+        )
+        cursor.execute(
+            """INSERT INTO fields (id, entity_id, field_type, label_key, display_order,
+                                   lookup_entity_id, lookup_display_field)
+               VALUES ('lookup_field', 'source_entity', 'lookup', 'field.lookup', 0,
+                       'target_entity', 'NONEXISTENT_FIELD')"""
+        )
+
+        conn.commit()
+        conn.close()
+
+        # Load via repository - sanitization should occur
+        repository = SqliteSchemaRepository(temp_db_path)
+        result = repository.get_by_id(EntityDefinitionId("source_entity"))
+
+        # ASSERT: Load succeeds and lookup_display_field is sanitized to None
+        assert result.is_success(), f"Load should succeed, got: {result.error}"
+        lookup_field = result.value.fields[FieldDefinitionId("lookup_field")]
+        assert lookup_field.lookup_entity_id == "target_entity"
+        assert lookup_field.lookup_display_field is None, (
+            "INVARIANT VIOLATION: Invalid lookup_display_field should be sanitized to None"
+        )

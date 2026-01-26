@@ -315,6 +315,44 @@ class TestSchemaUseCasesFieldOperations:
 
         assert result.success is False
 
+    def test_add_field_failure_lookup_self_entity(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when LOOKUP field references its own entity.
+
+        SELF-ENTITY LOOKUP INVARIANT (A1.1-2): LOOKUP fields cannot reference
+        the same entity they belong to. Self-referential lookups are not allowed.
+        """
+        from doc_helper.domain.schema.entity_definition import EntityDefinition
+        from doc_helper.domain.common.i18n import TranslationKey
+
+        # Setup: Create an entity
+        mock_entity = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            description_key=None,
+            fields={},
+            is_root_entity=False,
+            parent_entity_id=None,
+        )
+
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity)
+
+        # Execute: Try to add a LOOKUP field that references its own entity
+        result = usecases.add_field(
+            entity_id="test_entity",
+            field_id="self_lookup_field",
+            field_type="lookup",
+            label_key="field.self_lookup",
+            lookup_entity_id="test_entity",  # Same as entity_id - SHOULD FAIL
+        )
+
+        # Assert: Should fail with clear error message
+        assert result.success is False
+        assert "own entity" in result.error.lower() or "self" in result.error.lower()
+
     # =========================================================================
     # UPDATE FIELD
     # =========================================================================
@@ -368,6 +406,53 @@ class TestSchemaUseCasesFieldOperations:
 
         assert result.success is False
         assert "not found" in result.error.lower() or "does not exist" in result.error.lower()
+
+    def test_update_field_failure_lookup_self_entity(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when updating LOOKUP to reference its own entity.
+
+        SELF-ENTITY LOOKUP INVARIANT (A1.1-2): LOOKUP fields cannot reference
+        the same entity they belong to. Self-referential lookups are not allowed.
+        """
+        from doc_helper.domain.schema.entity_definition import EntityDefinition
+        from doc_helper.domain.schema.field_definition import FieldDefinition
+        from doc_helper.domain.schema.field_type import FieldType
+        from doc_helper.domain.common.i18n import TranslationKey
+
+        # Setup: Create an entity with an existing LOOKUP field pointing to a different entity
+        lookup_field = FieldDefinition(
+            id=FieldDefinitionId("lookup_field"),
+            field_type=FieldType.LOOKUP,
+            label_key=TranslationKey("field.lookup"),
+            required=False,
+            lookup_entity_id=EntityDefinitionId("other_entity"),  # Currently points elsewhere
+        )
+
+        mock_entity = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            description_key=None,
+            fields={lookup_field.id: lookup_field},
+            is_root_entity=False,
+            parent_entity_id=None,
+        )
+
+        mock_schema_repository.get_by_id.return_value = Success(mock_entity)
+        mock_schema_repository.exists.return_value = True
+
+        # Execute: Try to update the LOOKUP field to reference its own entity
+        result = usecases.update_field(
+            entity_id="test_entity",
+            field_id="lookup_field",
+            lookup_entity_id="test_entity",  # Same as entity_id - SHOULD FAIL
+        )
+
+        # Assert: Should fail with clear error message
+        assert result.success is False
+        assert "own entity" in result.error.lower() or "self" in result.error.lower()
 
     # =========================================================================
     # DELETE FIELD
