@@ -11,6 +11,7 @@ from doc_helper.domain.common.i18n import TranslationKey
 from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
 from doc_helper.domain.schema.field_type import FieldType
 from doc_helper.domain.schema.schema_repository import ISchemaRepository
+from doc_helper.domain.validation.constraints import RequiredConstraint
 
 
 class UpdateFieldCommand:
@@ -116,9 +117,23 @@ class UpdateFieldCommand:
             else:
                 updates["help_text_key"] = None
 
-        # Update required if provided
+        # Update required if provided - MUST synchronize constraints
         if required is not None:
             updates["required"] = required
+            # Synchronize RequiredConstraint with required flag
+            current_constraints = list(field_def.constraints)
+            has_required_constraint = any(
+                isinstance(c, RequiredConstraint) for c in current_constraints
+            )
+            if required and not has_required_constraint:
+                # Add RequiredConstraint
+                current_constraints.append(RequiredConstraint())
+            elif not required and has_required_constraint:
+                # Remove RequiredConstraint
+                current_constraints = [
+                    c for c in current_constraints if not isinstance(c, RequiredConstraint)
+                ]
+            updates["constraints"] = tuple(current_constraints)
 
         # Update default_value if provided
         if default_value is not None:

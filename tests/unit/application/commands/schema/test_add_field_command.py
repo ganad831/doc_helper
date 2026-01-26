@@ -83,6 +83,54 @@ class TestAddFieldCommand:
         assert field.required is True
         assert field.default_value == "default_text"
 
+    def test_add_field_creates_required_constraint_when_required_true(
+        self, command: AddFieldCommand, mock_repository: Mock
+    ) -> None:
+        """Should create RequiredConstraint when required=True.
+
+        This verifies BUG FIX: Previously, setting required=True did not
+        create the RequiredConstraint, causing the validation rule not to
+        appear in the Validation Rules panel.
+        """
+        from doc_helper.domain.validation.constraints import RequiredConstraint
+
+        result = command.execute(
+            entity_id="test_entity",
+            field_id="required_field",
+            field_type="text",
+            label_key="field.required_field",
+            required=True,
+        )
+
+        assert result.is_success()
+        saved_entity = mock_repository.save.call_args[0][0]
+        field = saved_entity.fields[FieldDefinitionId("required_field")]
+
+        # CRITICAL: Verify RequiredConstraint is in constraints tuple
+        assert field.required is True
+        assert len(field.constraints) == 1
+        assert isinstance(field.constraints[0], RequiredConstraint)
+
+    def test_add_field_no_constraint_when_required_false(
+        self, command: AddFieldCommand, mock_repository: Mock
+    ) -> None:
+        """Should not create RequiredConstraint when required=False."""
+        result = command.execute(
+            entity_id="test_entity",
+            field_id="optional_field",
+            field_type="text",
+            label_key="field.optional_field",
+            required=False,
+        )
+
+        assert result.is_success()
+        saved_entity = mock_repository.save.call_args[0][0]
+        field = saved_entity.fields[FieldDefinitionId("optional_field")]
+
+        # No constraints for optional fields
+        assert field.required is False
+        assert len(field.constraints) == 0
+
     def test_add_field_without_optional_params(
         self, command: AddFieldCommand, mock_repository: Mock
     ) -> None:

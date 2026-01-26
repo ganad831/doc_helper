@@ -397,6 +397,188 @@ class TestUpdateFieldCommand:
         assert updated_field.child_entity_id == "new_child_entity"
 
     # =========================================================================
+    # RequiredConstraint Synchronization Tests (BUG FIX #4)
+    # =========================================================================
+
+    def test_update_required_false_removes_required_constraint(
+        self,
+        command: UpdateFieldCommand,
+        mock_repository: Mock,
+    ) -> None:
+        """Should remove RequiredConstraint when required=False.
+
+        BUG FIX #4: When editing a field and unchecking "Required", the
+        RequiredConstraint must be removed from field.constraints.
+        """
+        from doc_helper.domain.validation.constraints import RequiredConstraint
+
+        # Setup: Field with required=True and RequiredConstraint
+        field_with_constraint = FieldDefinition(
+            id=FieldDefinitionId("field_text"),
+            field_type=FieldType.TEXT,
+            label_key=TranslationKey("field.text.label"),
+            help_text_key=None,
+            required=True,
+            default_value=None,
+            formula=None,
+            lookup_entity_id=None,
+            lookup_display_field=None,
+            child_entity_id=None,
+            constraints=(RequiredConstraint(),),
+            options=(),
+            control_rules=(),
+        )
+        entity_with_required_field = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            fields={FieldDefinitionId("field_text"): field_with_constraint},
+        )
+
+        mock_repository.exists.return_value = True
+        mock_repository.get_by_id.return_value = Success(entity_with_required_field)
+        mock_repository.save.return_value = Success(None)
+
+        # Execute: Set required=False
+        result = command.execute(
+            entity_id="test_entity",
+            field_id="field_text",
+            required=False,
+        )
+
+        # Assert
+        assert result.is_success()
+
+        saved_entity = mock_repository.save.call_args[0][0]
+        updated_field = saved_entity.fields[FieldDefinitionId("field_text")]
+
+        # CRITICAL: required flag AND constraints must be synchronized
+        assert updated_field.required is False
+        assert len(updated_field.constraints) == 0
+        assert not any(isinstance(c, RequiredConstraint) for c in updated_field.constraints)
+
+    def test_update_required_true_adds_required_constraint(
+        self,
+        command: UpdateFieldCommand,
+        mock_repository: Mock,
+    ) -> None:
+        """Should add RequiredConstraint when required=True.
+
+        When editing a field and checking "Required", the RequiredConstraint
+        must be added to field.constraints if not already present.
+        """
+        from doc_helper.domain.validation.constraints import RequiredConstraint
+
+        # Setup: Field with required=False and no constraints
+        optional_field = FieldDefinition(
+            id=FieldDefinitionId("field_text"),
+            field_type=FieldType.TEXT,
+            label_key=TranslationKey("field.text.label"),
+            help_text_key=None,
+            required=False,
+            default_value=None,
+            formula=None,
+            lookup_entity_id=None,
+            lookup_display_field=None,
+            child_entity_id=None,
+            constraints=(),
+            options=(),
+            control_rules=(),
+        )
+        entity_with_optional_field = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            fields={FieldDefinitionId("field_text"): optional_field},
+        )
+
+        mock_repository.exists.return_value = True
+        mock_repository.get_by_id.return_value = Success(entity_with_optional_field)
+        mock_repository.save.return_value = Success(None)
+
+        # Execute: Set required=True
+        result = command.execute(
+            entity_id="test_entity",
+            field_id="field_text",
+            required=True,
+        )
+
+        # Assert
+        assert result.is_success()
+
+        saved_entity = mock_repository.save.call_args[0][0]
+        updated_field = saved_entity.fields[FieldDefinitionId("field_text")]
+
+        # CRITICAL: required flag AND constraints must be synchronized
+        assert updated_field.required is True
+        assert len(updated_field.constraints) == 1
+        assert isinstance(updated_field.constraints[0], RequiredConstraint)
+
+    def test_update_required_preserves_other_constraints(
+        self,
+        command: UpdateFieldCommand,
+        mock_repository: Mock,
+    ) -> None:
+        """Should preserve other constraints when changing required flag.
+
+        When toggling the required flag, any other constraints (like MinLength,
+        MaxLength, Pattern) must be preserved.
+        """
+        from doc_helper.domain.validation.constraints import (
+            RequiredConstraint,
+            MinLengthConstraint,
+            MaxLengthConstraint,
+        )
+
+        # Setup: Field with required=True, RequiredConstraint, and other constraints
+        field_with_multiple_constraints = FieldDefinition(
+            id=FieldDefinitionId("field_text"),
+            field_type=FieldType.TEXT,
+            label_key=TranslationKey("field.text.label"),
+            help_text_key=None,
+            required=True,
+            default_value=None,
+            formula=None,
+            lookup_entity_id=None,
+            lookup_display_field=None,
+            child_entity_id=None,
+            constraints=(
+                RequiredConstraint(),
+                MinLengthConstraint(min_length=5),
+                MaxLengthConstraint(max_length=100),
+            ),
+            options=(),
+            control_rules=(),
+        )
+        entity = EntityDefinition(
+            id=EntityDefinitionId("test_entity"),
+            name_key=TranslationKey("entity.test"),
+            fields={FieldDefinitionId("field_text"): field_with_multiple_constraints},
+        )
+
+        mock_repository.exists.return_value = True
+        mock_repository.get_by_id.return_value = Success(entity)
+        mock_repository.save.return_value = Success(None)
+
+        # Execute: Set required=False (should remove RequiredConstraint only)
+        result = command.execute(
+            entity_id="test_entity",
+            field_id="field_text",
+            required=False,
+        )
+
+        # Assert
+        assert result.is_success()
+
+        saved_entity = mock_repository.save.call_args[0][0]
+        updated_field = saved_entity.fields[FieldDefinitionId("field_text")]
+
+        # CRITICAL: Other constraints must be preserved
+        assert updated_field.required is False
+        assert len(updated_field.constraints) == 2  # MinLength + MaxLength, no Required
+        assert not any(isinstance(c, RequiredConstraint) for c in updated_field.constraints)
+        assert any(isinstance(c, MinLengthConstraint) for c in updated_field.constraints)
+        assert any(isinstance(c, MaxLengthConstraint) for c in updated_field.constraints)
+
+    # =========================================================================
     # FAILURE Cases
     # =========================================================================
 

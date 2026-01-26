@@ -12,6 +12,7 @@ from doc_helper.domain.schema.field_type import FieldType
 from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
 from doc_helper.domain.schema.schema_repository import ISchemaRepository
 from doc_helper.domain.schema.entity_definition import EntityDefinition
+from doc_helper.domain.validation.constraints import RequiredConstraint
 
 
 class AddFieldCommand:
@@ -117,6 +118,11 @@ class AddFieldCommand:
                 f"Invalid field_type '{field_type}'. Valid types: {', '.join(valid_types)}"
             )
 
+        # Build constraints tuple based on field settings
+        constraints: tuple = ()
+        if required:
+            constraints = (RequiredConstraint(),)
+
         # Create FieldDefinition
         try:
             field_def = FieldDefinition(
@@ -126,7 +132,7 @@ class AddFieldCommand:
                 help_text_key=TranslationKey(help_text_key) if help_text_key else None,
                 required=required,
                 default_value=default_value,
-                constraints=(),  # No constraints in Phase 2 Step 2
+                constraints=constraints,
                 options=(),  # No options yet
                 formula=None,  # No formulas in Phase 2 Step 2
                 lookup_entity_id=None,

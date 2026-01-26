@@ -15,6 +15,7 @@ from doc_helper.domain.schema.field_definition import FieldDefinition
 from doc_helper.domain.schema.schema_ids import EntityDefinitionId, FieldDefinitionId
 from doc_helper.domain.schema.schema_repository import ISchemaRepository
 from doc_helper.domain.schema.field_type import FieldType
+from doc_helper.domain.validation.constraint_factory import ConstraintFactory
 from doc_helper.infrastructure.persistence.sqlite_base import SqliteConnection
 
 
@@ -71,6 +72,7 @@ class SqliteSchemaRepository(ISchemaRepository):
             raise FileNotFoundError(f"Database file not found: {self.db_path}")
 
         self._connection = SqliteConnection(self.db_path)
+        self._constraint_factory = ConstraintFactory()
 
     # -------------------------------------------------------------------------
     # Read Operations (Phase 1 + Phase 2 Step 1)
@@ -287,15 +289,31 @@ class SqliteSchemaRepository(ISchemaRepository):
                             self._insert_field(cursor, entity.id, field_def)
 
                     else:
-                        # UPDATE (Phase 2 Step 3): Add new fields OR update existing fields
-                        # Load existing field IDs
+                        # UPDATE (Phase 2 Step 3): Add/update/delete fields
+                        # Load existing field IDs from database
                         cursor.execute(
                             "SELECT id FROM fields WHERE entity_id = ?",
                             (str(entity.id.value),),
                         )
                         existing_field_ids = {row[0] for row in cursor.fetchall()}
 
-                        # Process all fields: insert new, update existing
+                        # Get current field IDs from aggregate
+                        current_field_ids = {
+                            str(field_def.id.value)
+                            for field_def in entity.get_all_fields()
+                        }
+
+                        # DELETE fields that were removed from aggregate
+                        # NOTE: validation_rules cleanup is handled by ON DELETE CASCADE
+                        # (see schema_bootstrap.py VALIDATION_RULES_TABLE_DDL)
+                        removed_field_ids = existing_field_ids - current_field_ids
+                        for removed_id in removed_field_ids:
+                            cursor.execute(
+                                "DELETE FROM fields WHERE id = ? AND entity_id = ?",
+                                (removed_id, str(entity.id.value)),
+                            )
+
+                        # Process all current fields: insert new, update existing
                         for field_def in entity.get_all_fields():
                             if str(field_def.id.value) in existing_field_ids:
                                 # Field exists - UPDATE it
@@ -405,6 +423,9 @@ class SqliteSchemaRepository(ISchemaRepository):
                 field_id = FieldDefinitionId(row[0])
                 field_type = FieldType(row[1])
 
+                # Load constraints from validation_rules table
+                constraints = self._load_constraints(cursor, field_id)
+
                 # Create FieldDefinition
                 field_def = FieldDefinition(
                     id=field_id,
@@ -417,7 +438,7 @@ class SqliteSchemaRepository(ISchemaRepository):
                     lookup_entity_id=row[7],
                     lookup_display_field=row[8],
                     child_entity_id=row[9],
-                    constraints=(),  # Load constraints separately if needed
+                    constraints=constraints,
                     options=(),  # Load options separately if needed
                     control_rules=(),  # Not loaded in Phase 2 Step 2
                 )
@@ -468,6 +489,10 @@ class SqliteSchemaRepository(ISchemaRepository):
             ),
         )
 
+        # Insert constraints into validation_rules table
+        if field_def.constraints:
+            self._insert_constraints(cursor, field_def.id, field_def.constraints)
+
     def _update_field(
         self,
         cursor: sqlite3.Cursor,
@@ -512,6 +537,123 @@ class SqliteSchemaRepository(ISchemaRepository):
                 str(entity_id.value),
             ),
         )
+
+        # Sync constraints: delete old, insert new
+        self._delete_constraints(cursor, field_def.id)
+        if field_def.constraints:
+            self._insert_constraints(cursor, field_def.id, field_def.constraints)
+
+    # -------------------------------------------------------------------------
+    # Constraint Persistence Helpers
+    # -------------------------------------------------------------------------
+
+    def _insert_constraints(
+        self,
+        cursor: sqlite3.Cursor,
+        field_id: FieldDefinitionId,
+        constraints: tuple,
+    ) -> None:
+        """Insert constraints for a field into validation_rules table.
+
+        Args:
+            cursor: Database cursor
+            field_id: Field ID these constraints belong to
+            constraints: Tuple of FieldConstraint objects
+        """
+        import uuid
+
+        for constraint in constraints:
+            rule_type, rule_value = self._constraint_to_db_row(constraint)
+            cursor.execute(
+                """
+                INSERT INTO validation_rules (id, field_id, rule_type, rule_value, error_message_key)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    str(uuid.uuid4()),  # Generate unique ID
+                    str(field_id.value),
+                    rule_type,
+                    rule_value,
+                    None,  # error_message_key not used yet
+                ),
+            )
+
+    def _delete_constraints(
+        self,
+        cursor: sqlite3.Cursor,
+        field_id: FieldDefinitionId,
+    ) -> None:
+        """Delete all constraints for a field from validation_rules table.
+
+        Args:
+            cursor: Database cursor
+            field_id: Field ID to delete constraints for
+        """
+        cursor.execute(
+            "DELETE FROM validation_rules WHERE field_id = ?",
+            (str(field_id.value),),
+        )
+
+    def _load_constraints(
+        self,
+        cursor: sqlite3.Cursor,
+        field_id: FieldDefinitionId,
+    ) -> tuple:
+        """Load constraints for a field from validation_rules table.
+
+        Args:
+            cursor: Database cursor
+            field_id: Field ID to load constraints for
+
+        Returns:
+            Tuple of FieldConstraint objects
+        """
+        cursor.execute(
+            """
+            SELECT rule_type, rule_value
+            FROM validation_rules
+            WHERE field_id = ?
+            """,
+            (str(field_id.value),),
+        )
+        rows = cursor.fetchall()
+
+        constraints = []
+        for row in rows:
+            constraint = self._db_row_to_constraint(row[0], row[1])
+            if constraint:
+                constraints.append(constraint)
+
+        return tuple(constraints)
+
+    def _constraint_to_db_row(self, constraint) -> tuple:
+        """Convert a FieldConstraint to database row format.
+
+        Uses ConstraintFactory to serialize domain objects to raw data.
+        This keeps domain object knowledge in the Domain layer.
+
+        Args:
+            constraint: FieldConstraint to convert
+
+        Returns:
+            Tuple of (rule_type, rule_value)
+        """
+        return self._constraint_factory.serialize_to_raw(constraint)
+
+    def _db_row_to_constraint(self, rule_type: str, rule_value: str):
+        """Convert database row to a FieldConstraint.
+
+        Uses ConstraintFactory to hydrate domain objects from raw data.
+        This keeps domain object instantiation in the Domain layer.
+
+        Args:
+            rule_type: Rule type from database
+            rule_value: Rule value from database
+
+        Returns:
+            FieldConstraint or None if unknown type
+        """
+        return self._constraint_factory.create_from_raw(rule_type, rule_value)
 
     def get_entity_dependencies(self, entity_id: EntityDefinitionId) -> Result[dict, str]:
         """Get all dependencies on an entity (Phase 2 Step 3 - Decision 4).
@@ -740,6 +882,8 @@ class SqliteSchemaRepository(ISchemaRepository):
                     pass
 
                 # 3. Delete all field definitions belonging to this entity
+                # NOTE: validation_rules cleanup is handled by ON DELETE CASCADE
+                # (see schema_bootstrap.py VALIDATION_RULES_TABLE_DDL)
                 cursor.execute(
                     "DELETE FROM fields WHERE entity_id = ?",
                     (entity_id_str,),

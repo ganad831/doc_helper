@@ -64,6 +64,17 @@ class TestSqliteSchemaRepositoryPhase2Step2:
             )
         """)
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS validation_rules (
+                id TEXT PRIMARY KEY,
+                field_id TEXT NOT NULL,
+                rule_type TEXT NOT NULL,
+                rule_value TEXT,
+                error_message_key TEXT,
+                FOREIGN KEY (field_id) REFERENCES fields(id) ON DELETE CASCADE
+            )
+        """)
+
         conn.commit()
         conn.close()
 

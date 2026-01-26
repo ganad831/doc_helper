@@ -60,6 +60,19 @@ def test_db_path(tmp_path: Path) -> Path:
         """
     )
 
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS validation_rules (
+            id TEXT PRIMARY KEY,
+            field_id TEXT NOT NULL,
+            rule_type TEXT NOT NULL,
+            rule_value TEXT,
+            error_message_key TEXT,
+            FOREIGN KEY (field_id) REFERENCES fields(id) ON DELETE CASCADE
+        )
+        """
+    )
+
     conn.commit()
     conn.close()
 
@@ -445,3 +458,220 @@ class TestSchemaRepositoryEntityUpdate:
         # Assert
         assert result.is_failure()
         assert "does not exist" in result.error.lower()
+
+
+class TestSchemaRepositoryConstraintPersistence:
+    """Integration tests for constraint persistence in schema repository.
+
+    Tests that FieldConstraint objects are correctly persisted to and loaded
+    from the validation_rules table via the ConstraintFactory.
+    """
+
+    @pytest.fixture
+    def test_db_path(self, tmp_path: Path) -> Path:
+        """Create temporary test database with validation_rules table."""
+        db_path = tmp_path / "test_constraints.db"
+
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            CREATE TABLE entities (
+                id TEXT PRIMARY KEY,
+                name_key TEXT NOT NULL,
+                description_key TEXT,
+                is_root_entity INTEGER NOT NULL DEFAULT 0,
+                parent_entity_id TEXT,
+                display_order INTEGER DEFAULT 0
+            )
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE fields (
+                id TEXT PRIMARY KEY,
+                entity_id TEXT NOT NULL,
+                field_type TEXT NOT NULL,
+                label_key TEXT NOT NULL,
+                help_text_key TEXT,
+                required INTEGER NOT NULL DEFAULT 0,
+                default_value TEXT,
+                display_order INTEGER DEFAULT 0,
+                formula TEXT,
+                lookup_entity_id TEXT,
+                lookup_display_field TEXT,
+                child_entity_id TEXT,
+                FOREIGN KEY (entity_id) REFERENCES entities(id)
+            )
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS validation_rules (
+                id TEXT PRIMARY KEY,
+                field_id TEXT NOT NULL,
+                rule_type TEXT NOT NULL,
+                rule_value TEXT,
+                error_message_key TEXT,
+                FOREIGN KEY (field_id) REFERENCES fields(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        conn.commit()
+        conn.close()
+
+        return db_path
+
+    @pytest.fixture
+    def repository(self, test_db_path: Path) -> SqliteSchemaRepository:
+        """Create repository instance."""
+        return SqliteSchemaRepository(test_db_path)
+
+    def test_save_and_load_required_constraint(
+        self, repository: SqliteSchemaRepository
+    ) -> None:
+        """Should persist and reload RequiredConstraint through ConstraintFactory."""
+        from doc_helper.domain.validation.constraints import RequiredConstraint
+
+        # Create field with RequiredConstraint
+        field_with_required = FieldDefinition(
+            id=FieldDefinitionId("required_field"),
+            field_type=FieldType.TEXT,
+            label_key=TranslationKey("field.required"),
+            required=True,
+            constraints=(RequiredConstraint(),),
+        )
+
+        entity = EntityDefinition(
+            id=EntityDefinitionId("constraint_test_entity"),
+            name_key=TranslationKey("entity.constraint_test"),
+            fields={field_with_required.id: field_with_required},
+            is_root_entity=False,
+        )
+
+        # Save
+        result = repository.save(entity)
+        assert result.is_success()
+
+        # Load and verify constraint was persisted
+        loaded_result = repository.get_by_id(entity.id)
+        assert loaded_result.is_success()
+
+        loaded_entity = loaded_result.value
+        loaded_field = loaded_entity.fields[FieldDefinitionId("required_field")]
+
+        # Verify constraints were loaded
+        assert len(loaded_field.constraints) == 1
+        assert isinstance(loaded_field.constraints[0], RequiredConstraint)
+
+    def test_save_and_load_multiple_constraints(
+        self, repository: SqliteSchemaRepository
+    ) -> None:
+        """Should persist and reload multiple constraints."""
+        from doc_helper.domain.validation.constraints import (
+            RequiredConstraint,
+            MinLengthConstraint,
+            MaxLengthConstraint,
+        )
+
+        # Create field with multiple constraints
+        field_with_constraints = FieldDefinition(
+            id=FieldDefinitionId("multi_constraint_field"),
+            field_type=FieldType.TEXT,
+            label_key=TranslationKey("field.multi_constraint"),
+            required=True,
+            constraints=(
+                RequiredConstraint(),
+                MinLengthConstraint(min_length=5),
+                MaxLengthConstraint(max_length=100),
+            ),
+        )
+
+        entity = EntityDefinition(
+            id=EntityDefinitionId("multi_constraint_entity"),
+            name_key=TranslationKey("entity.multi_constraint"),
+            fields={field_with_constraints.id: field_with_constraints},
+            is_root_entity=False,
+        )
+
+        # Save
+        result = repository.save(entity)
+        assert result.is_success()
+
+        # Load and verify
+        loaded_result = repository.get_by_id(entity.id)
+        assert loaded_result.is_success()
+
+        loaded_field = loaded_result.value.fields[FieldDefinitionId("multi_constraint_field")]
+
+        # Verify all constraints were loaded
+        assert len(loaded_field.constraints) == 3
+
+        # Check constraint types and values
+        constraint_types = {type(c).__name__ for c in loaded_field.constraints}
+        assert "RequiredConstraint" in constraint_types
+        assert "MinLengthConstraint" in constraint_types
+        assert "MaxLengthConstraint" in constraint_types
+
+        # Check constraint values
+        for c in loaded_field.constraints:
+            if isinstance(c, MinLengthConstraint):
+                assert c.min_length == 5
+            elif isinstance(c, MaxLengthConstraint):
+                assert c.max_length == 100
+
+    def test_update_field_constraints(
+        self, repository: SqliteSchemaRepository
+    ) -> None:
+        """Should update field constraints on save."""
+        from doc_helper.domain.validation.constraints import (
+            RequiredConstraint,
+            MinLengthConstraint,
+        )
+
+        # Initial field with RequiredConstraint
+        initial_field = FieldDefinition(
+            id=FieldDefinitionId("update_test_field"),
+            field_type=FieldType.TEXT,
+            label_key=TranslationKey("field.update_test"),
+            required=True,
+            constraints=(RequiredConstraint(),),
+        )
+
+        entity = EntityDefinition(
+            id=EntityDefinitionId("update_constraint_entity"),
+            name_key=TranslationKey("entity.update_constraint"),
+            fields={initial_field.id: initial_field},
+            is_root_entity=False,
+        )
+
+        # Save initial
+        repository.save(entity)
+
+        # Update: add MinLengthConstraint
+        updated_field = replace(
+            initial_field,
+            constraints=(RequiredConstraint(), MinLengthConstraint(min_length=10)),
+        )
+
+        updated_entity = replace(
+            entity,
+            fields={updated_field.id: updated_field},
+        )
+
+        # Save updated
+        result = repository.save(updated_entity)
+        assert result.is_success()
+
+        # Load and verify constraints were updated
+        loaded_result = repository.get_by_id(entity.id)
+        loaded_field = loaded_result.value.fields[FieldDefinitionId("update_test_field")]
+
+        assert len(loaded_field.constraints) == 2
+        constraint_types = {type(c).__name__ for c in loaded_field.constraints}
+        assert "RequiredConstraint" in constraint_types
+        assert "MinLengthConstraint" in constraint_types
