@@ -135,6 +135,12 @@ class GetSchemaEntitiesQuery:
             id=str(entity_definition.id.value),
             name=entity_name,
             description=entity_description,
+            name_key=entity_definition.name_key.key,
+            description_key=(
+                entity_definition.description_key.key
+                if entity_definition.description_key
+                else None
+            ),
             field_count=entity_definition.field_count,
             is_root_entity=entity_definition.is_root_entity,
             parent_entity_id=(

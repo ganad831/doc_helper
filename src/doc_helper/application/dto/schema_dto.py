@@ -67,6 +67,8 @@ class EntityDefinitionDTO:
     id: str  # Entity ID as string (from EntityDefinitionId.value)
     name: str  # Translated entity name for display
     description: Optional[str]  # Translated description (or None)
+    name_key: str  # Raw translation key for name (for editing)
+    description_key: Optional[str]  # Raw translation key for description (for editing)
     field_count: int  # Number of fields in entity
     is_root_entity: bool  # Whether this is a top-level entity
     parent_entity_id: Optional[str]  # Parent entity ID (or None)

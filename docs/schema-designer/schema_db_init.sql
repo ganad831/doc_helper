@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS fields (
     FOREIGN KEY (child_entity_id) REFERENCES entities(id) ON DELETE SET NULL,
 
     -- Constraints
-    CHECK (field_type IN ('TEXT', 'TEXTAREA', 'NUMBER', 'DATE', 'DROPDOWN', 'CHECKBOX', 'RADIO', 'CALCULATED', 'LOOKUP', 'FILE', 'IMAGE', 'TABLE'))
+    CHECK (field_type IN ('text', 'textarea', 'number', 'date', 'dropdown', 'checkbox', 'radio', 'calculated', 'lookup', 'file', 'image', 'table'))
 );
 
 -- Indexes for faster lookups

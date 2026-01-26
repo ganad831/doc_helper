@@ -139,8 +139,10 @@ class EntityDefinitionMapper:
 
         return EntityDefinitionDTO(
             id=str(entity_def.id.value),
-            name=self._translate(entity_def.name_key),
+            name=self._translate(entity_def.name_key.key),
             description=description,
+            name_key=entity_def.name_key.key,
+            description_key=entity_def.description_key.key if entity_def.description_key else None,
             field_count=entity_def.field_count,
             is_root_entity=entity_def.is_root_entity,
             parent_entity_id=str(entity_def.parent_entity_id.value) if entity_def.parent_entity_id else None,
