@@ -1063,6 +1063,8 @@ class SchemaDesignerViewModel(BaseViewModel):
             self.load_entities()
             # Notify about validation rules change
             self.notify_change("validation_rules")
+            # Notify about fields change (is_required may have changed)
+            self.notify_change("fields")
 
         return result
 

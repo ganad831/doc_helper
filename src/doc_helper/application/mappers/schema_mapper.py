@@ -16,6 +16,7 @@ from doc_helper.domain.common.i18n import TranslationKey
 from doc_helper.domain.common.translation import ITranslationService
 from doc_helper.domain.schema.entity_definition import EntityDefinition
 from doc_helper.domain.schema.field_definition import FieldDefinition
+from doc_helper.domain.validation.constraints import RequiredConstraint
 
 
 class FieldDefinitionMapper:
@@ -69,12 +70,20 @@ class FieldDefinitionMapper:
         if field_def.help_text_key is not None:
             help_text = self._translate(field_def.help_text_key)
 
+        # Derive is_required: True if field.required OR has RequiredConstraint
+        # This is the authoritative required state for UI consumption.
+        has_required_constraint = any(
+            isinstance(c, RequiredConstraint) for c in field_def.constraints
+        )
+        is_required = field_def.required or has_required_constraint
+
         return FieldDefinitionDTO(
             id=str(field_def.id.value),
             field_type=field_def.field_type.value,
             label=self._translate(field_def.label_key),
             help_text=help_text,
             required=field_def.required,
+            is_required=is_required,
             default_value=str(field_def.default_value) if field_def.default_value is not None else None,
             options=options,
             formula=field_def.formula,

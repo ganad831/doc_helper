@@ -40,7 +40,8 @@ class FieldDefinitionDTO:
     field_type: str  # Field type as string (e.g., "TEXT", "NUMBER", "DROPDOWN")
     label: str  # Translated label for display
     help_text: Optional[str]  # Translated help text (or None)
-    required: bool  # Whether field is required
+    required: bool  # Whether field is required (raw domain property)
+    is_required: bool  # Derived: True if required OR has RequiredConstraint (authoritative for UI)
     default_value: Optional[str]  # Default value as string (or None)
     options: tuple[FieldOptionDTO, ...]  # Options for choice fields (empty tuple if not choice)
     formula: Optional[str]  # Formula expression (for CALCULATED fields)

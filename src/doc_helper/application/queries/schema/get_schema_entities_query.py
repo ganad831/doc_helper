@@ -181,12 +181,20 @@ class GetSchemaEntitiesQuery:
                 for opt in field_definition.options
             )
 
+        # Derive is_required: True if field.required OR has RequiredConstraint
+        # This is the authoritative required state for UI consumption.
+        has_required_constraint = any(
+            isinstance(c, RequiredConstraint) for c in field_definition.constraints
+        )
+        is_required = field_definition.required or has_required_constraint
+
         return FieldDefinitionDTO(
             id=str(field_definition.id.value),
             field_type=field_definition.field_type.value,
             label=field_label,
             help_text=help_text,
             required=field_definition.required,
+            is_required=is_required,
             default_value=(
                 str(field_definition.default_value)
                 if field_definition.default_value is not None

@@ -1302,8 +1302,9 @@ class SchemaDesignerView(BaseView):
 
         for field_dto in fields:
             # Create list item
+            # Use dto.is_required (derived in Application layer, authoritative for UI)
             item_text = f"{field_dto.label} ({field_dto.field_type})"
-            if field_dto.required:
+            if field_dto.is_required:
                 item_text += " *"
 
             item = QListWidgetItem(item_text)
@@ -1313,7 +1314,7 @@ class SchemaDesignerView(BaseView):
             tooltip_parts = [
                 f"Label: {field_dto.label}",
                 f"Type: {field_dto.field_type}",
-                f"Required: {'Yes' if field_dto.required else 'No'}",
+                f"Required: {'Yes' if field_dto.is_required else 'No'}",
             ]
 
             if field_dto.help_text:
@@ -1849,7 +1850,7 @@ class SchemaDesignerView(BaseView):
             field_type=selected_field.field_type,
             current_label_key=selected_field.label,  # DTO has translated label
             current_help_text_key=selected_field.help_text,  # DTO has translated help_text
-            current_required=selected_field.required,
+            current_required=selected_field.is_required,  # Use DTO.is_required (authoritative)
             current_default_value=selected_field.default_value,
             current_formula=selected_field.formula,
             current_lookup_entity_id=selected_field.lookup_entity_id,
@@ -2084,10 +2085,17 @@ class SchemaDesignerView(BaseView):
             parent=self._root,
         )
 
-        if dialog.exec() == QDialog.DialogCode.Accepted:
+        # ISSUE 1 FIX: Loop until validation passes or user cancels.
+        # Dialog MUST remain open on validation failure so user can correct input.
+        while True:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                # User cancelled - exit loop
+                break
+
             constraint_data = dialog.get_constraint_data()
             if not constraint_data:
-                return
+                # No data - exit loop
+                break
 
             # Add constraint via ViewModel
             result = self._viewmodel.add_constraint(
@@ -2108,12 +2116,17 @@ class SchemaDesignerView(BaseView):
                     f"Constraint '{constraint_data['constraint_type']}' added to "
                     f"field '{field_label}' successfully!",
                 )
+                # Success - exit loop
+                break
             else:
+                # ISSUE 1: Show error but keep dialog open for retry.
+                # User can correct their input without losing it.
                 QMessageBox.critical(
                     self._root,
                     "Error Adding Constraint",
                     f"Failed to add constraint:\n\n{result.error}",
                 )
+                # Loop continues - dialog will re-show with preserved input
 
     # -------------------------------------------------------------------------
     # Phase F-12: Control Rules Operations
