@@ -433,17 +433,158 @@ class TestSqliteRelationshipRepository:
         assert len(result.value) == 3
 
     # -------------------------------------------------------------------------
-    # No Update/Delete Tests (ADD-ONLY Semantics)
+    # Design-Time Update/Delete Tests (Phase A4.2)
+    # -------------------------------------------------------------------------
+    #
+    # INVARIANT: Relationships are design-time constructs.
+    # These methods enable Schema Designer editing capabilities.
+    # Editing does NOT imply runtime behavior.
+    # Deletion does NOT cascade to fields or entities.
+    # Runtime semantics are deferred to later phases.
     # -------------------------------------------------------------------------
 
-    def test_no_update_method(
-        self, repository: SqliteRelationshipRepository
+    def test_update_metadata_success(
+        self,
+        repository: SqliteRelationshipRepository,
+        sample_relationship: RelationshipDefinition,
     ) -> None:
-        """Repository should NOT have update method (ADD-ONLY per ADR-022)."""
-        assert not hasattr(repository, "update")
+        """update should successfully update relationship metadata."""
+        # Save original
+        repository.save(sample_relationship)
 
-    def test_no_delete_method(
+        # Update with new metadata
+        updated = RelationshipDefinition(
+            id=sample_relationship.id,
+            source_entity_id=sample_relationship.source_entity_id,
+            target_entity_id=sample_relationship.target_entity_id,
+            relationship_type=sample_relationship.relationship_type,
+            name_key=TranslationKey("relationship.updated"),
+            description_key=TranslationKey("relationship.updated.desc"),
+            inverse_name_key=TranslationKey("relationship.updated.inverse"),
+        )
+
+        result = repository.update(updated)
+        assert isinstance(result, Success)
+
+        # Verify update
+        get_result = repository.get_by_id(sample_relationship.id)
+        assert isinstance(get_result, Success)
+        assert get_result.value.name_key.key == "relationship.updated"
+        assert get_result.value.description_key.key == "relationship.updated.desc"
+
+    def test_update_nonexistent_fails(
         self, repository: SqliteRelationshipRepository
     ) -> None:
-        """Repository should NOT have delete method (ADD-ONLY per ADR-022)."""
-        assert not hasattr(repository, "delete")
+        """update should fail for non-existent relationship."""
+        relationship = RelationshipDefinition(
+            id=RelationshipDefinitionId("nonexistent"),
+            source_entity_id=EntityDefinitionId("project"),
+            target_entity_id=EntityDefinitionId("borehole"),
+            relationship_type=RelationshipType.CONTAINS,
+            name_key=TranslationKey("relationship.test"),
+        )
+
+        result = repository.update(relationship)
+        assert isinstance(result, Failure)
+        assert "does not exist" in result.error.lower()
+
+    def test_update_rejects_source_change(
+        self,
+        repository: SqliteRelationshipRepository,
+        sample_relationship: RelationshipDefinition,
+    ) -> None:
+        """update should reject attempt to change source_entity_id."""
+        # Save original
+        repository.save(sample_relationship)
+
+        # Try to update with different source
+        # NOTE: Use "sample" not "borehole" because target is already "borehole"
+        # and domain invariant requires source != target
+        modified = RelationshipDefinition(
+            id=sample_relationship.id,
+            source_entity_id=EntityDefinitionId("sample"),  # Changed from project
+            target_entity_id=sample_relationship.target_entity_id,
+            relationship_type=sample_relationship.relationship_type,
+            name_key=sample_relationship.name_key,
+        )
+
+        result = repository.update(modified)
+        assert isinstance(result, Failure)
+        assert "cannot change source_entity_id" in result.error.lower()
+
+    def test_update_rejects_target_change(
+        self,
+        repository: SqliteRelationshipRepository,
+        sample_relationship: RelationshipDefinition,
+    ) -> None:
+        """update should reject attempt to change target_entity_id."""
+        # Save original
+        repository.save(sample_relationship)
+
+        # Try to update with different target
+        modified = RelationshipDefinition(
+            id=sample_relationship.id,
+            source_entity_id=sample_relationship.source_entity_id,
+            target_entity_id=EntityDefinitionId("sample"),  # Changed from borehole
+            relationship_type=sample_relationship.relationship_type,
+            name_key=sample_relationship.name_key,
+        )
+
+        result = repository.update(modified)
+        assert isinstance(result, Failure)
+        assert "cannot change target_entity_id" in result.error.lower()
+
+    def test_delete_success(
+        self,
+        repository: SqliteRelationshipRepository,
+        sample_relationship: RelationshipDefinition,
+    ) -> None:
+        """delete should successfully remove relationship."""
+        # Save first
+        repository.save(sample_relationship)
+        assert repository.exists(sample_relationship.id) is True
+
+        # Delete
+        result = repository.delete(sample_relationship.id)
+        assert isinstance(result, Success)
+
+        # Verify deleted
+        assert repository.exists(sample_relationship.id) is False
+
+    def test_delete_nonexistent_fails(
+        self, repository: SqliteRelationshipRepository
+    ) -> None:
+        """delete should fail for non-existent relationship."""
+        result = repository.delete(RelationshipDefinitionId("nonexistent"))
+        assert isinstance(result, Failure)
+        assert "does not exist" in result.error.lower()
+
+    def test_delete_no_cascade(
+        self, repository: SqliteRelationshipRepository, temp_db: Path
+    ) -> None:
+        """delete should not cascade to entities (design-time only).
+
+        INVARIANT: Deletion does NOT cascade to fields or entities.
+        """
+        # Save a relationship
+        relationship = RelationshipDefinition(
+            id=RelationshipDefinitionId("test_no_cascade"),
+            source_entity_id=EntityDefinitionId("project"),
+            target_entity_id=EntityDefinitionId("borehole"),
+            relationship_type=RelationshipType.CONTAINS,
+            name_key=TranslationKey("relationship.test"),
+        )
+        repository.save(relationship)
+
+        # Delete the relationship
+        result = repository.delete(relationship.id)
+        assert isinstance(result, Success)
+
+        # Verify entities still exist (no cascade)
+        conn = sqlite3.connect(str(temp_db))
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM entities WHERE id IN ('project', 'borehole')")
+        count = cursor.fetchone()[0]
+        conn.close()
+
+        assert count == 2  # Both entities should still exist

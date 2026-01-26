@@ -194,5 +194,73 @@ class IRelationshipRepository(ABC):
         """
         pass
 
-    # NOTE: No update() method - ADD-ONLY semantics (ADR-022)
-    # NOTE: No delete() method - ADD-ONLY semantics (ADR-022)
+    # -------------------------------------------------------------------------
+    # Design-Time Editing Operations (Phase A4.2)
+    # -------------------------------------------------------------------------
+    #
+    # INVARIANT: Relationships are DESIGN-TIME constructs only.
+    # These methods enable Schema Designer editing capabilities.
+    # Editing does NOT imply runtime behavior.
+    # Deletion does NOT cascade to fields or entities.
+    # Runtime semantics are deferred to later phases.
+    # -------------------------------------------------------------------------
+
+    @abstractmethod
+    def update(self, relationship: RelationshipDefinition) -> Result[None, str]:
+        """Update relationship metadata (DESIGN-TIME ONLY).
+
+        This method updates relationship metadata (name_key, description_key,
+        inverse_name_key). It does NOT allow changing the relationship's
+        identity (source_entity_id, target_entity_id).
+
+        INVARIANT: Relationships are design-time constructs.
+        - Editing does NOT imply runtime behavior
+        - Source and target entity cannot be changed
+        - Only metadata fields can be updated
+
+        Args:
+            relationship: Updated relationship definition
+
+        Returns:
+            Result with None on success or error message
+
+        Validation:
+            - Relationship must exist
+            - source_entity_id must match existing relationship
+            - target_entity_id must match existing relationship
+
+        Example:
+            result = repo.update(updated_relationship)
+            if result.is_success():
+                # Relationship metadata updated
+        """
+        pass
+
+    @abstractmethod
+    def delete(self, relationship_id: RelationshipDefinitionId) -> Result[None, str]:
+        """Delete relationship definition (DESIGN-TIME ONLY).
+
+        This method removes a relationship from the schema.
+        It does NOT cascade to fields or entities.
+
+        INVARIANT: Relationships are design-time constructs.
+        - Deletion does NOT cascade to fields
+        - Deletion does NOT cascade to entities
+        - Deletion does NOT modify other relationships
+        - Runtime semantics are deferred to later phases
+
+        Args:
+            relationship_id: ID of relationship to delete
+
+        Returns:
+            Result with None on success or error message
+
+        Validation:
+            - Relationship must exist
+
+        Example:
+            result = repo.delete(RelationshipDefinitionId("project_contains_boreholes"))
+            if result.is_success():
+                # Relationship deleted
+        """
+        pass

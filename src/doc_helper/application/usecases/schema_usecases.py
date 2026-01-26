@@ -21,6 +21,8 @@ This class wraps:
 - DeleteFieldCommand (delete field with dependency check)
 - AddFieldConstraintCommand (add constraint to field)
 - CreateRelationshipCommand (create relationship)
+- UpdateRelationshipCommand (update relationship metadata - design-time only)
+- DeleteRelationshipCommand (delete relationship - design-time only, no cascade)
 - ExportSchemaCommand (export schema)
 - ImportSchemaCommand (import schema)
 
@@ -74,6 +76,12 @@ from doc_helper.application.commands.schema.create_entity_command import (
 )
 from doc_helper.application.commands.schema.create_relationship_command import (
     CreateRelationshipCommand,
+)
+from doc_helper.application.commands.schema.update_relationship_command import (
+    UpdateRelationshipCommand,
+)
+from doc_helper.application.commands.schema.delete_relationship_command import (
+    DeleteRelationshipCommand,
 )
 from doc_helper.application.commands.schema.delete_entity_command import (
     DeleteEntityCommand,
@@ -190,10 +198,18 @@ class SchemaUseCases:
         self._create_entity_command = CreateEntityCommand(schema_repository)
         self._add_field_command = AddFieldCommand(schema_repository)
         self._create_relationship_command: Optional[CreateRelationshipCommand] = None
+        self._update_relationship_command: Optional[UpdateRelationshipCommand] = None
+        self._delete_relationship_command: Optional[DeleteRelationshipCommand] = None
         if relationship_repository:
             self._create_relationship_command = CreateRelationshipCommand(
                 relationship_repository=relationship_repository,
                 schema_repository=schema_repository,
+            )
+            self._update_relationship_command = UpdateRelationshipCommand(
+                relationship_repository=relationship_repository,
+            )
+            self._delete_relationship_command = DeleteRelationshipCommand(
+                relationship_repository=relationship_repository,
             )
         self._export_command = ExportSchemaCommand(
             schema_repository, relationship_repository
@@ -702,6 +718,85 @@ class SchemaUseCases:
         if result.is_success():
             # Unwrap domain ID to string HERE (not in Presentation)
             return OperationResult.ok(result.value.value)
+        else:
+            return OperationResult.fail(result.error)
+
+    def update_relationship(
+        self,
+        relationship_id: str,
+        source_entity_id: str,
+        target_entity_id: str,
+        relationship_type: str,
+        name_key: str,
+        description_key: Optional[str] = None,
+        inverse_name_key: Optional[str] = None,
+    ) -> OperationResult:
+        """Update relationship metadata (DESIGN-TIME ONLY).
+
+        INVARIANT: Relationships are design-time constructs.
+        - Editing does NOT imply runtime behavior
+        - Source and target entity cannot be changed
+        - Only metadata fields can be updated
+        - No cascade effects on fields or entities
+        - Runtime semantics are deferred to later phases
+
+        Args:
+            relationship_id: ID of relationship to update (must exist)
+            source_entity_id: Source entity (must match existing - cannot change)
+            target_entity_id: Target entity (must match existing - cannot change)
+            relationship_type: Type (CONTAINS, REFERENCES, ASSOCIATES)
+            name_key: Updated translation key for relationship name
+            description_key: Updated translation key for description (optional)
+            inverse_name_key: Updated translation key for inverse name (optional)
+
+        Returns:
+            OperationResult with None on success, error message on failure
+        """
+        if not self._update_relationship_command:
+            return OperationResult.fail("Relationship update not configured")
+
+        result = self._update_relationship_command.execute(
+            relationship_id=relationship_id,
+            source_entity_id=source_entity_id,
+            target_entity_id=target_entity_id,
+            relationship_type=relationship_type,
+            name_key=name_key,
+            description_key=description_key,
+            inverse_name_key=inverse_name_key,
+        )
+
+        if result.is_success():
+            return OperationResult.ok(None)
+        else:
+            return OperationResult.fail(result.error)
+
+    def delete_relationship(
+        self,
+        relationship_id: str,
+    ) -> OperationResult:
+        """Delete relationship (DESIGN-TIME ONLY).
+
+        INVARIANT: Relationships are design-time constructs.
+        - Deletion does NOT cascade to fields
+        - Deletion does NOT cascade to entities
+        - Deletion does NOT modify other relationships
+        - Runtime semantics are deferred to later phases
+
+        Args:
+            relationship_id: ID of relationship to delete
+
+        Returns:
+            OperationResult with None on success, error message on failure
+        """
+        if not self._delete_relationship_command:
+            return OperationResult.fail("Relationship deletion not configured")
+
+        result = self._delete_relationship_command.execute(
+            relationship_id=relationship_id,
+        )
+
+        if result.is_success():
+            return OperationResult.ok(None)
         else:
             return OperationResult.fail(result.error)
 

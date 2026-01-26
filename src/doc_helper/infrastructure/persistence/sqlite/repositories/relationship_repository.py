@@ -333,8 +333,108 @@ class SqliteRelationshipRepository(IRelationshipRepository):
         except sqlite3.Error as e:
             return Failure(f"Database error: {e}")
 
-    # NOTE: No update() method - ADD-ONLY semantics (ADR-022)
-    # NOTE: No delete() method - ADD-ONLY semantics (ADR-022)
+    # -------------------------------------------------------------------------
+    # Design-Time Editing Operations (Phase A4.2)
+    # -------------------------------------------------------------------------
+    #
+    # INVARIANT: Relationships are DESIGN-TIME constructs only.
+    # These methods enable Schema Designer editing capabilities.
+    # Editing does NOT imply runtime behavior.
+    # Deletion does NOT cascade to fields or entities.
+    # Runtime semantics are deferred to later phases.
+    # -------------------------------------------------------------------------
+
+    def update(self, relationship: RelationshipDefinition) -> Result[None, str]:
+        """Update relationship metadata (DESIGN-TIME ONLY).
+
+        Updates metadata only (name_key, description_key, inverse_name_key).
+        Does NOT allow changing source_entity_id or target_entity_id.
+        """
+        try:
+            with self._connection as conn:
+                cursor = conn.cursor()
+
+                # Check if relationship exists and get current data
+                cursor.execute(
+                    """
+                    SELECT source_entity_id, target_entity_id
+                    FROM relationships
+                    WHERE id = ?
+                    """,
+                    (str(relationship.id.value),),
+                )
+                row = cursor.fetchone()
+
+                if not row:
+                    return Failure(
+                        f"Relationship '{relationship.id.value}' does not exist"
+                    )
+
+                # Validate source and target have not changed
+                if row["source_entity_id"] != str(relationship.source_entity_id.value):
+                    return Failure(
+                        "Cannot change source_entity_id of existing relationship. "
+                        "Delete and recreate instead."
+                    )
+
+                if row["target_entity_id"] != str(relationship.target_entity_id.value):
+                    return Failure(
+                        "Cannot change target_entity_id of existing relationship. "
+                        "Delete and recreate instead."
+                    )
+
+                # Update metadata only
+                cursor.execute(
+                    """
+                    UPDATE relationships
+                    SET name_key = ?,
+                        description_key = ?,
+                        inverse_name_key = ?,
+                        relationship_type = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        relationship.name_key.key,
+                        relationship.description_key.key if relationship.description_key else None,
+                        relationship.inverse_name_key.key if relationship.inverse_name_key else None,
+                        relationship.relationship_type.value,
+                        str(relationship.id.value),
+                    ),
+                )
+
+                return Success(None)
+
+        except sqlite3.IntegrityError as e:
+            return Failure(f"Integrity error: {e}")
+        except sqlite3.Error as e:
+            return Failure(f"Database error: {e}")
+
+    def delete(self, relationship_id: RelationshipDefinitionId) -> Result[None, str]:
+        """Delete relationship definition (DESIGN-TIME ONLY).
+
+        Removes the relationship from the schema.
+        Does NOT cascade to fields or entities.
+        """
+        try:
+            with self._connection as conn:
+                cursor = conn.cursor()
+
+                # Check if relationship exists
+                if not self._exists_with_cursor(cursor, relationship_id):
+                    return Failure(
+                        f"Relationship '{relationship_id.value}' does not exist"
+                    )
+
+                # Delete relationship (no cascade - design-time only)
+                cursor.execute(
+                    "DELETE FROM relationships WHERE id = ?",
+                    (str(relationship_id.value),),
+                )
+
+                return Success(None)
+
+        except sqlite3.Error as e:
+            return Failure(f"Database error: {e}")
 
     # -------------------------------------------------------------------------
     # Private Helpers

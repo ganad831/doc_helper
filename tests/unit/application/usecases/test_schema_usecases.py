@@ -2612,3 +2612,297 @@ class TestSchemaUseCasesRelationshipOperations:
 
         assert result.success is False
         assert "not configured" in result.error.lower()
+
+
+class TestSchemaUseCasesRelationshipUpdateDeleteOperations:
+    """Tests for relationship update and delete operations (Phase A4.2).
+
+    INVARIANTS (enforced by tests):
+    - Relationships are design-time constructs
+    - Editing does NOT imply runtime behavior
+    - Source and target entity cannot be changed
+    - Deletion does NOT cascade to fields or entities
+    - Runtime semantics are deferred to later phases
+    """
+
+    @pytest.fixture
+    def mock_schema_repository(self) -> Mock:
+        """Create mock schema repository."""
+        repository = Mock()
+        repository.exists.return_value = True
+        return repository
+
+    @pytest.fixture
+    def mock_relationship_repository(self) -> Mock:
+        """Create mock relationship repository."""
+        from doc_helper.domain.common.i18n import TranslationKey
+        from doc_helper.domain.schema.relationship_definition import RelationshipDefinition
+        from doc_helper.domain.schema.relationship_type import RelationshipType
+        from doc_helper.domain.schema.schema_ids import (
+            EntityDefinitionId,
+            RelationshipDefinitionId,
+        )
+
+        repository = Mock()
+        repository.exists.return_value = True
+
+        # Default existing relationship for update tests
+        existing = RelationshipDefinition(
+            id=RelationshipDefinitionId("test_relationship"),
+            source_entity_id=EntityDefinitionId("project"),
+            target_entity_id=EntityDefinitionId("borehole"),
+            relationship_type=RelationshipType.CONTAINS,
+            name_key=TranslationKey("relationship.original"),
+        )
+        repository.get_by_id.return_value = Success(existing)
+        repository.update.return_value = Success(None)
+        repository.delete.return_value = Success(None)
+        return repository
+
+    @pytest.fixture
+    def mock_translation_service(self) -> Mock:
+        """Create mock translation service."""
+        service = Mock()
+        service.translate.side_effect = lambda key: key
+        return service
+
+    @pytest.fixture
+    def usecases(
+        self,
+        mock_schema_repository: Mock,
+        mock_relationship_repository: Mock,
+        mock_translation_service: Mock,
+    ) -> SchemaUseCases:
+        """Create SchemaUseCases with mock dependencies."""
+        return SchemaUseCases(
+            schema_repository=mock_schema_repository,
+            relationship_repository=mock_relationship_repository,
+            translation_service=mock_translation_service,
+        )
+
+    # =========================================================================
+    # UPDATE RELATIONSHIP - SUCCESS
+    # =========================================================================
+
+    def test_update_relationship_success(
+        self,
+        usecases: SchemaUseCases,
+        mock_relationship_repository: Mock,
+    ) -> None:
+        """Should successfully update relationship metadata via UseCase."""
+        result = usecases.update_relationship(
+            relationship_id="test_relationship",
+            source_entity_id="project",
+            target_entity_id="borehole",
+            relationship_type="CONTAINS",
+            name_key="relationship.updated",
+            description_key="relationship.updated.desc",
+        )
+
+        assert result.success is True
+        mock_relationship_repository.update.assert_called_once()
+
+    def test_update_relationship_with_optional_fields(
+        self,
+        usecases: SchemaUseCases,
+        mock_relationship_repository: Mock,
+    ) -> None:
+        """Should pass optional fields to update command."""
+        result = usecases.update_relationship(
+            relationship_id="test_relationship",
+            source_entity_id="project",
+            target_entity_id="borehole",
+            relationship_type="CONTAINS",
+            name_key="relationship.updated",
+            description_key="relationship.desc",
+            inverse_name_key="relationship.inverse",
+        )
+
+        assert result.success is True
+
+    # =========================================================================
+    # UPDATE RELATIONSHIP - FAILURES
+    # =========================================================================
+
+    def test_update_relationship_nonexistent_rejected(
+        self,
+        usecases: SchemaUseCases,
+        mock_relationship_repository: Mock,
+    ) -> None:
+        """Should return OperationResult.fail for non-existent relationship."""
+        mock_relationship_repository.exists.return_value = False
+
+        result = usecases.update_relationship(
+            relationship_id="nonexistent",
+            source_entity_id="project",
+            target_entity_id="borehole",
+            relationship_type="CONTAINS",
+            name_key="relationship.test",
+        )
+
+        assert result.success is False
+        assert "does not exist" in result.error.lower()
+        mock_relationship_repository.update.assert_not_called()
+
+    def test_update_relationship_change_source_rejected(
+        self,
+        usecases: SchemaUseCases,
+        mock_relationship_repository: Mock,
+    ) -> None:
+        """Should reject attempt to change source_entity_id."""
+        result = usecases.update_relationship(
+            relationship_id="test_relationship",
+            source_entity_id="different_source",  # Changed
+            target_entity_id="borehole",
+            relationship_type="CONTAINS",
+            name_key="relationship.test",
+        )
+
+        assert result.success is False
+        assert "cannot change source_entity_id" in result.error.lower()
+        mock_relationship_repository.update.assert_not_called()
+
+    def test_update_relationship_change_target_rejected(
+        self,
+        usecases: SchemaUseCases,
+        mock_relationship_repository: Mock,
+    ) -> None:
+        """Should reject attempt to change target_entity_id."""
+        result = usecases.update_relationship(
+            relationship_id="test_relationship",
+            source_entity_id="project",
+            target_entity_id="different_target",  # Changed
+            relationship_type="CONTAINS",
+            name_key="relationship.test",
+        )
+
+        assert result.success is False
+        assert "cannot change target_entity_id" in result.error.lower()
+        mock_relationship_repository.update.assert_not_called()
+
+    def test_update_relationship_not_configured(
+        self,
+        mock_schema_repository: Mock,
+        mock_translation_service: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when relationship update not configured."""
+        usecases = SchemaUseCases(
+            schema_repository=mock_schema_repository,
+            relationship_repository=None,
+            translation_service=mock_translation_service,
+        )
+
+        result = usecases.update_relationship(
+            relationship_id="test_relationship",
+            source_entity_id="project",
+            target_entity_id="borehole",
+            relationship_type="CONTAINS",
+            name_key="relationship.test",
+        )
+
+        assert result.success is False
+        assert "not configured" in result.error.lower()
+
+    # =========================================================================
+    # DELETE RELATIONSHIP - SUCCESS
+    # =========================================================================
+
+    def test_delete_relationship_success(
+        self,
+        usecases: SchemaUseCases,
+        mock_relationship_repository: Mock,
+    ) -> None:
+        """Should successfully delete relationship via UseCase."""
+        result = usecases.delete_relationship(
+            relationship_id="test_relationship",
+        )
+
+        assert result.success is True
+        mock_relationship_repository.delete.assert_called_once()
+
+    # =========================================================================
+    # DELETE RELATIONSHIP - FAILURES
+    # =========================================================================
+
+    def test_delete_relationship_nonexistent_rejected(
+        self,
+        usecases: SchemaUseCases,
+        mock_relationship_repository: Mock,
+    ) -> None:
+        """Should return OperationResult.fail for non-existent relationship."""
+        mock_relationship_repository.exists.return_value = False
+
+        result = usecases.delete_relationship(
+            relationship_id="nonexistent",
+        )
+
+        assert result.success is False
+        assert "does not exist" in result.error.lower()
+        mock_relationship_repository.delete.assert_not_called()
+
+    def test_delete_relationship_not_configured(
+        self,
+        mock_schema_repository: Mock,
+        mock_translation_service: Mock,
+    ) -> None:
+        """Should return OperationResult.fail when relationship deletion not configured."""
+        usecases = SchemaUseCases(
+            schema_repository=mock_schema_repository,
+            relationship_repository=None,
+            translation_service=mock_translation_service,
+        )
+
+        result = usecases.delete_relationship(
+            relationship_id="test_relationship",
+        )
+
+        assert result.success is False
+        assert "not configured" in result.error.lower()
+
+    # =========================================================================
+    # NO CASCADE VERIFICATION
+    # =========================================================================
+
+    def test_delete_relationship_no_cascade_to_schema_repository(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_relationship_repository: Mock,
+    ) -> None:
+        """Deleting relationship should not call schema repository.
+
+        INVARIANT: Deletion does NOT cascade to fields or entities.
+        """
+        result = usecases.delete_relationship(
+            relationship_id="test_relationship",
+        )
+
+        assert result.success is True
+
+        # Schema repository should not have any modification calls
+        mock_schema_repository.save.assert_not_called()
+        if hasattr(mock_schema_repository, 'delete'):
+            mock_schema_repository.delete.assert_not_called()
+
+    def test_update_relationship_no_side_effects(
+        self,
+        usecases: SchemaUseCases,
+        mock_schema_repository: Mock,
+        mock_relationship_repository: Mock,
+    ) -> None:
+        """Updating relationship should not have side effects.
+
+        INVARIANT: Editing does NOT imply runtime behavior.
+        """
+        result = usecases.update_relationship(
+            relationship_id="test_relationship",
+            source_entity_id="project",
+            target_entity_id="borehole",
+            relationship_type="CONTAINS",
+            name_key="relationship.updated",
+        )
+
+        assert result.success is True
+
+        # Schema repository should not have any modification calls
+        mock_schema_repository.save.assert_not_called()
