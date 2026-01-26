@@ -973,3 +973,51 @@ class TestUpdateFieldCommand:
 
         # Verify no save attempted
         mock_repository.save.assert_not_called()
+
+    # ==========================================================================
+    # FORMULA DESIGN-TIME SEMANTICS INVARIANT TEST (A3-4)
+    # ==========================================================================
+
+    def test_invalid_formula_syntax_accepted_at_design_time(
+        self,
+        command: UpdateFieldCommand,
+        mock_repository: Mock,
+        mock_entity_with_calculated_field: EntityDefinition,
+    ) -> None:
+        """INVARIANT: Formula is stored as OPAQUE STRING at design time.
+
+        A3-4: Proves that syntactically invalid formula strings are accepted
+        at design time with NO validation errors. The command performs:
+        - NO formula parsing
+        - NO formula validation (syntax or field references)
+        - NO formula execution
+
+        Formula validation and evaluation are runtime/export responsibilities.
+        Schema Designer stores formulas as opaque strings.
+        """
+        # Setup
+        mock_repository.exists.return_value = True
+        mock_repository.get_by_id.return_value = Success(mock_entity_with_calculated_field)
+        mock_repository.save.return_value = Success(None)
+
+        # Execute: Set INVALID formula syntax that would fail any parser
+        invalid_formula = "{{a}} + ???"  # Invalid syntax: '???' is not valid
+        result = command.execute(
+            entity_id="test_entity",
+            field_id="field_calculated",
+            formula=invalid_formula,
+        )
+
+        # Assert: Command MUST succeed (formula stored as-is, no validation)
+        assert result.is_success(), (
+            "INVARIANT VIOLATION: UpdateFieldCommand rejected invalid formula syntax. "
+            "Formula must be stored as opaque string with NO design-time validation."
+        )
+
+        # Verify formula was stored EXACTLY as provided (opaque string)
+        saved_entity = mock_repository.save.call_args[0][0]
+        updated_field = saved_entity.fields[FieldDefinitionId("field_calculated")]
+        assert updated_field.formula == invalid_formula, (
+            "INVARIANT VIOLATION: Formula was modified during storage. "
+            "Must be stored as opaque string without modification."
+        )

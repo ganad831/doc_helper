@@ -554,6 +554,14 @@ class SchemaUseCases:
             LOOKUP fields may only reference foreign entities.
             A LOOKUP field cannot reference its own entity (self-referential lookups
             are architecturally invalid and rejected at this layer).
+
+        INVARIANT - FORMULA DESIGN-TIME SEMANTICS:
+            Formula is stored as an OPAQUE STRING. This method performs:
+            - NO formula parsing
+            - NO formula validation (syntax or field references)
+            - NO formula execution
+            Formula validation and evaluation are runtime/export responsibilities.
+            Schema Designer stores formulas as opaque strings.
         """
         # =====================================================================
         # CALCULATED FIELD INVARIANT: Block required=True for CALCULATED fields

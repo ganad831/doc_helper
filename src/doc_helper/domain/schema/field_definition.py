@@ -89,6 +89,23 @@ class FieldDefinition(ValueObject):
     # Schema Designer or Domain layer is a violation of layer boundaries.
     # =========================================================================
     options: tuple = ()  # Tuple of (value, label_key) for choice fields
+    # =========================================================================
+    # INVARIANT - FORMULA DESIGN-TIME SEMANTICS:
+    # FieldDefinition.formula is a DESIGN-TIME STRING; NO domain-level parsing.
+    #
+    # This attribute stores the raw formula text as entered by the user.
+    # At the Domain layer:
+    # - NO formula parsing occurs
+    # - NO formula validation occurs
+    # - NO formula execution occurs
+    #
+    # Formula validation and evaluation are runtime/export responsibilities.
+    # The FormulaUseCases (F-1 through F-7) provide:
+    # - F-1: Design-time validation (syntax check, field reference check) for UX
+    # - F-2: Runtime execution (compute values) - NEVER called at design time
+    #
+    # Schema Designer stores formulas as opaque strings.
+    # =========================================================================
     formula: Optional[str] = None  # Formula expression for calculated fields
     lookup_entity_id: Optional[str] = None  # Entity ID for lookup fields
     lookup_display_field: Optional[str] = None  # Field to display for lookups

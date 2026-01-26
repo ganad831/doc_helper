@@ -35,6 +35,14 @@ class UpdateFieldCommand:
         LOOKUP fields may only reference foreign entities.
         A LOOKUP field cannot reference its own entity. This is a defensive
         safety net - primary enforcement is at the UseCases layer.
+
+    INVARIANT - FORMULA DESIGN-TIME SEMANTICS:
+        Formula is stored as an OPAQUE STRING. This command performs:
+        - NO formula parsing
+        - NO formula validation (syntax or field references)
+        - NO formula execution
+        Formula validation and evaluation are runtime/export responsibilities.
+        Schema Designer stores formulas as opaque strings.
     """
 
     def __init__(self, schema_repository: ISchemaRepository) -> None:

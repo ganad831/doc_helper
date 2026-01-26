@@ -52,6 +52,20 @@ PHASE F-1/F-3/F-4/F-5/F-6/F-7 CONSTRAINTS:
 - NO new analysis logic (F-5: aggregation only)
 - NO binding persistence (F-7: in-memory only)
 
+INVARIANT - FORMULA DESIGN-TIME SEMANTICS:
+    FormulaEditorViewModel holds formula text for EDITING; execution NEVER occurs here.
+    This ViewModel provides:
+    - F-1: Syntax validation and field reference checking (for UX feedback)
+    - F-3: Dependency discovery (analysis only)
+    - F-4: Cycle detection (analysis only)
+    - F-5: Diagnostic aggregation (display only)
+    - F-6: Governance evaluation (informational only)
+    - F-7: Binding policy (no persistence)
+
+    Formula EXECUTION (F-2) is FORBIDDEN in this ViewModel.
+    FormulaUseCases.execute_formula() must NEVER be called from any ViewModel.
+    Formula execution is a runtime/export responsibility only.
+
 ARCHITECTURE ENFORCEMENT (Rule 0 Compliance):
 - ViewModel depends ONLY on FormulaUseCases (Application layer use-case)
 - NO command imports
