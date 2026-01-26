@@ -512,6 +512,73 @@ class SchemaDesignerViewModel(BaseViewModel):
         self.notify_change("entity_relationships")
         return True
 
+    def _reload_schema_state(self) -> None:
+        """Reload schema state from authoritative query (Phase S-3 Bug Fix).
+
+        This method re-queries the schema from the application layer after any
+        mutation command succeeds, ensuring the ViewModel state is synchronized
+        with the persisted schema.
+
+        Steps:
+        1. Save current selection IDs
+        2. Re-execute authoritative query (get_all_entities)
+        3. Replace ViewModel state completely
+        4. Restore selection via IDs (if still valid)
+        5. Notify ALL affected properties
+
+        Architecture Compliance (Rule 0):
+            - Only calls SchemaUseCases (Application layer)
+            - NO command, query, or repository access
+            - Selection restored via IDs, not domain objects
+        """
+        # Step 1: Save current selection IDs for restoration
+        saved_entity_id = self._selected_entity_id
+        saved_field_id = self._selected_field_id
+
+        # Step 2: Re-execute authoritative query
+        self._entities = self._schema_usecases.get_all_entities()
+        self._relationships = self._schema_usecases.get_all_relationships()
+        self._error_message = None
+
+        # Step 3: Reset selection to force proper re-selection
+        self._selected_entity_id = None
+        self._selected_field_id = None
+
+        # Step 4: Validate and restore entity selection if still valid
+        if saved_entity_id:
+            for entity in self._entities:
+                if entity.id == saved_entity_id:
+                    self._selected_entity_id = saved_entity_id
+                    break
+
+        # Step 4b: Validate and restore field selection if entity is still selected
+        if self._selected_entity_id and saved_field_id:
+            for entity in self._entities:
+                if entity.id == self._selected_entity_id:
+                    for field in entity.fields:
+                        if field.id == saved_field_id:
+                            self._selected_field_id = saved_field_id
+                            break
+                    break
+
+        # Step 5: Notify ALL affected properties
+        self.notify_change("entities")
+        self.notify_change("relationships")
+        self.notify_change("entity_relationships")
+        self.notify_change("selected_entity_id")
+        self.notify_change("selected_field_id")
+        self.notify_change("fields")
+        self.notify_change("validation_rules")
+        self.notify_change("error_message")
+
+        # Update formula editor context if field is selected
+        if self._selected_field_id:
+            self._update_formula_editor_context()
+            # Reload associated data for selected field
+            self.load_control_rules()
+            self.load_output_mappings()
+            self.load_field_options()
+
     def select_entity(self, entity_id: str) -> None:
         """Select an entity.
 
@@ -727,11 +794,9 @@ class SchemaDesignerViewModel(BaseViewModel):
         )
 
         if result.success:
-            # Reload entities to show new field
-            self.load_entities()
-            # Re-select the entity to update field list
-            if self._selected_entity_id == entity_id:
-                self.select_entity(entity_id)
+            # Phase S-3 Bug Fix: Use _reload_schema_state() to ensure
+            # immediate UI update of Fields and Validation Rules panels
+            self._reload_schema_state()
 
         return result
 
@@ -780,11 +845,9 @@ class SchemaDesignerViewModel(BaseViewModel):
         )
 
         if result.success:
-            # Reload entities to show updated field
-            self.load_entities()
-            # Re-select the entity to update field list
-            if self._selected_entity_id == entity_id:
-                self.select_entity(entity_id)
+            # Phase S-3 Bug Fix: Use _reload_schema_state() to ensure
+            # immediate UI update of Fields and Validation Rules panels
+            self._reload_schema_state()
 
         return result
 
@@ -805,13 +868,11 @@ class SchemaDesignerViewModel(BaseViewModel):
         )
 
         if result.success:
-            # Clear field selection if deleted field was selected
-            if self._selected_field_id == field_id:
-                self._selected_field_id = None
-                self.notify_change("selected_field_id")
-                self.notify_change("validation_rules")
-            # Reload entities to reflect deletion
-            self.load_entities()
+            # Phase S-3 Bug Fix: Use _reload_schema_state() to ensure
+            # immediate UI update of Fields and Validation Rules panels.
+            # Note: _reload_schema_state() handles selection restoration via IDs,
+            # so deleted field will naturally be deselected (ID no longer exists).
+            self._reload_schema_state()
 
         return result
 

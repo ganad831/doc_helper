@@ -604,3 +604,337 @@ class TestSchemaDesignerViewModelAdvancedConstraints:
             allowed_extensions=None,
             max_size_bytes=10485760,
         )
+
+
+class TestSchemaDesignerViewModelUIStateSync:
+    """Regression tests for Phase S-3 Bug Fix: UI State Synchronization.
+
+    BUG: When a field is added/updated/deleted via commands, the Fields panel
+    and Validation Rules panel in Schema Designer UI did NOT update immediately.
+
+    ROOT CAUSE: SchemaDesignerViewModel kept stale DTO snapshots instead of
+    re-querying after mutation.
+
+    FIX: _reload_schema_state() method that re-queries authoritative data
+    and notifies ALL affected properties.
+    """
+
+    @pytest.fixture
+    def mock_schema_usecases(self) -> MagicMock:
+        """Create mock SchemaUseCases (Rule 0 compliant)."""
+        usecases = MagicMock(spec=SchemaUseCases)
+        usecases.get_all_entities.return_value = ()
+        usecases.get_all_relationships.return_value = ()
+        usecases.get_field_validation_rules.return_value = ()
+        usecases.get_entity_list_for_selection.return_value = ()
+        usecases.list_control_rules_for_field.return_value = ()
+        usecases.list_output_mappings_for_field.return_value = ()
+        usecases.list_field_options.return_value = ()
+        return usecases
+
+    @pytest.fixture
+    def viewmodel(
+        self,
+        mock_schema_usecases: MagicMock,
+    ) -> SchemaDesignerViewModel:
+        """Create viewmodel with SchemaUseCases dependency."""
+        return SchemaDesignerViewModel(
+            schema_usecases=mock_schema_usecases,
+        )
+
+    def test_add_field_immediately_updates_fields_property(
+        self,
+        viewmodel: SchemaDesignerViewModel,
+        mock_schema_usecases: MagicMock,
+    ) -> None:
+        """REGRESSION TEST: add_field should immediately update fields property.
+
+        Phase S-3 Bug Fix:
+        - Before fix: fields property returned stale data after add_field
+        - After fix: fields property returns fresh data including new field
+        """
+        # Setup: Entity with no fields initially
+        entity_before = EntityDefinitionDTO(
+            id="test_entity",
+            name="Test Entity",
+            name_key="entity.test",
+            description=None,
+            description_key=None,
+            field_count=0,
+            is_root_entity=False,
+            parent_entity_id=None,
+            fields=(),
+        )
+
+        # After add_field: Entity with one field
+        new_field = FieldDefinitionDTO(
+            id="new_field",
+            field_type="TEXT",
+            label="New Field",
+            help_text=None,
+            required=False,
+            default_value=None,
+            options=(),
+            formula=None,
+            is_calculated=False,
+            is_choice_field=False,
+            is_collection_field=False,
+            lookup_entity_id=None,
+            lookup_display_field=None,
+            child_entity_id=None,
+        )
+        entity_after = EntityDefinitionDTO(
+            id="test_entity",
+            name="Test Entity",
+            name_key="entity.test",
+            description=None,
+            description_key=None,
+            field_count=1,
+            is_root_entity=False,
+            parent_entity_id=None,
+            fields=(new_field,),
+        )
+
+        # Configure mock to return empty initially, then updated after add
+        call_count = [0]
+
+        def get_entities_side_effect():
+            call_count[0] += 1
+            if call_count[0] <= 1:
+                return (entity_before,)
+            return (entity_after,)
+
+        mock_schema_usecases.get_all_entities.side_effect = get_entities_side_effect
+        mock_schema_usecases.add_field.return_value = OperationResult.ok("new_field")
+
+        # Load initial state and select entity
+        viewmodel.load_entities()
+        viewmodel.select_entity("test_entity")
+
+        # Verify initial state: no fields
+        assert len(viewmodel.fields) == 0
+
+        # Track change notifications
+        notifications = []
+
+        def track_fields_change():
+            notifications.append("fields")
+
+        def track_validation_rules_change():
+            notifications.append("validation_rules")
+
+        viewmodel.subscribe("fields", track_fields_change)
+        viewmodel.subscribe("validation_rules", track_validation_rules_change)
+
+        # ACT: Add a field
+        result = viewmodel.add_field(
+            entity_id="test_entity",
+            field_id="new_field",
+            field_type="TEXT",
+            label_key="field.new",
+        )
+
+        # ASSERT: Operation succeeded
+        assert result.success is True
+
+        # CRITICAL ASSERTION: fields property immediately reflects the new field
+        assert len(viewmodel.fields) == 1
+        assert viewmodel.fields[0].id == "new_field"
+
+        # CRITICAL ASSERTION: Both properties were notified
+        assert "fields" in notifications, "fields change not notified"
+        assert "validation_rules" in notifications, "validation_rules change not notified"
+
+        # CRITICAL ASSERTION: Entity selection preserved
+        assert viewmodel.selected_entity_id == "test_entity"
+
+    def test_update_field_immediately_updates_fields_property(
+        self,
+        viewmodel: SchemaDesignerViewModel,
+        mock_schema_usecases: MagicMock,
+    ) -> None:
+        """REGRESSION TEST: update_field should immediately update fields property."""
+        # Setup: Entity with one field
+        field_before = FieldDefinitionDTO(
+            id="test_field",
+            field_type="TEXT",
+            label="Old Label",
+            help_text=None,
+            required=False,
+            default_value=None,
+            options=(),
+            formula=None,
+            is_calculated=False,
+            is_choice_field=False,
+            is_collection_field=False,
+            lookup_entity_id=None,
+            lookup_display_field=None,
+            child_entity_id=None,
+        )
+        entity_before = EntityDefinitionDTO(
+            id="test_entity",
+            name="Test Entity",
+            name_key="entity.test",
+            description=None,
+            description_key=None,
+            field_count=1,
+            is_root_entity=False,
+            parent_entity_id=None,
+            fields=(field_before,),
+        )
+
+        # After update_field: Field with new label
+        field_after = FieldDefinitionDTO(
+            id="test_field",
+            field_type="TEXT",
+            label="New Label",
+            help_text=None,
+            required=True,  # Changed
+            default_value=None,
+            options=(),
+            formula=None,
+            is_calculated=False,
+            is_choice_field=False,
+            is_collection_field=False,
+            lookup_entity_id=None,
+            lookup_display_field=None,
+            child_entity_id=None,
+        )
+        entity_after = EntityDefinitionDTO(
+            id="test_entity",
+            name="Test Entity",
+            name_key="entity.test",
+            description=None,
+            description_key=None,
+            field_count=1,
+            is_root_entity=False,
+            parent_entity_id=None,
+            fields=(field_after,),
+        )
+
+        # Configure mock
+        call_count = [0]
+
+        def get_entities_side_effect():
+            call_count[0] += 1
+            if call_count[0] <= 1:
+                return (entity_before,)
+            return (entity_after,)
+
+        mock_schema_usecases.get_all_entities.side_effect = get_entities_side_effect
+        mock_schema_usecases.update_field.return_value = OperationResult.ok("test_field")
+
+        # Load initial state and select entity/field
+        viewmodel.load_entities()
+        viewmodel.select_entity("test_entity")
+        viewmodel.select_field("test_field")
+
+        # Verify initial state
+        assert viewmodel.fields[0].label == "Old Label"
+        assert viewmodel.fields[0].required is False
+
+        # ACT: Update the field
+        result = viewmodel.update_field(
+            entity_id="test_entity",
+            field_id="test_field",
+            label_key="field.new",
+            required=True,
+        )
+
+        # ASSERT: Operation succeeded
+        assert result.success is True
+
+        # CRITICAL ASSERTION: fields property immediately reflects the update
+        assert viewmodel.fields[0].label == "New Label"
+        assert viewmodel.fields[0].required is True
+
+        # CRITICAL ASSERTION: Selections preserved
+        assert viewmodel.selected_entity_id == "test_entity"
+        assert viewmodel.selected_field_id == "test_field"
+
+    def test_delete_field_immediately_clears_from_fields_property(
+        self,
+        viewmodel: SchemaDesignerViewModel,
+        mock_schema_usecases: MagicMock,
+    ) -> None:
+        """REGRESSION TEST: delete_field should immediately remove from fields property."""
+        # Setup: Entity with one field
+        field = FieldDefinitionDTO(
+            id="test_field",
+            field_type="TEXT",
+            label="Test Field",
+            help_text=None,
+            required=False,
+            default_value=None,
+            options=(),
+            formula=None,
+            is_calculated=False,
+            is_choice_field=False,
+            is_collection_field=False,
+            lookup_entity_id=None,
+            lookup_display_field=None,
+            child_entity_id=None,
+        )
+        entity_before = EntityDefinitionDTO(
+            id="test_entity",
+            name="Test Entity",
+            name_key="entity.test",
+            description=None,
+            description_key=None,
+            field_count=1,
+            is_root_entity=False,
+            parent_entity_id=None,
+            fields=(field,),
+        )
+
+        # After delete: Entity with no fields
+        entity_after = EntityDefinitionDTO(
+            id="test_entity",
+            name="Test Entity",
+            name_key="entity.test",
+            description=None,
+            description_key=None,
+            field_count=0,
+            is_root_entity=False,
+            parent_entity_id=None,
+            fields=(),
+        )
+
+        # Configure mock
+        call_count = [0]
+
+        def get_entities_side_effect():
+            call_count[0] += 1
+            if call_count[0] <= 1:
+                return (entity_before,)
+            return (entity_after,)
+
+        mock_schema_usecases.get_all_entities.side_effect = get_entities_side_effect
+        mock_schema_usecases.delete_field.return_value = OperationResult.ok(None)
+
+        # Load initial state and select entity/field
+        viewmodel.load_entities()
+        viewmodel.select_entity("test_entity")
+        viewmodel.select_field("test_field")
+
+        # Verify initial state
+        assert len(viewmodel.fields) == 1
+        assert viewmodel.selected_field_id == "test_field"
+
+        # ACT: Delete the field
+        result = viewmodel.delete_field(
+            entity_id="test_entity",
+            field_id="test_field",
+        )
+
+        # ASSERT: Operation succeeded
+        assert result.success is True
+
+        # CRITICAL ASSERTION: fields property immediately reflects deletion
+        assert len(viewmodel.fields) == 0
+
+        # CRITICAL ASSERTION: Field selection cleared (field no longer exists)
+        assert viewmodel.selected_field_id is None
+
+        # CRITICAL ASSERTION: Entity selection preserved
+        assert viewmodel.selected_entity_id == "test_entity"
