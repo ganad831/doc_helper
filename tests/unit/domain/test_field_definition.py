@@ -157,24 +157,36 @@ class TestFieldDefinition:
         assert field.is_collection_field
         assert field.child_entity_id == "borehole"
 
-    def test_dropdown_without_options_raises(self) -> None:
-        """FieldDefinition should reject dropdown without options."""
-        with pytest.raises(ValueError, match="must have options"):
-            FieldDefinition(
-                id=FieldDefinitionId("size"),
-                field_type=FieldType.DROPDOWN,
-                label_key=TranslationKey("field.size"),
-                options=(),
-            )
+    def test_dropdown_with_empty_options_allowed(self) -> None:
+        """FieldDefinition should allow dropdown with empty options at creation time.
 
-    def test_radio_without_options_raises(self) -> None:
-        """FieldDefinition should reject radio without options."""
-        with pytest.raises(ValueError, match="must have options"):
-            FieldDefinition(
-                id=FieldDefinitionId("choice"),
-                field_type=FieldType.RADIO,
-                label_key=TranslationKey("field.choice"),
-            )
+        Options can be added later via the incremental configuration workflow.
+        Validation for non-empty options happens at runtime/export time.
+        """
+        field = FieldDefinition(
+            id=FieldDefinitionId("size"),
+            field_type=FieldType.DROPDOWN,
+            label_key=TranslationKey("field.size"),
+            options=(),
+        )
+        assert field.field_type == FieldType.DROPDOWN
+        assert field.options == ()
+        assert field.is_choice_field
+
+    def test_radio_with_empty_options_allowed(self) -> None:
+        """FieldDefinition should allow radio with empty options at creation time.
+
+        Options can be added later via the incremental configuration workflow.
+        Validation for non-empty options happens at runtime/export time.
+        """
+        field = FieldDefinition(
+            id=FieldDefinitionId("choice"),
+            field_type=FieldType.RADIO,
+            label_key=TranslationKey("field.choice"),
+        )
+        assert field.field_type == FieldType.RADIO
+        assert field.options == ()
+        assert field.is_choice_field
 
     def test_calculated_without_formula_raises(self) -> None:
         """FieldDefinition should reject calculated without formula."""

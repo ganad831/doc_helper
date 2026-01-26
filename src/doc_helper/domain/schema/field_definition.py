@@ -100,9 +100,9 @@ class FieldDefinition(ValueObject):
                     raise ValueError("Each option must be a tuple of (value, label_key)")
 
         # Validate field-type-specific requirements
-        if self.field_type.is_choice:
-            if not self.options:
-                raise ValueError(f"{self.field_type} field must have options")
+        # Note: Choice fields (DROPDOWN, RADIO) are allowed to have empty options
+        # at creation time. Options can be added later via the workflow.
+        # Validation for non-empty options happens at runtime/export time.
 
         if self.field_type == FieldType.CALCULATED:
             if not self.formula:
