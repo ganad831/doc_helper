@@ -1933,10 +1933,13 @@ class SchemaUseCases:
         """
         schema_fields = []
         for field_def in entity.fields.values():
+            # Translate label key to get display label
+            label = self._translation_service.translate(field_def.label_key.key)
             field_info = SchemaFieldInfoDTO(
                 field_id=field_def.id.value,
                 field_type=field_def.field_type.value,
-                is_required=field_def.required,
+                entity_id=entity.id.value,
+                label=label,
             )
             schema_fields.append(field_info)
         return tuple(schema_fields)
