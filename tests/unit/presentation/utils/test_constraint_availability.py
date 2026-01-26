@@ -185,3 +185,45 @@ class TestHasConstraintsAvailable:
         assert has_constraints_available("checkbox") is False
         assert has_constraints_available("calculated") is False
         assert has_constraints_available("unknown") is False
+
+
+class TestRegressionPhaseS3:
+    """Regression tests for Phase S-3 constraint dialog bug.
+
+    Bug: AddConstraintDialog defaulted field_type to "text" when not provided,
+    causing NUMBER fields to show text constraints (MIN_LENGTH, MAX_LENGTH, PATTERN)
+    instead of numeric constraints (MIN_VALUE, MAX_VALUE).
+
+    Fix: SchemaDesignerView._on_add_constraint_clicked now passes
+    field_dto.field_type as authoritative source to the dialog.
+    """
+
+    def test_number_field_must_not_have_text_constraints(self) -> None:
+        """NUMBER fields must show MIN_VALUE/MAX_VALUE, NOT MIN_LENGTH/MAX_LENGTH.
+
+        Regression test for Phase S-3 bug where NUMBER fields were incorrectly
+        treated as TEXT due to missing field_type parameter.
+        """
+        number_constraints = get_allowed_constraints("number")
+        text_constraints = get_allowed_constraints("text")
+
+        # NUMBER must have numeric constraints
+        assert "MIN_VALUE" in number_constraints
+        assert "MAX_VALUE" in number_constraints
+
+        # NUMBER must NOT have text-only constraints
+        assert "MIN_LENGTH" not in number_constraints
+        assert "MAX_LENGTH" not in number_constraints
+        assert "PATTERN" not in number_constraints
+
+        # TEXT must have text constraints (opposite of NUMBER)
+        assert "MIN_LENGTH" in text_constraints
+        assert "MAX_LENGTH" in text_constraints
+        assert "PATTERN" in text_constraints
+
+        # TEXT must NOT have numeric-only constraints
+        assert "MIN_VALUE" not in text_constraints
+        assert "MAX_VALUE" not in text_constraints
+
+        # Verify they are distinctly different
+        assert number_constraints != text_constraints

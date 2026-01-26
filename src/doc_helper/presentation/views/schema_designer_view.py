@@ -2049,15 +2049,29 @@ class SchemaDesignerView(BaseView):
             )
             return
 
-        # Get field label for dialog
+        # Get field label and type from authoritative DTO (Phase S-3: NO fallbacks)
         field_label = self._viewmodel.selected_field_id
+        field_type: str | None = None  # Must be resolved from DTO
         for entity_dto in self._viewmodel.entities:
             if entity_dto.id == self._viewmodel.selected_entity_id:
                 for field_dto in entity_dto.fields:
                     if field_dto.id == self._viewmodel.selected_field_id:
                         field_label = field_dto.label or field_dto.id
+                        field_type = field_dto.field_type  # Authoritative source
                         break
                 break
+
+        # FAIL-FAST: field_type MUST be resolved from DTO - no silent defaults
+        if field_type is None:
+            QMessageBox.critical(
+                self._root,
+                "Invariant Violation",
+                f"Cannot determine field type for '{self._viewmodel.selected_field_id}'.\n\n"
+                "This indicates a data inconsistency. The selected field does not exist "
+                "in the current schema state.\n\n"
+                "Please refresh the schema and try again.",
+            )
+            return
 
         from doc_helper.presentation.dialogs.add_constraint_dialog import (
             AddConstraintDialog,
@@ -2066,6 +2080,7 @@ class SchemaDesignerView(BaseView):
         dialog = AddConstraintDialog(
             field_id=self._viewmodel.selected_field_id,
             field_label=field_label,
+            field_type=field_type,  # Authoritative - never defaulted
             parent=self._root,
         )
 
