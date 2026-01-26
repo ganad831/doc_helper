@@ -2,6 +2,7 @@
   "permissions": {
     "allow": [
       "Bash(cd:*)",
+      "Bash(find:*)",
       "Bash(.venv/Scripts/python:*)",
       "Bash(.venv/Scripts/python -m pytest:*)",
       "Bash(pytest:*)",

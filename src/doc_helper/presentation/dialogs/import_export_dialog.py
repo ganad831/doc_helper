@@ -320,8 +320,15 @@ class ImportExportDialog(QDialog):
             return
 
         if result.success:
-            # Success message
-            file_size_kb = result.get_file_size_kb()
+            # Success message - compute file size locally
+            file_size_kb: int | None = None
+            if result.file_path:
+                try:
+                    file_path = Path(result.file_path)
+                    if file_path.exists():
+                        file_size_kb = file_path.stat().st_size // 1024
+                except Exception:
+                    pass
             file_size_str = f"{file_size_kb} KB" if file_size_kb else "unknown size"
 
             message = (

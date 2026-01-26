@@ -145,26 +145,6 @@ class ExportResultDTO:
         """Check if export failed."""
         return not self.success
 
-    def get_file_size_kb(self) -> int | None:
-        """Get exported file size in kilobytes.
-
-        Returns:
-            File size in KB, or None if export failed or file not accessible
-        """
-        if not self.success or not self.file_path:
-            return None
-
-        from pathlib import Path
-
-        try:
-            file_path = Path(self.file_path)
-            if file_path.exists():
-                return file_path.stat().st_size // 1024
-        except Exception:
-            pass
-
-        return None
-
 
 @dataclass(frozen=True)
 class InterchangeFormatInfoDTO:
