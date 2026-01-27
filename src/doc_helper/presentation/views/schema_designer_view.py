@@ -1197,6 +1197,12 @@ class SchemaDesignerView(BaseView):
         if self._delete_field_button:
             self._delete_field_button.setEnabled(field_selected)
 
+        # Phase F-12: Enable/disable Add Control Rule button
+        # When deselected: disable immediately
+        # When selected: enable here, then refine in _on_control_rules_changed based on available types
+        if self._add_control_rule_button:
+            self._add_control_rule_button.setEnabled(field_selected)
+
         # Phase F-1: Update formula editor visibility
         self._update_formula_editor_visibility(field_selected)
 
@@ -1384,8 +1390,18 @@ class SchemaDesignerView(BaseView):
             self._control_rules_info_label.setVisible(not field_selected)
 
         # Manage Add Control Rule button state
+        # Button enabled when: field selected AND at least one rule type is available
         if self._add_control_rule_button:
-            self._add_control_rule_button.setEnabled(field_selected)
+            can_add_rule = False
+            if field_selected:
+                # Compute used rule types from current control rules
+                used_rule_types = {rule.rule_type for rule in rules}
+                # All available rule types from the enum
+                all_rule_types = {rt.value for rt in ControlRuleType}
+                # Available = all - used
+                available_rule_types = all_rule_types - used_rule_types
+                can_add_rule = len(available_rule_types) > 0
+            self._add_control_rule_button.setEnabled(can_add_rule)
 
         if not field_selected:
             self._control_rules_list.setVisible(False)
