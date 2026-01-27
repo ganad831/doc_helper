@@ -17,6 +17,7 @@ from doc_helper.domain.schema.schema_repository import ISchemaRepository
 from doc_helper.domain.schema.field_type import FieldType
 from doc_helper.domain.validation.constraint_factory import ConstraintFactory
 from doc_helper.infrastructure.persistence.sqlite_base import SqliteConnection
+from doc_helper.application.dto.export_dto import ControlRuleExportDTO
 
 
 class SqliteSchemaRepository(ISchemaRepository):
@@ -462,6 +463,9 @@ class SqliteSchemaRepository(ISchemaRepository):
                         cursor, lookup_entity_id_value, lookup_display_field_value
                     )
 
+                # Load control rules for this field (Phase A5.4)
+                control_rules = self._load_control_rules(cursor, field_id)
+
                 # Create FieldDefinition
                 field_def = FieldDefinition(
                     id=field_id,
@@ -476,7 +480,7 @@ class SqliteSchemaRepository(ISchemaRepository):
                     child_entity_id=row[9],
                     constraints=constraints,
                     options=(),  # Load options separately if needed
-                    control_rules=(),  # Not loaded in Phase 2 Step 2
+                    control_rules=control_rules,  # Phase A5.4: Load control rules
                 )
 
                 fields[field_id] = field_def
@@ -556,6 +560,71 @@ class SqliteSchemaRepository(ISchemaRepository):
             # Database error - be defensive, sanitize to None
             return None
 
+    def _load_control_rules(
+        self,
+        cursor: sqlite3.Cursor,
+        field_id: FieldDefinitionId,
+    ) -> tuple:
+        """Load control rules for a field from control_rules table (Phase A5.4).
+
+        DESIGN-TIME ONLY: Loads control rule metadata. NO runtime execution.
+
+        DEFENSIVE READ BEHAVIOR:
+        - Unknown rule_type: Skip the row (do NOT crash)
+        - NULL or empty formula_text: Skip the row (do NOT crash)
+        - Database doesn't have control_rules table: Return empty tuple
+
+        Args:
+            cursor: Database cursor
+            field_id: Field ID to load control rules for
+
+        Returns:
+            Tuple of ControlRuleExportDTO objects (empty if none found or table missing)
+        """
+        # Valid rule types that we recognize
+        valid_rule_types = frozenset({"VISIBILITY", "ENABLED", "REQUIRED"})
+
+        try:
+            cursor.execute(
+                """
+                SELECT rule_type, formula_text
+                FROM control_rules
+                WHERE field_id = ?
+                """,
+                (str(field_id.value),),
+            )
+            rows = cursor.fetchall()
+
+            control_rules = []
+            for row in rows:
+                rule_type = row[0]
+                formula_text = row[1]
+
+                # Defensive: skip unknown rule types
+                if not rule_type or rule_type.strip().upper() not in valid_rule_types:
+                    continue
+
+                # Defensive: skip NULL or empty formula_text
+                if not formula_text or not formula_text.strip():
+                    continue
+
+                # Create ControlRuleExportDTO
+                control_rule = ControlRuleExportDTO(
+                    rule_type=rule_type.strip().upper(),
+                    target_field_id=str(field_id.value),
+                    formula_text=formula_text.strip(),
+                )
+                control_rules.append(control_rule)
+
+            return tuple(control_rules)
+
+        except sqlite3.OperationalError:
+            # Table doesn't exist - that's okay, return empty tuple
+            return ()
+        except sqlite3.Error:
+            # Other database error - be defensive, return empty tuple
+            return ()
+
     def _insert_field(
         self,
         cursor: sqlite3.Cursor,
@@ -598,6 +667,10 @@ class SqliteSchemaRepository(ISchemaRepository):
         # Insert constraints into validation_rules table
         if field_def.constraints:
             self._insert_constraints(cursor, field_def.id, field_def.constraints)
+
+        # Insert control rules into control_rules table (Phase A5.4)
+        if field_def.control_rules:
+            self._insert_control_rules(cursor, field_def.id, field_def.control_rules)
 
     def _update_field(
         self,
@@ -648,6 +721,11 @@ class SqliteSchemaRepository(ISchemaRepository):
         self._delete_constraints(cursor, field_def.id)
         if field_def.constraints:
             self._insert_constraints(cursor, field_def.id, field_def.constraints)
+
+        # Sync control rules: delete old, insert new (Phase A5.4)
+        self._delete_control_rules(cursor, field_def.id)
+        if field_def.control_rules:
+            self._insert_control_rules(cursor, field_def.id, field_def.control_rules)
 
     # -------------------------------------------------------------------------
     # Constraint Persistence Helpers
@@ -760,6 +838,62 @@ class SqliteSchemaRepository(ISchemaRepository):
             FieldConstraint or None if unknown type
         """
         return self._constraint_factory.create_from_raw(rule_type, rule_value)
+
+    # -------------------------------------------------------------------------
+    # Control Rules Persistence Helpers (Phase A5.4)
+    # -------------------------------------------------------------------------
+
+    def _insert_control_rules(
+        self,
+        cursor: sqlite3.Cursor,
+        field_id: FieldDefinitionId,
+        control_rules: tuple,
+    ) -> None:
+        """Insert control rules for a field into control_rules table (Phase A5.4).
+
+        DESIGN-TIME ONLY: Stores control rule metadata. NO runtime execution.
+
+        Uses INSERT OR REPLACE to handle the UNIQUE constraint on (field_id, rule_type).
+
+        Args:
+            cursor: Database cursor
+            field_id: Field ID these control rules belong to
+            control_rules: Tuple of ControlRuleExportDTO objects
+        """
+        for control_rule in control_rules:
+            # Only insert if it's a ControlRuleExportDTO
+            if isinstance(control_rule, ControlRuleExportDTO):
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO control_rules (field_id, rule_type, formula_text)
+                    VALUES (?, ?, ?)
+                    """,
+                    (
+                        str(field_id.value),
+                        control_rule.rule_type.strip().upper(),
+                        control_rule.formula_text.strip(),
+                    ),
+                )
+
+    def _delete_control_rules(
+        self,
+        cursor: sqlite3.Cursor,
+        field_id: FieldDefinitionId,
+    ) -> None:
+        """Delete all control rules for a field from control_rules table (Phase A5.4).
+
+        Args:
+            cursor: Database cursor
+            field_id: Field ID to delete control rules for
+        """
+        try:
+            cursor.execute(
+                "DELETE FROM control_rules WHERE field_id = ?",
+                (str(field_id.value),),
+            )
+        except sqlite3.OperationalError:
+            # Table doesn't exist - that's okay, nothing to delete
+            pass
 
     def get_entity_dependencies(self, entity_id: EntityDefinitionId) -> Result[dict, str]:
         """Get all dependencies on an entity (Phase 2 Step 3 - Decision 4).

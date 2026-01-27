@@ -167,7 +167,7 @@ VALIDATION_RULES_INDEXES_DDL = """
 CREATE INDEX IF NOT EXISTS idx_validation_rules_field ON validation_rules(field_id);
 """
 
-# Control Relations table (inter-field dependencies)
+# Control Relations table (inter-field dependencies - legacy)
 CONTROL_RELATIONS_TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS control_relations (
     id TEXT PRIMARY KEY,                    -- Relation ID
@@ -188,6 +188,27 @@ CREATE TABLE IF NOT EXISTS control_relations (
 CONTROL_RELATIONS_INDEXES_DDL = """
 CREATE INDEX IF NOT EXISTS idx_control_relations_source ON control_relations(source_entity_id, source_field_id);
 CREATE INDEX IF NOT EXISTS idx_control_relations_target ON control_relations(target_entity_id, target_field_id);
+"""
+
+# Control Rules table (Phase A5.4 - design-time control rules per field)
+# Stores control rules that define UI behavior (VISIBILITY, ENABLED, REQUIRED)
+# Each field can have at most one rule per rule_type
+CONTROL_RULES_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS control_rules (
+    field_id TEXT NOT NULL,                 -- Field this rule belongs to
+    rule_type TEXT NOT NULL,                -- Rule type (VISIBILITY, ENABLED, REQUIRED)
+    formula_text TEXT NOT NULL,             -- Boolean formula expression
+
+    -- Unique constraint: one rule per type per field
+    UNIQUE (field_id, rule_type),
+
+    -- Foreign key constraint
+    FOREIGN KEY (field_id) REFERENCES fields(id) ON DELETE CASCADE
+);
+"""
+
+CONTROL_RULES_INDEXES_DDL = """
+CREATE INDEX IF NOT EXISTS idx_control_rules_field ON control_rules(field_id);
 """
 
 # Output Mappings table (document generation mappings)
@@ -358,6 +379,45 @@ def _sanitize_lookup_fields_without_entity_id(db_path: Path) -> int:
         return 0
 
 
+def _ensure_control_rules_table(db_path: Path) -> None:
+    """Ensure control_rules table exists in existing databases (Phase A5.4 migration).
+
+    This is a forward migration that adds the control_rules table if it doesn't exist.
+    It is idempotent - safe to run multiple times.
+
+    Args:
+        db_path: Path to the schema database file (config.db)
+    """
+    conn = None
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        cursor = conn.cursor()
+
+        # Check if control_rules table exists
+        cursor.execute(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='control_rules'
+            """
+        )
+        if cursor.fetchone() is None:
+            # Table doesn't exist - create it
+            cursor.executescript(CONTROL_RULES_TABLE_DDL)
+            cursor.executescript(CONTROL_RULES_INDEXES_DDL)
+            conn.commit()
+
+        conn.close()
+
+    except sqlite3.Error:
+        # Silently ignore errors - migration is best-effort
+        if conn:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+
+
 def bootstrap_schema_database(db_path: Path) -> None:
     """Bootstrap schema database if it does not exist.
 
@@ -365,9 +425,9 @@ def bootstrap_schema_database(db_path: Path) -> None:
     schema repository is constructed. It guarantees that config.db
     exists with proper schema.
 
-    ALSO runs data sanitization to enforce invariants:
-    - CALCULATED fields NEVER have validation constraints
-    - LOOKUP fields MUST have lookup_entity_id (corrupted fields are deleted)
+    ALSO runs:
+    - Data sanitization to enforce invariants
+    - Forward migrations to add missing tables (e.g., control_rules)
 
     Args:
         db_path: Path to the schema database file (config.db)
@@ -389,9 +449,10 @@ def bootstrap_schema_database(db_path: Path) -> None:
     """
     # Check if database already exists
     if db_path.exists() and db_path.stat().st_size > 0:
-        # Database exists - run sanitization only
+        # Database exists - run sanitization and forward migrations
         _sanitize_calculated_field_constraints(db_path)
         _sanitize_lookup_fields_without_entity_id(db_path)
+        _ensure_control_rules_table(db_path)  # Phase A5.4 migration
         return
 
     # Ensure parent directory exists
@@ -429,7 +490,11 @@ def bootstrap_schema_database(db_path: Path) -> None:
         cursor.executescript(CONTROL_RELATIONS_TABLE_DDL)
         cursor.executescript(CONTROL_RELATIONS_INDEXES_DDL)
 
-        # 7. output_mappings (depends on entities, fields)
+        # 7. control_rules (depends on fields) - Phase A5.4
+        cursor.executescript(CONTROL_RULES_TABLE_DDL)
+        cursor.executescript(CONTROL_RULES_INDEXES_DDL)
+
+        # 8. output_mappings (depends on entities, fields)
         cursor.executescript(OUTPUT_MAPPINGS_TABLE_DDL)
         cursor.executescript(OUTPUT_MAPPINGS_INDEXES_DDL)
 
